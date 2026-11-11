@@ -1,0 +1,35 @@
+# Dependencies — 486 MB of them, and not ours to publish
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Platform and tooling state (dev server, build watcher, browser QA artefacts)
+.vulcan/
+.browser-check/
+.cache/
+tmp/
+
+# Environment — real values never ship; the *.example files do
+.env
+.env.local
+.env.*.local
+
+# User uploads: attachments people sent us, not project source
+uploads/
+
+# Platform session exports (three .tar.gz archives, 111 MB of nothing to do with the game)
+outputs/
+
+# Logs
+*.log
+bun-error.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
