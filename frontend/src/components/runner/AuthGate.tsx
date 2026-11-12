@@ -1,12 +1,14 @@
 // Sign-in gate: wallet (SIWE) or Google, with the device-minted Arc wallet that
 // Google accounts get. Also the place where the player picks their language.
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon, X} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, ShieldCheck, Wallet as WalletIcon, X} from 'lucide-react'
 import { useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import { MochiroLogo } from './MochiroLogo'
 import { inAppBrowser, nativeBrowserName, openInBrowserHref } from '../../lib/inAppBrowser'
 import { QRCodeSVG } from 'qrcode.react'
-import { INJECTED_LOGOS, WC_WALLETS, connectWallet as connectViaWalletConnect, isMobile, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
+import { WC_WALLETS, connectWallet as connectViaWalletConnect, isMobile, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
+import { STORE_LINKS, WALLET_CATALOG, catalogWallet } from '../../lib/walletCatalog'
+import { foundWallets, providerFor, rescanWallets, subscribeWallets, watchWallets } from '../../lib/walletProviders'
 import {
   chainConfig,
   createLocalWallet,
@@ -21,8 +23,6 @@ import {
   signInWithWallet,
   shortAddress,
   unlockLocalWallet,
-  walletLabel,
-  injectedProvider,
   type AuthAccount,
 } from '../../lib/auth'
 
@@ -91,6 +91,10 @@ export function AuthGate({
 }) {
   const t = useT()
   const appBrowser = inAppBrowser()
+  const isCoccoc = typeof navigator !== 'undefined' && /CocCoc/i.test(navigator.userAgent)
+  const ordered = [...WALLET_CATALOG].sort(
+    (a, b) => Number(installed.some((f) => f.kind === b.kind)) - Number(installed.some((f) => f.kind === a.kind)),
+  )
   const browserHref = openInBrowserHref()
   const [step, setStep] = useState<Step>({ name: 'choose' })
   const [password, setPassword] = useState('')
@@ -111,11 +115,12 @@ export function AuthGate({
    * showing the "paste your own id" screen to everyone on a correctly configured deployment.
    */
   const [clientId, setClientId] = useState<string | null>(() => googleClientId())
+  /** Wallets announce themselves; this is the live answer, not a snapshot taken once. */
+  const installed = useSyncExternalStore(subscribeWallets, foundWallets, () => [])
   const googleReady = Boolean(clientId)
-  const wallet = injectedProvider()
-  const label = walletLabel()
 
   useEffect(() => {
+    watchWallets()
     let alive = true
     void chainConfig().then(() => {
       if (alive) setClientId(googleClientId())
@@ -193,15 +198,17 @@ export function AuthGate({
     }
   }, [googleReady, step.name, handleCredential])
 
-  const connectWallet = async () => {
+  /** A wallet that announced itself: the provider is already here, nothing to pair. */
+  const connectInstalled = async (kind: string) => {
+    const provider = providerFor(kind)
+    if (!provider) return
     setError('')
     setStep({ name: 'busy', what: 'wallet' })
     try {
-      const account = await signInWithWallet()
-      finish(account)
+      finish(await signInWithWallet(provider))
     } catch (issue) {
       const message = issue instanceof Error ? issue.message : ''
-      setError(message === 'no-wallet' ? t('auth.noWallet') : message || t('auth.error'))
+      setError(message || t('auth.error'))
       setStep({ name: 'choose' })
     }
   }
@@ -351,6 +358,15 @@ export function AuthGate({
               </div>
             )}
 
+            <div className="ar-pick-head">
+              <span className="ar-pick-title">{t('auth.wallet')}</span>
+              {onDismiss && (
+                <button type="button" className="ar-pick-icon-btn" onClick={onDismiss} aria-label={t('board.close')}>
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+
             {googleReady ? (
               <div className="ar-google-slot" ref={googleButton} />
             ) : (
@@ -358,14 +374,89 @@ export function AuthGate({
                 <GoogleMark /> {t('auth.google')}
               </button>
             )}
+            <p className="ar-pick-note">{t('pick.googleNote')}</p>
 
-            <div className="ar-auth-or">
-              <span>{t('auth.or')}</span>
+            <div className="ar-pick-label">{t('pick.more')}</div>
+            <div className="ar-pick-grid">
+              {ordered.map((wallet) => {
+                const here = installed.some((found) => found.kind === wallet.kind)
+                return here ? (
+                  <button
+                    key={wallet.kind}
+                    type="button"
+                    className="ar-pick-card"
+                    disabled={pairing !== null}
+                    onClick={() => void connectInstalled(wallet.kind)}
+                  >
+                    <WalletMark logo={wallet.logo} />
+                    <span className="ar-pick-text">
+                      <span className="ar-pick-name">{wallet.name}</span>
+                      <span className="ar-pick-sub">{t('pick.detected')}</span>
+                    </span>
+                  </button>
+                ) : (
+                  <a
+                    key={wallet.kind}
+                    className="ar-pick-card"
+                    href={wallet.installUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <WalletMark logo={wallet.logo} />
+                    <span className="ar-pick-text">
+                      <span className="ar-pick-name">{wallet.name}</span>
+                      <span className="ar-pick-sub ar-pick-sub-link">
+                        {t('pick.install')} <ExternalLink size={10} />
+                      </span>
+                    </span>
+                  </a>
+                )
+              })}
             </div>
 
-            <button className="ar-btn py-4 text-[15px]" onClick={() => setStep({ name: 'wallet' })}>
-              <WalletIcon size={16} /> {t('auth.wallet')}
-            </button>
+            {walletConnectReady() && (
+              <button type="button" className="ar-pick-wide" onClick={() => setStep({ name: 'wallet' })}>
+                <WalletMark logo="walletconnect.svg" />
+                <span className="ar-pick-text">
+                  <span className="ar-pick-name">{t('pick.wcTitle')}</span>
+                  <span className="ar-pick-sub">{t('pick.wcHint')}</span>
+                </span>
+                <ChevronRight size={16} className="ar-pick-chevron" />
+              </button>
+            )}
+
+            {installed.length === 0 && (
+              <div className="ar-pick-help">
+                <p className="ar-pick-help-title">{t('pick.noWalletTitle')}</p>
+                <p className="ar-pick-help-body">{'\u2022'} {t('pick.tipBrowser')}</p>
+                {isCoccoc && <p className="ar-pick-help-body">{'\u2022'} {t('pick.coccoc')}</p>}
+                <div className="ar-pick-help-links">
+                  {STORE_LINKS.map((kind) => {
+                    const wallet = catalogWallet(kind)
+                    if (!wallet) return null
+                    return (
+                      <a
+                        key={kind}
+                        className="ar-pick-help-link"
+                        href={wallet.installUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {wallet.name} {'\u00b7'} {t('pick.store')} <ExternalLink size={10} />
+                      </a>
+                    )
+                  })}
+                </div>
+                <div className="ar-pick-help-actions">
+                  <button type="button" className="ar-pick-mini" onClick={() => rescanWallets()}>
+                    {t('pick.rescan')}
+                  </button>
+                  <button type="button" className="ar-pick-mini" onClick={() => window.location.reload()}>
+                    {t('pick.reload')}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {error ? <div className="ar-auth-error">{error}</div> : null}
 
@@ -467,7 +558,7 @@ export function AuthGate({
               <button type="button" className="ar-pick-icon-btn" onClick={leaveWalletStep} aria-label={t('auth.back')}>
                 <ChevronLeft size={16} />
               </button>
-              <span className="ar-pick-title">{t('auth.pickWallet')}</span>
+              <span className="ar-pick-title">{t('pick.wcTitle')}</span>
               <button type="button" className="ar-pick-icon-btn" onClick={leaveWalletStep} aria-label={t('auth.back')}>
                 <X size={15} />
               </button>
@@ -482,73 +573,49 @@ export function AuthGate({
                 <p className="ar-pick-qr-note">{t('auth.scanQr')}</p>
               </div>
             ) : (
-              <div className="ar-pick-body">
-                {wallet ? (
-                  <section className="ar-pick-group">
-                    <h4 className="ar-pick-label">{t('auth.browserGroup')}</h4>
+              <>
+                <p className="ar-pick-sub">{t('pick.wcHint')}</p>
+                <div className="ar-pick-grid">
+                  {WC_WALLETS.map((option) => (
                     <button
+                      key={option.id}
                       type="button"
-                      className="ar-pick-ready"
+                      className="ar-pick-card"
                       disabled={pairing !== null}
-                      onClick={() => void connectWallet()}
+                      onClick={() => void connectViaApp(option)}
                     >
-                      <WalletMark logo={INJECTED_LOGOS[label ?? ''] ?? null} />
+                      {pairing === option.id ? (
+                        <span className="ar-pick-logo">
+                          <Loader2 size={16} className="ar-spin" />
+                        </span>
+                      ) : (
+                        <WalletMark logo={option.logo} />
+                      )}
                       <span className="ar-pick-text">
-                        <span className="ar-pick-name">{label}</span>
-                        <span className="ar-pick-sub">{t('auth.inBrowser')}</span>
+                        <span className="ar-pick-name">{option.name}</span>
+                        <span className="ar-pick-sub">{isMobile() ? t('pick.openApp') : t('pick.scanShort')}</span>
                       </span>
-                      <ChevronRight size={16} className="ar-pick-chevron" />
                     </button>
-                  </section>
-                ) : null}
-
-                {walletConnectReady() && (
-                  <section className="ar-pick-group">
-                    <h4 className="ar-pick-label">{t('auth.phoneGroup')}</h4>
-                    <div className="ar-pick-grid">
-                      {WC_WALLETS.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className="ar-pick-card"
-                          disabled={pairing !== null}
-                          onClick={() => void connectViaApp(option)}
-                        >
-                          {pairing === option.id ? (
-                            <span className="ar-pick-logo">
-                              <Loader2 size={16} className="ar-spin" />
-                            </span>
-                          ) : (
-                            <WalletMark logo={option.logo} />
-                          )}
-                          <span className="ar-pick-text">
-                            <span className="ar-pick-name">{option.name}</span>
-                            <span className="ar-pick-sub">{isMobile() ? t('auth.openApp') : t('auth.scanShort')}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                {!wallet && (
-                  <section className="ar-pick-help">
-                    <p className="ar-pick-help-title">{t('auth.noWallet')}</p>
-                    <p className="ar-pick-help-body">{t('auth.noWalletBody')}</p>
-                    <a
-                      className="ar-pick-help-link"
-                      href="https://chromewebstore.google.com/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      MetaMask · Chrome Web Store <ExternalLink size={11} />
-                    </a>
-                  </section>
-                )}
-
-                {error ? <div className="ar-auth-error">{error}</div> : null}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
+
+            <p className="ar-pick-safety">
+              <ShieldCheck size={13} /> {t('pick.safety')}
+            </p>
+
+            <details className="ar-pick-tips">
+              <summary className="ar-pick-tips-summary">{t('pick.helpTitle')}</summary>
+              <ul className="ar-pick-tips-list">
+                <li>{t('pick.tipUnlock')}</li>
+                <li>{t('pick.tipPopup')}</li>
+                <li>{t('pick.tipConflict')}</li>
+                <li>{t('pick.tipNetwork')}</li>
+              </ul>
+            </details>
+
+            {error ? <div className="ar-auth-error">{error}</div> : null}
           </div>
         )}
 
