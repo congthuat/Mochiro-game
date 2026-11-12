@@ -66,15 +66,33 @@ function fitFont(ctx: CanvasRenderingContext2D, text: string, weight: number, fa
 export async function drawShareCard(data: ShareCardData): Promise<Blob | null> {
   if (typeof document === 'undefined') return null
   // The display fonts come from a stylesheet; make sure they are ready before measuring.
+  // A font that never arrives must not hold the card hostage: give up after 1.5 s.
   try {
-    await Promise.all([
-      document.fonts.load('900 64px Orbitron'),
-      document.fonts.load('700 40px Rajdhani'),
-      document.fonts.load('600 40px Rajdhani'),
+    await Promise.race([
+      Promise.all([
+        document.fonts.load('900 64px Orbitron'),
+        document.fonts.load('700 40px Rajdhani'),
+        document.fonts.load('600 40px Rajdhani'),
+      ]),
+      new Promise((resolve) => window.setTimeout(resolve, 1500)),
     ])
   } catch {
     /* fall back to system fonts */
   }
+  const scene = data.scene ? await loadImage(data.scene) : null
+  const mark = await loadImage(`data:image/svg+xml,${encodeURIComponent(mochiroMarkSvg(128, 'card'))}`)
+  // Some older WebKit builds taint a canvas that has drawn an SVG, and a tainted canvas
+  // refuses to export. Try with the mark, and redraw without it if export fails.
+  const first = await paintCard(data, scene, mark)
+  if (first || !mark) return first
+  return paintCard(data, scene, null)
+}
+
+async function paintCard(
+  data: ShareCardData,
+  scene: HTMLImageElement | null,
+  mark: HTMLImageElement | null
+): Promise<Blob | null> {
   const t = (key: string, vars?: Record<string, string | number>) => translate(key, data.lang, vars)
   const canvas = document.createElement('canvas')
   canvas.width = W
@@ -91,7 +109,6 @@ export async function drawShareCard(data: ShareCardData): Promise<Blob | null> {
   sky.addColorStop(1, '#dff1ff')
   ctx.fillStyle = sky
   ctx.fillRect(0, 0, W, H)
-  const scene = data.scene ? await loadImage(data.scene) : null
   if (scene) drawCover(ctx, scene, 0, 0, W, H)
 
   // Darken top and bottom so white type always reads, whatever the frame shows.
@@ -105,7 +122,6 @@ export async function drawShareCard(data: ShareCardData): Promise<Blob | null> {
   ctx.fillRect(0, 0, W, H)
 
   // ---- header: mark + name
-  const mark = await loadImage(`data:image/svg+xml,${encodeURIComponent(mochiroMarkSvg(128, 'card'))}`)
   if (mark) ctx.drawImage(mark, 64, 60, 112, 112)
   ctx.fillStyle = '#ffffff'
   ctx.textBaseline = 'alphabetic'
@@ -125,9 +141,13 @@ export async function drawShareCard(data: ShareCardData): Promise<Blob | null> {
   ctx.fill()
   ctx.fillStyle = '#ffffff'
   ctx.fillText(mode, W - 64 - modeW + 22, 122)
+  ctx.textAlign = 'right'
+  ctx.fillStyle = 'rgba(223, 241, 255, 0.85)'
+  fitFont(ctx, data.hero, 600, body, 30, 360)
+  ctx.fillText(data.hero, W - 64, 184)
+  ctx.textAlign = 'left'
 
   // ---- score block
-  const bottom = H - 64
   ctx.textAlign = 'center'
   if (data.record) {
     ctx.font = `700 34px ${body}`
@@ -183,25 +203,83 @@ export async function drawShareCard(data: ShareCardData): Promise<Blob | null> {
     ctx.fillText(label.toUpperCase(), x + tileW / 2, tileY + 104)
   })
 
-  // ---- footer: hero + call to action
-  ctx.textAlign = 'left'
-  ctx.fillStyle = 'rgba(223, 241, 255, 0.8)'
-  ctx.font = `600 30px ${body}`
-  ctx.fillText(t('share.hero', { hero: data.hero }), 64, bottom - 52)
+  // ---- footer: the call to action, then the link in a pill — each on its own line and
+  // sized to fit, so a long invite link can never run into the text beside it.
+  ctx.textAlign = 'center'
   ctx.fillStyle = '#ffffff'
-  ctx.font = `700 40px ${body}`
-  ctx.fillText(t('share.beat'), 64, bottom - 6)
-  ctx.textAlign = 'right'
+  fitFont(ctx, t('share.beat'), 700, body, 44, W - 128)
+  ctx.fillText(t('share.beat'), W / 2, 1196)
+  const linkText = data.link.replace(/^https?:\/\//, '')
+  const linkSize = fitFont(ctx, linkText, 700, display, 34, W - 220)
+  const pillW = Math.min(W - 128, ctx.measureText(linkText).width + 72)
+  roundRect(ctx, (W - pillW) / 2, 1222, pillW, 66, 33)
+  ctx.fillStyle = 'rgba(10, 169, 255, 0.22)'
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(140, 234, 255, 0.6)'
+  ctx.lineWidth = 2
+  ctx.stroke()
   ctx.fillStyle = '#8ceaff'
-  ctx.font = `700 38px ${display}`
-  ctx.fillText(data.link.replace(/^https?:\/\//, ''), W - 64, bottom - 6)
+  ctx.font = `700 ${linkSize}px ${display}`
+  ctx.fillText(linkText, W / 2, 1222 + 33 + linkSize * 0.36)
 
-  return await new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'))
+  // JPEG keeps the card around 250 KB instead of ~1.7 MB of PNG: quicker to hand to
+  // the share sheet, and no chat app turns it away for size.
+  try {
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.9))
+  } catch {
+    return null
+  }
 }
 
 export type ShareOutcome = 'shared' | 'downloaded' | 'copied' | 'cancelled' | 'failed'
 
 /** Hands the card to the share sheet where there is one; otherwise downloads it and copies the link. */
+export const CARD_FILE = 'mochiro-run.jpg'
+
+export type SendOutcome = 'shared' | 'cancelled' | 'unsupported' | 'failed'
+
+/** True when this browser can hand an image file to the system share sheet. */
+export function canShareImage(blob: Blob | null): boolean {
+  if (!blob || typeof navigator === 'undefined' || !navigator.canShare) return false
+  try {
+    return navigator.canShare({ files: [new File([blob], CARD_FILE, { type: blob.type || 'image/jpeg' })] })
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Opens the share sheet with the card. Must be called straight from a tap with the card
+ * already made: browsers only open the sheet while the tap is fresh, which is why the
+ * card is drawn first and shared from a second tap on the preview.
+ */
+export async function sendImage(blob: Blob, text: string, link: string): Promise<SendOutcome> {
+  const nav = typeof navigator !== 'undefined' ? navigator : null
+  if (!nav?.share) return 'unsupported'
+  try {
+    if (canShareImage(blob)) {
+      const file = new File([blob], CARD_FILE, { type: blob.type || 'image/jpeg' })
+      await nav.share({ files: [file], text: `${text} ${link}` })
+    } else {
+      await nav.share({ text, url: link })
+    }
+    return 'shared'
+  } catch (error) {
+    return (error as DOMException)?.name === 'AbortError' ? 'cancelled' : 'failed'
+  }
+}
+
+/** Saves the card as a file. In-app browsers ignore this — the preview's long-press works there. */
+export function saveImage(url: string): void {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = CARD_FILE
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 export async function shareCard(blob: Blob | null, text: string, link: string): Promise<ShareOutcome> {
   const file = blob ? new File([blob], 'mochiro-run.png', { type: 'image/png' }) : null
   const nav = typeof navigator !== 'undefined' ? navigator : null

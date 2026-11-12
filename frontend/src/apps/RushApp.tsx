@@ -46,7 +46,8 @@ import {
   inviteLink,
 } from '../lib/runnerApi'
 import { getLang, translate } from '../lib/i18n'
-import { drawShareCard, shareCard } from '../lib/shareCard'
+import { drawShareCard } from '../lib/shareCard'
+import { RushShareSheet, type ShareSheetState } from '../components/runner/RushShare'
 import { setupPwa, type PwaInstall } from '../lib/pwa'
 import {
   RushAchievements,
@@ -198,7 +199,9 @@ export default function RushApp() {
   const [boardScope, setBoardScope] = useState<BoardScope>('week')
   const [season, setSeason] = useState<SeasonInfo | null>(null)
   const [coach, setCoach] = useState<CoachStep | null>(null)
-  const [sharing, setSharing] = useState(false)
+  const [shareSheet, setShareSheet] = useState<ShareSheetState | null>(null)
+  const [shareMeta, setShareMeta] = useState<{ text: string; link: string }>({ text: '', link: 'https://mochiro.xyz' })
+  const sharing = shareSheet?.status === 'making'
   const [inviteFrom, setInviteFrom] = useState<{ name: string; welcome: number } | null>(null)
   const [pwa, setPwa] = useState<PwaInstall | null>(null)
   const inviteTried = useRef<string | null>(null)
@@ -556,15 +559,23 @@ export default function RushApp() {
     [runEconomy]
   )
 
+  // Draw the card first, then let the player share it from the preview. Sharing straight
+  // from the game-over button failed on phones: drawing takes a moment, and by the time it
+  // was done the browser no longer counted the tap, so it refused to open the share sheet.
   const handleShare = useCallback(async () => {
-    if (!summary || sharing) return
-    setSharing(true)
+    if (!summary || shareSheet) return
     runnerRef.current?.uiSound('click')
+    const code = economyRef.current?.invite?.code ?? null
+    const link = code ? inviteLink(code) : 'https://mochiro.xyz'
+    const lang = getLang()
+    setShareMeta({
+      link,
+      text: translate('share.text', lang, { score: summary.score.toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US') }),
+    })
+    setShareSheet({ status: 'making' })
+    let blob: Blob | null = null
     try {
-      const code = economyRef.current?.invite?.code ?? null
-      const link = code ? inviteLink(code) : 'https://mochiro.xyz'
-      const lang = getLang()
-      const blob = await drawShareCard({
+      blob = await drawShareCard({
         score: summary.score,
         distance: summary.distance,
         coins: summary.coins,
@@ -579,15 +590,21 @@ export default function RushApp() {
         scene: runnerRef.current?.snapshot() ?? null,
         lang,
       })
-      const text = translate('share.text', lang, { score: summary.score.toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US') })
-      const outcome = await shareCard(blob, text, link)
-      const key =
-        outcome === 'downloaded' ? 'share.downloaded' : outcome === 'copied' ? 'share.copied' : outcome === 'failed' ? 'share.failed' : null
-      if (key) pushToast({ id: Date.now(), kind: outcome === 'failed' ? 'warn' : 'good', text: translate(key) })
-    } finally {
-      setSharing(false)
+    } catch {
+      blob = null
     }
-  }, [summary, sharing, rank, pushToast])
+    setShareSheet((prev) => {
+      if (!prev) return prev // closed while drawing
+      return blob ? { status: 'ready', blob, url: URL.createObjectURL(blob) } : { status: 'error' }
+    })
+  }, [summary, shareSheet, rank])
+
+  const closeShare = useCallback(() => {
+    setShareSheet((prev) => {
+      if (prev?.status === 'ready') window.setTimeout(() => URL.revokeObjectURL(prev.url), 1000)
+      return null
+    })
+  }, [])
 
   const handleClaimSeason = useCallback(
     () => void runEconomy({ kind: 'season' }, 'season', (reward) => translate('daily.got', undefined, { n: reward ?? 0 })),
@@ -835,6 +852,16 @@ export default function RushApp() {
           banked={banked}
           onShare={() => void handleShare()}
           sharing={sharing}
+        />
+      )}
+
+      {shareSheet && (
+        <RushShareSheet
+          state={shareSheet}
+          text={shareMeta.text}
+          link={shareMeta.link}
+          onToast={(kind, key) => pushToast({ id: Date.now(), kind, text: translate(key) })}
+          onClose={closeShare}
         />
       )}
 

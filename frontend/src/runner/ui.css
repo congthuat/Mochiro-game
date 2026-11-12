@@ -3086,9 +3086,9 @@ a.ar-pick-card {
 /* ------------------------------------------------------------ phase 3 -- */
 .ar-menu .ar-eco-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .ar-eco-row { display: grid; }
-.ar-eco-row > .ar-btn { padding-left: 8px; padding-right: 8px; gap: 6px; }
+.ar-menu .ar-menu-row.ar-eco-row > .ar-btn { padding-left: 6px; padding-right: 6px; gap: 6px; }
 .ar-menu-row-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.ar-menu-row-4 > .ar-btn {
+.ar-menu .ar-menu-row.ar-menu-row-4 > .ar-btn {
   flex-direction: column;
   gap: 4px;
   padding: 9px 4px 8px;
@@ -3268,3 +3268,25 @@ a.ar-pick-card {
 .ar-invite-banner.is-static:hover { transform: none; box-shadow: none; }
 .ar-ach-panel > .ar-hint:last-child,
 .ar-invite .ar-hint { text-transform: none; letter-spacing: 0.02em; font-size: 12.5px; line-height: 1.4; }
+
+/* share sheet */
+.ar-toasts { z-index: 40; }
+.ar-share-screen { background: rgba(6, 18, 48, 0.55); backdrop-filter: blur(3px); }
+.ar-share { width: min(440px, 100%); }
+.ar-share-frame {
+  display: grid;
+  place-items: center;
+  margin: 14px auto 0;
+  width: min(100%, calc((100dvh - 290px) * 0.8));
+  min-width: 200px;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2b8ae8, #0b1d47);
+  box-shadow: 0 10px 30px rgba(6, 18, 48, 0.35);
+}
+.ar-share-img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-touch-callout: default; user-select: auto; }
+.ar-share-wait { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 20px; color: #dff1ff; font-weight: 700; text-align: center; }
+.ar-share-hold { margin-top: 8px; text-align: center; font-size: 12.5px; color: #5b6b85; }
+.ar-share-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.ar-share-actions > .ar-btn { width: 100%; padding-top: 13px; padding-bottom: 13px; }
