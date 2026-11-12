@@ -34,7 +34,21 @@ function canonicalAddress(value) {
   return getAddress(value)
 }
 
+/**
+ * The site the player is actually on. Wallets compare the SIWE domain with the page they
+ * show, so it must be the browser's origin — not the internal host a proxy forwarded to.
+ * Browsers set Origin on every POST and page scripts cannot forge it.
+ */
 function clientOrigin(req) {
+  const origin = req.headers.origin
+  if (typeof origin === 'string' && /^https?:\/\/[^\s/]+$/i.test(origin)) {
+    try {
+      const url = new URL(origin)
+      return { host: url.host, protocol: url.protocol.replace(':', '') }
+    } catch {
+      /* fall through to the forwarded host */
+    }
+  }
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost'
   const proto = req.headers['x-forwarded-proto'] || 'http'
   return { host: String(host).split(',')[0].trim(), protocol: String(proto).split(',')[0].trim() }

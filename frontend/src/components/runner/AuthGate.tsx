@@ -35,6 +35,10 @@ type Step =
   | { name: 'unlock'; credential: string; email: string | null }
   | { name: 'busy'; what: 'google' | 'wallet' | 'link' }
 
+/** Server render: no browser, no wallets. One shared array so React sees a stable snapshot. */
+const noWallets = (): ReturnType<typeof foundWallets> => NO_WALLETS
+const NO_WALLETS: ReturnType<typeof foundWallets> = []
+
 /** A wallet's own mark. Decorative — the name sits beside it. */
 function WalletMark({ logo }: { logo: string | null }) {
   if (!logo) {
@@ -92,9 +96,6 @@ export function AuthGate({
   const t = useT()
   const appBrowser = inAppBrowser()
   const isCoccoc = typeof navigator !== 'undefined' && /CocCoc/i.test(navigator.userAgent)
-  const ordered = [...WALLET_CATALOG].sort(
-    (a, b) => Number(installed.some((f) => f.kind === b.kind)) - Number(installed.some((f) => f.kind === a.kind)),
-  )
   const browserHref = openInBrowserHref()
   const [step, setStep] = useState<Step>({ name: 'choose' })
   const [password, setPassword] = useState('')
@@ -116,7 +117,11 @@ export function AuthGate({
    */
   const [clientId, setClientId] = useState<string | null>(() => googleClientId())
   /** Wallets announce themselves; this is the live answer, not a snapshot taken once. */
-  const installed = useSyncExternalStore(subscribeWallets, foundWallets, () => [])
+  const installed = useSyncExternalStore(subscribeWallets, foundWallets, noWallets)
+  /** Wallets already in this browser come first. */
+  const ordered = [...WALLET_CATALOG].sort(
+    (a, b) => Number(installed.some((f) => f.kind === b.kind)) - Number(installed.some((f) => f.kind === a.kind)),
+  )
   const googleReady = Boolean(clientId)
 
   useEffect(() => {
