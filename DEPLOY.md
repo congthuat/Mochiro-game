@@ -131,6 +131,53 @@ five are recognised.
 The database is not yours: `dbQuery` proxies SQL over HTTP to the Surf gateway using that
 key. Vercel hosting is free on the hobby tier, but the data lives wherever the key points.
 
+## Google sign-in
+
+Google sign-in needs one value: a **Client ID** that ends in `.apps.googleusercontent.com`. Without
+it the gate falls back to a screen that asks the player to paste an id of their own, which is a
+developer's escape hatch and not something to show a player.
+
+### Getting the id
+
+1. Open <https://console.cloud.google.com/> and create a project (name it anything, `Mochiro` is fine).
+2. **APIs & Services → OAuth consent screen**, user type **External**:
+   - App name `Mochiro`, your support email, your developer contact.
+   - Scopes: none are needed — the app asks for an id token, not API access.
+   - Then **Publish app**. While the app sits in *Testing*, only accounts you add by hand can sign
+     in, and everyone else is refused with no useful message.
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Application type: **Web application**
+   - **Authorised JavaScript origins** — this is the field that matters:
+     - `https://mochiro.xyz`
+     - `https://www.mochiro.xyz`
+   - **Authorised redirect URIs**: leave empty. The button uses Google Identity Services, which
+     returns a token to the page instead of redirecting.
+4. Copy the Client ID.
+
+### Where it goes
+
+```bash
+vercel env add GOOGLE_CLIENT_ID production
+```
+
+The backend reads it and serves it from `GET /api/auth/config`; the gate reads it from there, so
+one value configures every visitor. `VITE_GOOGLE_CLIENT_ID` is also honoured at build time for a
+local run, and a value pasted into the app is kept in that browser only.
+
+**No client secret is needed.** The id token is verified against Google's `tokeninfo` endpoint, and
+the `aud` claim is checked against this id — which is also why the id must be the same one the
+browser was given. A mismatch is refused with *"This Google client id is not the one this build is
+configured for."*
+
+### If it fails
+
+| Symptom | Cause |
+|---|---|
+| `origin_mismatch` | `https://mochiro.xyz` is not in Authorised JavaScript origins |
+| Everyone sees "paste your own id" | `GOOGLE_CLIENT_ID` is unset, or the deployment predates it |
+| "not the one this build is configured for" | The browser holds a different id than the server |
+| Sign-in works for you, not for others | The consent screen is still in *Testing* |
+
 ## Path B — GitHub Pages (no server needed)
 
 The `gh-pages` branch holds a build of the frontend with `BASE_PATH=/`, a `CNAME` file

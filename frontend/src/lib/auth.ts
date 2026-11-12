@@ -108,6 +108,8 @@ export async function chainConfig(): Promise<ChainConfig> {
   try {
     const response = await fetch(api('auth/config'))
     cachedConfig = (await response.json()) as ChainConfig
+    const served = cachedConfig.googleClientId?.trim()
+    if (served?.endsWith('.apps.googleusercontent.com')) remoteClientId = served
   } catch {
     cachedConfig = {
       chainId: 5042002,
@@ -122,9 +124,16 @@ export async function chainConfig(): Promise<ChainConfig> {
   return cachedConfig
 }
 
+/**
+ * The id the backend is configured with, learned from /api/auth/config. It is the deployment's
+ * own answer, so it outranks a value someone pasted into this browser by hand.
+ */
+let remoteClientId: string | null = null
+
 export function googleClientId(): string | null {
   const fromEnv = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim()
   if (fromEnv) return fromEnv
+  if (remoteClientId) return remoteClientId
   try {
     const saved = localStorage.getItem(CLIENT_ID_KEY)
     if (saved && saved.endsWith('.apps.googleusercontent.com')) return saved

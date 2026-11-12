@@ -104,9 +104,26 @@ export function AuthGate({
   const googleButton = useRef<HTMLDivElement>(null)
   const credentialRef = useRef<string>('')
   const emailRef = useRef<string | null>(null)
-  const googleReady = Boolean(googleClientId())
+  /**
+   * Whether Google can be offered at all. The id can come from the build, from a value the
+   * player pasted here, or — for the deployed site — from the backend, which is only known
+   * after a request. Held in state so the button appears once that answer arrives rather than
+   * showing the "paste your own id" screen to everyone on a correctly configured deployment.
+   */
+  const [clientId, setClientId] = useState<string | null>(() => googleClientId())
+  const googleReady = Boolean(clientId)
   const wallet = injectedProvider()
   const label = walletLabel()
+
+  useEffect(() => {
+    let alive = true
+    void chainConfig().then(() => {
+      if (alive) setClientId(googleClientId())
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const finish = useCallback(
     (account: AuthAccount) => {
