@@ -47,6 +47,52 @@ publishes an "ALIAS" or "ANAME" record, use it on `@` instead and skip the `A` r
    JSON. If it returns the HTML of the app, the proxy is sending `/api` to the static files
    instead of the backend.
 
+## Spaceship — adding the domain
+
+Spaceship is the registrar for `mochiro.xyz`. Its DNS editor is at
+**Domains → Launchpad → mochiro.xyz → Advanced DNS**. Everything below happens there.
+
+### Root domain
+
+| Type | Host | Value | TTL |
+|---|---|---|---|
+| `A` | `@` | the IPv4 address your host gives you | 3600 |
+| `AAAA` | `@` | the IPv6 address, if the host publishes one | 3600 |
+
+Spaceship accepts `@` for the root. A CNAME is **not** allowed on `@` — that is why the
+root needs `A` records and only `www` gets a CNAME.
+
+### `www`
+
+| Type | Host | Value | TTL |
+|---|---|---|---|
+| `CNAME` | `www` | the hostname your host gives you | 3600 |
+
+### Verifying it landed
+
+DNS propagates in minutes, not seconds. Check the record before blaming the host:
+
+```bash
+dig +short mochiro.xyz A
+dig +short www.mochiro.xyz CNAME
+```
+
+Then check the certificate and the API:
+
+```bash
+curl -sI https://mochiro.xyz | head -1
+curl -s https://mochiro.xyz/api/runner/leaderboard | head -c 120
+```
+
+If the second one returns HTML instead of JSON, the proxy is serving `/api` from the static
+files. If the first one fails, the certificate has not been issued yet — give it longer.
+
+### What was verified here
+
+A build with `BASE_PATH=/` was run and inspected: `index.html` references `/assets/…`,
+the API is called at `/api/…`, and no preview path survives in the bundle. The frontend is
+ready to sit at a domain root; the only thing missing is the DNS.
+
 ## Running the checks
 
 Every check is browser-free, so they run anywhere Node and Bun do:
