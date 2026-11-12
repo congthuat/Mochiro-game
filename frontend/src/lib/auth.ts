@@ -131,17 +131,14 @@ export async function chainConfig(): Promise<ChainConfig> {
  */
 let remoteClientId: string | null = null
 
+/** Mochiro's own OAuth client. Public by design; the backend pins the same id. */
+const MOCHIRO_CLIENT_ID = '116160392215-dd77so1e6nr44u39ldcc5l4pco1mu9gp.apps.googleusercontent.com'
+
 export function googleClientId(): string | null {
   const fromEnv = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim()
   if (fromEnv) return fromEnv
   if (remoteClientId) return remoteClientId
-  try {
-    const saved = localStorage.getItem(CLIENT_ID_KEY)
-    if (saved && saved.endsWith('.apps.googleusercontent.com')) return saved
-  } catch {
-    /* ignore */
-  }
-  return null
+  return MOCHIRO_CLIENT_ID
 }
 
 export function rememberGoogleClientId(id: string): void {

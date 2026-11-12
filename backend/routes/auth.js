@@ -18,7 +18,11 @@ const { dbQuery } = require('@surf-ai/sdk/db')
 const ARC_CHAIN_ID = 5042002
 const SESSION_DAYS = 30
 const CHALLENGE_MS = 10 * 60 * 1000
-const DEFAULT_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ''
+// Mochiro's own OAuth client (Google Cloud project "Mochiro"). Client ids are public — the
+// secret is never needed for ID-token sign-in. GOOGLE_CLIENT_ID overrides it per deployment.
+// Pinning it here also means the server only accepts tokens minted for *this* app.
+const MOCHIRO_CLIENT_ID = '116160392215-dd77so1e6nr44u39ldcc5l4pco1mu9gp.apps.googleusercontent.com'
+const DEFAULT_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim() || MOCHIRO_CLIENT_ID
 
 const router = Router()
 router.use((_req, res, next) => {
