@@ -5,7 +5,6 @@ import {
   Award,
   CalendarCheck,
   Check,
-  ChevronRight,
   Coins,
   Copy,
   Flame,
@@ -299,12 +298,12 @@ function questLabel(t: ReturnType<typeof useT>, id: string, target: number): str
 }
 
 /**
- * One line under the start button that answers "what is waiting for me today?".
- * A reward that is ready glows and says how much; with nothing to collect it shows the
- * nearest unfinished quest, so the player always has a next small goal in view. When
- * every quest is done it says nothing at all — an empty nudge is just noise.
+ * "Today" on the menu: the daily gift and each of today's quests on one line apiece.
+ * Anything ready to collect glows and says how much; the rest shows how close it is.
+ * Every row opens the panel where it is collected, so the menu never has to guess
+ * which claim the player meant.
  */
-export function RushMenuNudge({
+export function RushToday({
   economy,
   onOpen,
 }: {
@@ -312,50 +311,66 @@ export function RushMenuNudge({
   onOpen: (panel: 'daily' | 'quests') => void
 }) {
   const t = useT()
+  const now = useNow()
   if (!economy) return null
-  if (economy.daily.claimable) {
-    return (
-      <button type="button" className="ar-nudge is-ready" onClick={() => onOpen('daily')}>
-        <span className="ar-nudge-icon"><Gift size={17} /></span>
-        <span className="ar-nudge-text">
-          <strong>{t('nudge.daily', { d: economy.daily.nextDay })}</strong>
-          <span>{t('nudge.dailySub', { n: formatNumber(economy.daily.nextReward) })}</span>
-        </span>
-        <ChevronRight size={16} className="ar-nudge-go" />
-      </button>
-    )
-  }
-  const ready = claimableCount(economy)
-  if (ready > 0) {
-    return (
-      <button type="button" className="ar-nudge is-ready" onClick={() => onOpen('quests')}>
-        <span className="ar-nudge-icon"><Target size={17} /></span>
-        <span className="ar-nudge-text">
-          <strong>{t('nudge.rewards', { n: ready })}</strong>
-          <span>{t('nudge.rewardsSub')}</span>
-        </span>
-        <ChevronRight size={16} className="ar-nudge-go" />
-      </button>
-    )
-  }
-  // The quest the player is closest to finishing is the one most likely to pull them
-  // into "one more run".
-  const open = economy.quests
-    .filter((quest) => !quest.claimed && quest.progress < quest.target)
-    .sort((a, b) => b.progress / b.target - a.progress / a.target)[0]
-  if (!open) return null
-  const pct = Math.max(0, Math.min(1, open.progress / Math.max(1, open.target)))
+  const daily = economy.daily
+  const last = economy.season.lastWeek
   return (
-    <button type="button" className="ar-nudge" onClick={() => onOpen('quests')}>
-      <span className="ar-nudge-icon"><Target size={16} /></span>
-      <span className="ar-nudge-text">
-        <strong>{questLabel(t, open.id, open.target)}</strong>
-        <span className="ar-nudge-bar" aria-hidden="true">
-          <span style={{ width: `${Math.round(pct * 100)}%` }} />
+    <section className="ar-today" aria-label={t('today.title')}>
+      <div className="ar-today-head">
+        <span className="ar-side-label">{t('today.title')}</span>
+        <span className="ar-today-reset">{t('quest.resets', { time: formatLeft(economy.resetsAt, now) })}</span>
+      </div>
+      <button
+        type="button"
+        className={`ar-today-row${daily.claimable ? ' is-ready' : ' is-done'}`}
+        onClick={() => onOpen('daily')}
+      >
+        <Gift size={15} className="ar-today-icon" />
+        <span className="ar-today-label">
+          {daily.claimable ? t('today.daily', { d: daily.nextDay }) : t('today.dailyDone')}
         </span>
-      </span>
-      <span className="ar-nudge-reward">+{formatNumber(open.reward)}</span>
-    </button>
+        {daily.claimable ? (
+          <span className="ar-today-pill">{t('today.collect', { n: formatNumber(daily.nextReward) })}</span>
+        ) : (
+          <Check size={15} className="ar-today-check" />
+        )}
+      </button>
+      {last.claimable && (
+        <button type="button" className="ar-today-row is-ready" onClick={() => onOpen('quests')}>
+          <Trophy size={15} className="ar-today-icon" />
+          <span className="ar-today-label">{t('season.reward', { rank: last.rank ?? '' })}</span>
+          <span className="ar-today-pill">{t('today.collect', { n: formatNumber(last.reward) })}</span>
+        </button>
+      )}
+      {economy.quests.map((quest) => {
+        const ready = !quest.claimed && quest.progress >= quest.target
+        const pct = Math.max(0, Math.min(1, quest.progress / Math.max(1, quest.target)))
+        return (
+          <button
+            key={quest.id}
+            type="button"
+            className={`ar-today-row${ready ? ' is-ready' : quest.claimed ? ' is-done' : ''}`}
+            onClick={() => onOpen('quests')}
+          >
+            <Target size={15} className="ar-today-icon" />
+            <span className="ar-today-label">{questLabel(t, quest.id, quest.target)}</span>
+            {ready ? (
+              <span className="ar-today-pill">{t('today.collect', { n: formatNumber(quest.reward) })}</span>
+            ) : quest.claimed ? (
+              <Check size={15} className="ar-today-check" />
+            ) : (
+              <>
+                <span className="ar-today-bar" aria-hidden="true">
+                  <span style={{ width: `${Math.round(pct * 100)}%` }} />
+                </span>
+                <span className="ar-today-reward">+{formatNumber(quest.reward)}</span>
+              </>
+            )}
+          </button>
+        )
+      })}
+    </section>
   )
 }
 

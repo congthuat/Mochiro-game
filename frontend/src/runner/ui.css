@@ -2767,23 +2767,6 @@ a.ar-pick-card {
 
 /* Once a name belongs to an account it is shown, not typed. It reads as a value, not as a
    disabled field, so nobody sits there clicking on it wondering why it will not type. */
-.ar-name-fixed {
-  display: flex;
-  align-items: center;
-  min-height: 40px;
-  padding: 9px 13px;
-  border-radius: 11px;
-  border: 1px solid rgba(40, 70, 120, 0.16);
-  background: rgba(236, 243, 254, 0.9);
-  color: #16233d;
-  font-family: var(--ar-body);
-  font-size: 14.5px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ar-name-note {
   margin: 6px 2px 0;
   color: #33455f;
@@ -3318,9 +3301,6 @@ a.ar-pick-card {
 
 /* A locked hero the player can already pay for says so, instead of looking exactly
    like one that is out of reach. */
-.ar-char-tile.is-affordable { background: rgba(255, 255, 255, 0.82); border-color: rgba(18, 185, 129, 0.45); }
-.ar-char-tile.is-affordable .ar-char-tile-name { color: #16233d; }
-.ar-char-tile.is-affordable .ar-char-tile-price { background: #d6f5e8; color: #0b6b4a; }
 
 /* ===================== Menu 9/10 pass =====================
    Hero cards: the ability is the card's reason to exist, so it gets a tinted panel and
@@ -3433,82 +3413,6 @@ a.ar-pick-card {
   from { opacity: 0; transform: translate(-50%, -8px) scale(0.92); }
 }
 
-/* "What is waiting for me today?" — one line under the start button. */
-.ar-nudge {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 12px 9px 9px;
-  border-radius: 14px;
-  border: 1px solid rgba(40, 70, 120, 0.14);
-  background: rgba(255, 255, 255, 0.78);
-  color: #16233d;
-  text-align: left;
-  cursor: pointer;
-  transition: transform 140ms ease, background 140ms ease;
-}
-.ar-nudge:hover { transform: translateY(-1px); background: #fff; }
-.ar-nudge-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: #e3edff;
-  color: #2563c9;
-}
-.ar-nudge-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.ar-nudge-text strong {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 12.5px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-.ar-nudge-text > span:not(.ar-nudge-bar) { font-size: 11.5px; color: #33455f; line-height: 1.2; }
-.ar-nudge-bar {
-  display: block;
-  height: 6px;
-  border-radius: 999px;
-  background: #e1e8f3;
-  overflow: hidden;
-}
-.ar-nudge-bar > span {
-  display: block;
-  height: 100%;
-  min-width: 6px;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #2b6fd8, #7a4bd8);
-}
-.ar-nudge-reward {
-  flex: none;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #fff1cc;
-  color: #8a5300;
-  font-size: 11.5px;
-  font-weight: 800;
-}
-.ar-nudge-go { flex: none; color: #8a5300; }
-.ar-nudge.is-ready {
-  background: linear-gradient(100deg, #fff7df, #ffe8b0);
-  border-color: rgba(222, 150, 20, 0.55);
-  animation: ar-nudge-glow 2.2s ease-in-out infinite;
-}
-.ar-nudge.is-ready .ar-nudge-icon { background: #f5a516; color: #fff; }
-.ar-nudge.is-ready .ar-nudge-text strong { color: #5a3600; }
-.ar-nudge.is-ready .ar-nudge-text > span { color: #7a4a00; }
-@keyframes ar-nudge-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 165, 22, 0), 0 4px 12px rgba(245, 165, 22, 0.2); }
-  50% { box-shadow: 0 0 0 4px rgba(245, 165, 22, 0.2), 0 6px 18px rgba(245, 165, 22, 0.32); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ar-nudge.is-ready, .ar-stage-plate { animation: none; }
-}
-
 /* Account: a face and a name, with the sign-in method as a quiet second line. */
 .ar-menu .ar-account { padding: 4px 5px 4px 4px; gap: 8px; }
 .ar-account-avatar {
@@ -3562,4 +3466,161 @@ a.ar-pick-card {
 .ar-char-tile-foot.is-using {
   background: var(--ar-accent, #2b6fd8);
   color: #fff;
+}
+
+/* ===================== Menu review, round 2 ===================== */
+
+/* Affordable heroes say so in words, in the price itself — no second colour on the
+   card's border fighting the hero's own. */
+.ar-menu .ar-char-tile-price.is-buyable { background: #d6f5e8; color: #0b6b4a; }
+
+/* The plate reads "Sam · Shield knight", not "Sam Shield knight". */
+.ar-stage-plate-tag::before { content: '·'; margin-right: 7px; color: #8a9ab3; }
+
+/* Both rows of menu buttons are one style: icon over label. The three-wide row used
+   to set icon and label side by side, and "THÀNH TỰU" pushed its own icon out of the
+   button. */
+.ar-menu .ar-menu-row.ar-eco-row > .ar-btn {
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 4px 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.ar-menu .ar-eco-row > .ar-btn svg { width: 17px; height: 17px; }
+
+/* Today: the daily gift and the quests, a line each. */
+.ar-today {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 10px 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(40, 70, 120, 0.12);
+  background: rgba(255, 255, 255, 0.6);
+}
+.ar-today-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 2px;
+}
+.ar-today-head .ar-side-label { margin: 0; }
+.ar-today-reset { font-size: 11px; color: #33455f; white-space: nowrap; }
+.ar-today-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #16233d;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.ar-today-row:hover { background: rgba(255, 255, 255, 0.9); }
+.ar-today-icon { flex: none; color: #2563c9; }
+.ar-today-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ar-today-bar {
+  flex: none;
+  width: 54px;
+  height: 6px;
+  border-radius: 999px;
+  background: #e1e8f3;
+  overflow: hidden;
+}
+.ar-today-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2b6fd8, #7a4bd8);
+}
+.ar-today-reward {
+  flex: none;
+  min-width: 46px;
+  text-align: right;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #8a5300;
+}
+.ar-today-check { flex: none; color: #0b8a5f; }
+.ar-today-row.is-done .ar-today-label { color: #5b6b85; font-weight: 500; }
+.ar-today-row.is-done .ar-today-icon { color: #8a9ab3; }
+.ar-today-row.is-ready {
+  background: linear-gradient(100deg, #fff7df, #ffe8b0);
+  border-color: rgba(222, 150, 20, 0.5);
+  animation: ar-nudge-glow 2.2s ease-in-out infinite;
+}
+.ar-today-row.is-ready .ar-today-icon { color: #c27a00; }
+.ar-today-pill {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #f5a516;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+@keyframes ar-nudge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 165, 22, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(245, 165, 22, 0.22); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ar-today-row.is-ready { animation: none; }
+}
+
+/* Phone: the start button rides the bottom of the menu instead of waiting a full
+   screen below the heroes. */
+.ar-start-dock { display: none; }
+@media (max-width: 880px) {
+  .ar-menu .ar-start-wrap { display: none; }
+  .ar-start-dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    display: block;
+    margin-top: 12px;
+    padding: 14px 0 2px;
+    background: linear-gradient(180deg, rgba(238, 244, 252, 0), rgba(238, 244, 252, 0.96) 38%);
+  }
+  .ar-start-dock .ar-start { width: 100%; box-shadow: 0 10px 24px rgba(30, 80, 170, 0.28); }
+  .ar-start-dock .ar-name-error { text-align: center; }
+}
+
+/* Balance: with "Today" in it, the right column ran ~80 px past the hero column and a
+   680 px-tall laptop had to scroll the menu. The stats get tighter tiles, the rows of
+   "Today" a slimmer line, and the column a 12 px rhythm instead of 14. */
+.ar-menu .ar-menu-side { gap: 12px; }
+.ar-menu .ar-stat { padding: 7px 12px 8px; }
+.ar-menu .ar-stat-value { font-size: 18px; line-height: 1.2; }
+.ar-menu .ar-stat-label { margin-top: 1px; }
+.ar-menu .ar-start { padding-top: 15px; padding-bottom: 15px; }
+.ar-today { gap: 2px; padding: 8px 8px 6px; }
+.ar-today-row { min-height: 27px; padding: 3px 6px; }
+.ar-menu .ar-menu-row.ar-eco-row > .ar-btn,
+.ar-menu .ar-menu-row.ar-menu-row-4 > .ar-btn { padding-top: 8px; padding-bottom: 7px; }
+@media (max-width: 380px) {
+  .ar-menu .ar-menu-row.ar-eco-row > .ar-btn,
+  .ar-menu .ar-menu-row.ar-menu-row-4 > .ar-btn {
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 10px;
+    letter-spacing: 0.01em;
+  }
 }

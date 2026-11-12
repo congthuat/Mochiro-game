@@ -8,7 +8,7 @@ import { CharacterStage } from '../../runner/stage'
 import { formatNumber, useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import type { AuthAccount } from '../../lib/auth'
 import { loadRunnerName, type BoardScope, type EconomyState, type NameState, type SeasonInfo } from '../../lib/runnerApi'
-import { BankChip, RushMenuNudge, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
+import { BankChip, RushToday, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
 import { AccountChip } from './AuthGate'
 import type {
   ArcBrand,
@@ -149,6 +149,30 @@ export function RushMenu({
     stageInstance.current?.select(character, false)
   }, [character])
 
+  // Not disabled. A taken name is refused where it matters — the save — and the run
+  // simply keeps the name already on the profile. A dead start button is a wall: it
+  // stops the player playing over a label.
+  const startBlock = heroUnlocked(economy, character) ? (
+    <button className="ar-btn ar-btn-primary ar-start" onClick={onStart}>
+      <Play size={18} /> {t('menu.start')}
+    </button>
+  ) : (
+    <>
+      <button
+        className="ar-btn ar-btn-primary ar-start"
+        disabled={buying || (economy?.bank ?? 0) < heroPrice(economy, character)}
+        onClick={() => onUnlock(character)}
+      >
+        <Lock size={17} /> {t('menu.unlock', { price: formatNumber(heroPrice(economy, character)) })}
+      </button>
+      {(economy?.bank ?? 0) < heroPrice(economy, character) && (
+        <p className="ar-name-error">
+          {t('menu.needMore', { n: formatNumber(heroPrice(economy, character) - (economy?.bank ?? 0)) })}
+        </p>
+      )}
+    </>
+  )
+
   return (
     <div className="ar-screen ar-screen-menu">
       <div className="ar-panel ar-menu">
@@ -214,11 +238,7 @@ export function RushMenu({
                 <button
                   key={item.id}
                   className={`ar-char-tile ${character === item.id ? 'is-active' : ''} ${
-                    heroUnlocked(economy, item.id)
-                      ? ''
-                      : (economy?.bank ?? 0) >= heroPrice(economy, item.id)
-                        ? 'is-locked is-affordable'
-                        : 'is-locked'
+                    heroUnlocked(economy, item.id) ? '' : 'is-locked'
                   }`}
                   style={{ ['--ar-accent' as string]: heroColorCss(item.id) }}
                   onClick={() => onCharacterChange(item.id)}
@@ -237,9 +257,15 @@ export function RushMenu({
                       {character === item.id ? t('char.inUse') : t('shop.owned')}
                     </span>
                   ) : (
-                    <span className="ar-char-tile-price">
-                      <Lock size={10} /> {formatNumber(heroPrice(economy, item.id))}
-                    </span>
+                    (economy?.bank ?? 0) >= heroPrice(economy, item.id) ? (
+                      <span className="ar-char-tile-price is-buyable">
+                        <ShoppingBag size={10} /> {t('char.buy', { n: formatNumber(heroPrice(economy, item.id)) })}
+                      </span>
+                    ) : (
+                      <span className="ar-char-tile-price">
+                        <Lock size={10} /> {formatNumber(heroPrice(economy, item.id))}
+                      </span>
+                    )
                   )}
                 </button>
               ))}
@@ -278,14 +304,14 @@ export function RushMenu({
               <Stat value={played ? formatDistance(played.best_distance) : '—'} label={t('menu.farthest')} />
             </div>
 
-            {/* Signed in, the name belongs to the account: it is set once and edited in
-                Settings, not re-typed on every visit. A guest has no account to hold it,
-                so the field stays. */}
+            {/* Signed in, the name belongs to the account and is already in the header
+                chip; it is changed in Settings. Showing it again here, in a box that looks
+                like a field but cannot be typed in, was a second copy and a false promise.
+                A guest has no account to hold it, so the field stays. */}
+            {(!account || nameState === 'taken' || nameState === 'short' || nameState === 'blocked' || editing) && (
             <div className="ar-side-block">
               <div className="ar-side-label">{t('menu.runnerName')}</div>
-              {account && nameState === 'ok' && !editing ? (
-                <div className="ar-name-fixed">{name}</div>
-              ) : (
+              {(
                 <input
                   className="ar-input"
                   value={name}
@@ -303,32 +329,11 @@ export function RushMenu({
               )}
               {nameNotice && <p className="ar-name-error">{nameNotice}</p>}
             </div>
-
-            {/* Not disabled. A taken name is refused where it matters — the save — and the
-                run simply keeps the name already on the profile. A dead start button is a
-                wall: it stops the player playing over a label. */}
-            {heroUnlocked(economy, character) ? (
-              <button className="ar-btn ar-btn-primary ar-start" onClick={onStart}>
-                <Play size={18} /> {t('menu.start')}
-              </button>
-            ) : (
-              <>
-                <button
-                  className="ar-btn ar-btn-primary ar-start"
-                  disabled={buying || (economy?.bank ?? 0) < heroPrice(economy, character)}
-                  onClick={() => onUnlock(character)}
-                >
-                  <Lock size={17} /> {t('menu.unlock', { price: formatNumber(heroPrice(economy, character)) })}
-                </button>
-                {(economy?.bank ?? 0) < heroPrice(economy, character) && (
-                  <p className="ar-name-error">
-                    {t('menu.needMore', { n: formatNumber(heroPrice(economy, character) - (economy?.bank ?? 0)) })}
-                  </p>
-                )}
-              </>
             )}
 
-            <RushMenuNudge economy={economy} onOpen={onOpen} />
+            <div className="ar-start-wrap">{startBlock}</div>
+
+            <RushToday economy={economy} onOpen={onOpen} />
 
             {inviteFrom && !account && (
               <button type="button" className="ar-invite-banner" onClick={onSignIn}>
@@ -377,6 +382,11 @@ export function RushMenu({
             )}
           </aside>
         </div>
+
+        {/* On a phone the menu is one long column and the start button sat a full screen
+            below the heroes. This copy rides the bottom edge instead (shown only there),
+            so "go" is always under the thumb. */}
+        <div className="ar-start-dock">{startBlock}</div>
       </div>
     </div>
   )

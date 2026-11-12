@@ -101,8 +101,8 @@ function beamTexture(): THREE.Texture {
   if (ctx) {
     const gradient = ctx.createLinearGradient(0, 0, 0, 128)
     gradient.addColorStop(0, 'rgba(255,255,255,0)')
-    gradient.addColorStop(0.55, 'rgba(255,255,255,0.18)')
-    gradient.addColorStop(1, 'rgba(255,255,255,0.62)')
+    gradient.addColorStop(0.5, 'rgba(255,255,255,0.3)')
+    gradient.addColorStop(1, 'rgba(255,255,255,0.85)')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, 4, 128)
   }
@@ -414,7 +414,7 @@ export class CharacterStage {
       ;(slot.shadow.material as THREE.MeshBasicMaterial).opacity = active ? 1 - hopY * 1.2 : 0.72
       slot.shadow.scale.setScalar(1 - hopY * 0.6)
 
-      const beamTarget = active ? 0.62 + Math.sin(this.time * 2.4) * 0.1 : 0
+      const beamTarget = active ? 0.9 + Math.sin(this.time * 2.4) * 0.08 : 0
       slot.beamMaterial.opacity = THREE.MathUtils.damp(slot.beamMaterial.opacity, beamTarget, 6, dt)
       slot.beam.visible = slot.beamMaterial.opacity > 0.01
       slot.beam.rotation.y += dt * 0.6
