@@ -64,6 +64,8 @@ interface Snapshot {
     jumpVelocity: number
     laneRate: number
     magnetRadius: number
+    passiveReach: number
+    closeCall: number
     powerScale: number
     shieldAtStart: number
   }
@@ -652,7 +654,7 @@ try {
   const perkBase = await snapshot(page)
   const expected: Record<string, { id: string; jump?: number; lane?: number; magnet?: number; power?: number; shield?: number; boost?: number }> = {
     kai: { id: 'shieldStart', shield: 1 },
-    mika: { id: 'longPower', power: 1.25 },
+    mika: { id: 'longPower', power: 1.2 },
     bjorn: { id: 'badImmunity' },
     nyx: { id: 'quickLane', lane: 1.35 },
     rin: { id: 'wideMagnet', magnet: 1.45 },
@@ -674,7 +676,8 @@ try {
       perk.id === want.id &&
       (want.jump ? perk.jumpVelocity > baseline.jump : true) &&
       (want.lane ? perk.laneRate > baseline.lane : true) &&
-      (want.magnet ? perk.magnetRadius > baseline.magnet : true) &&
+      (want.magnet ? perk.magnetRadius > baseline.magnet && perk.passiveReach > 0 : perk.passiveReach === 0) &&
+      (want.lane ? perk.closeCall === 2 : perk.closeCall === 1) &&
       (want.power ? perk.powerScale > baseline.power : true) &&
       (want.shield ? perk.shieldAtStart === want.shield : true) &&
       (want.boost ? perk.boostScale > baseline.boost : true)

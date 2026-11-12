@@ -16,7 +16,13 @@ export interface StageOptions {
   onSelect?: (id: CharacterId) => void
 }
 
-const SPACING = 1.42
+/**
+ * Gap between heroes. Their kit — Teddyz's shield, Bobbilee's book, the axes — reaches
+ * well past the body, and at 1.42 m it overlapped the neighbour on every stage shape.
+ */
+const SPACING = 1.72
+/** How far each step out from the centre stands back, so the line-up reads as an arc. */
+const ARC_DEPTH = 0.5
 
 /**
  * Half the width of the six-hero line-up, and the half-height the tallest hero needs.
@@ -24,7 +30,7 @@ const SPACING = 1.42
  * shape the panel gives them, instead of standing at a fixed distance and leaving a
  * wide strip of empty background above and below.
  */
-export const LINEUP_HALF_WIDTH = 3.95
+export const LINEUP_HALF_WIDTH = 4.7
 export const LINEUP_HALF_HEIGHT = 1.05
 
 /** The hero's height, for the fit check. */
@@ -227,7 +233,7 @@ export class CharacterStage {
       const spec = CHARACTERS[id]
       const root = new THREE.Group()
       const offset = i - (count - 1) / 2
-      const home = new THREE.Vector3(offset * SPACING, 0, -Math.abs(offset) * 0.42)
+      const home = new THREE.Vector3(offset * SPACING, 0, -Math.abs(offset) * ARC_DEPTH)
       root.position.copy(home)
       // The outer heroes turn slightly inwards, like a squad posing for a poster.
       root.rotation.y = -offset * 0.16

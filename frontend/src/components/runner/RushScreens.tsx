@@ -21,6 +21,15 @@ import type {
   Settings,
 } from '../../runner/types'
 
+/**
+ * Menu stat numbers: written out in full like the record and the Arc balance beside them
+ * ("28.412", not "28,4k"), so one card does not round while its neighbour does not.
+ * Only a seven-digit number is shortened, where the card would run out of width.
+ */
+function formatStat(value: number): string {
+  return value >= 10_000_000 ? formatCompact(value) : formatScore(value)
+}
+
 export function RushLoading({ progress }: { progress: ProgressState }) {
   const t = useT()
   return (
@@ -299,8 +308,8 @@ export function RushMenu({
                 a scoreboard should be reads as broken, a dash reads as "not yet". */}
             <div className="ar-stats-grid">
               <Stat value={played ? formatScore(played.best_score) : '—'} label={t('menu.best')} />
-              <Stat value={played ? formatCompact(played.total_coins) : '—'} label={t('menu.arcTotal')} />
-              <Stat value={played ? formatCompact(played.runs) : '—'} label={t('menu.sprints')} />
+              <Stat value={played ? formatStat(played.total_coins) : '—'} label={t('menu.arcTotal')} />
+              <Stat value={played ? formatStat(played.runs) : '—'} label={t('menu.sprints')} />
               <Stat value={played ? formatDistance(played.best_distance) : '—'} label={t('menu.farthest')} />
             </div>
 

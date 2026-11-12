@@ -30,14 +30,19 @@ router.use((_req, res, next) => {
 // showing up every day and finishing quests is worth ~40% — not a rounding error.
 //   first paid hero  ≈ 2 days · every hero ≈ 2.5 weeks · every upgrade maxed ≈ +1 month
 
-/** Hero prices, ordered by how much the perk helps score and income. */
+/**
+ * Hero prices. Two starters are free; every other hero costs the same, because each one
+ * is a different way to play rather than a stronger tier — the perks are balanced as
+ * sidegrades (see CHARACTERS in the client config). ≈ 4 days of regular income each.
+ */
+const HERO_PRICE = 20000
 const CHARACTER_PRICES = {
   kai: 0, // Sam — starts with a shield
-  mika: 0, // Bobbilee — helpful power-ups last +25%
-  nyx: 8000, // Lecter — faster lane changes (comfort, not raw score)
-  bjorn: 15000, // Teddyz — immune to the three bad pick-ups
-  tim: 25000, // Tim — Overdrive lasts twice as long (speed + invulnerable)
-  rin: 40000, // Mike — 45% wider magnet: more Arc every run, so it costs the most
+  mika: 0, // Bobbilee — helpful power-ups last +20%
+  bjorn: HERO_PRICE, // Teddyz — immune to the three bad pick-ups
+  nyx: HERO_PRICE, // Lecter — faster lane changes, close calls score double
+  rin: HERO_PRICE, // Mike — always pulls nearby coins, magnet reaches 45% further
+  tim: HERO_PRICE, // Tim — Overdrive lasts twice as long
 }
 
 /** Each level stretches that power-up by +10% (max +50%). Costs climb per level. */

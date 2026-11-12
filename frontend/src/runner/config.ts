@@ -403,7 +403,7 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
   },
   mika: {
     id: 'mika',
-    perk: { id: 'longPower', value: 1.25 },
+    perk: { id: 'longPower', value: 1.2 },
     name: 'Bobbilee',
     tagline: 'Sorceress',
     // The other cape in the roster: magenta, so the two cloaked heroes cannot be

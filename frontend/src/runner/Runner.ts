@@ -147,6 +147,9 @@ type PatternKind =
   | 'rampCar'
   | 'slideGate'
 
+/** Mike's always-on coin pull, in metres (a lane is 2.3 m wide). */
+const PASSIVE_COIN_REACH = 1.9
+
 export class Runner {
   readonly events = new Emitter<{
     phase: Phase
@@ -861,6 +864,20 @@ export class Runner {
     return RUN.magnetRadius * this.perkScale('wideMagnet')
   }
 
+  /**
+   * Mike's coin sense: with no magnet running he still draws in coins within a short
+   * reach — less than a lane (2.3 m), so it forgives a near miss on a coin rather than
+   * emptying the neighbouring lanes.
+   */
+  private get passiveReach(): number {
+    return this.perkScale('wideMagnet', 0) > 0 ? PASSIVE_COIN_REACH : 0
+  }
+
+  /** Lecter's close calls score double — the assassin lives on the narrow gap. */
+  private get closeCallScale(): number {
+    return this.perkScale('quickLane') > 1 ? 2 : 1
+  }
+
   /** The duelist's rush: Overdrive is the one power they make their own. */
   private get boostScale(): number {
     return this.perkScale('longBoost')
@@ -1199,7 +1216,10 @@ export class Runner {
     this.track.update(dt, run.speed, this.clockTime)
     this.scenery?.update(dt, run.speed, this.clockTime)
     this.obstacles.update(dt, run.speed)
-    if (this.pickups) this.pickups.magnetRadius = this.magnetReach
+    if (this.pickups) {
+      this.pickups.magnetRadius = this.magnetReach
+      this.pickups.passiveReach = this.passiveReach
+    }
     this.pickups?.update(dt, run.speed, this.clockTime, run.magnetUntil > run.elapsed, this.target)
     this.sparks.update(realDt, dz)
     this.updatePickupFx(realDt, dz)
@@ -2024,8 +2044,8 @@ export class Runner {
   private awardNearMiss(obstacle: Obstacle): void {
     const run = this.run
     run.nearMisses += 1
-    run.score += RUN.nearMissBonus * run.multiplier * this.diff.score
-    this.toast('CLOSE!', 'good')
+    run.score += RUN.nearMissBonus * this.closeCallScale * run.multiplier * this.diff.score
+    this.toast(this.closeCallScale > 1 ? 'CLOSE ×2!' : 'CLOSE!', 'good')
     this.audio.play('coin')
     this.sparks.burst(obstacle.mesh.position.x, run.y + 0.9, obstacle.z, {
       count: 10,
@@ -2344,6 +2364,8 @@ export class Runner {
         jumpVelocity: +PHYSICS.jumpVelocity.toFixed(2),
         laneRate: +(RUN.laneSwitchRate * this.laneScale).toFixed(2),
         magnetRadius: +this.magnetReach.toFixed(2),
+        passiveReach: this.passiveReach,
+        closeCall: this.closeCallScale,
         boostScale: this.boostScale,
         powerScale: this.powerScale,
         shieldAtStart: this.perkScale('shieldStart', 0),

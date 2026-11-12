@@ -45,6 +45,8 @@ export class PickupManager {
    * hero's perk, so the archer's field is wider than everyone else's.
    */
   magnetRadius = RUN.magnetRadius
+  /** Pull that works with no magnet running (Mike's perk); 0 for everyone else. */
+  passiveReach = 0
 
   readonly group = new THREE.Group()
 
@@ -226,12 +228,12 @@ export class PickupManager {
       coin.z += dz
       coin.spin += dt * 2.6
 
-      if (magnet) {
+      const reach = magnet ? this.magnetRadius : this.passiveReach
+      if (reach > 0) {
         const dx = target.x - coin.x
         const dy = target.y + 0.9 - coin.y
         const dzTo = target.z - coin.z
         const distance = Math.hypot(dx, dy, dzTo)
-        const reach = this.magnetRadius
         if (distance < reach) {
           const closeness = 1 - distance / reach
           const pull = Math.min(1, 1 - Math.exp(-(18 + 22 * closeness) * dt))
