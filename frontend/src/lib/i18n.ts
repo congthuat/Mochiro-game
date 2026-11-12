@@ -31,6 +31,7 @@ const DICT: Record<string, Entry> = {
     vi: 'Tên này đã có người dùng — chọn tên khác',
   },
   'name.short': { en: 'At least 2 characters', vi: 'Cần ít nhất 2 ký tự' },
+  'name.blocked': { en: 'That name is not allowed — pick another', vi: 'Tên này không được phép — chọn tên khác' },
   'menu.settings': { en: 'Settings', vi: 'Cài đặt' },
   'menu.connecting': { en: 'Connecting to the global board…', vi: 'Đang kết nối bảng xếp hạng…' },
 
@@ -137,6 +138,15 @@ const DICT: Record<string, Entry> = {
   'over.rank': { en: 'Global rank', vi: 'Xếp hạng toàn cầu' },
   'over.submitting': { en: 'Submitting…', vi: 'Đang gửi…' },
   'over.submitted': { en: 'Submitted — you are on the board', vi: 'Đã gửi — bạn đã có mặt trên bảng' },
+  'over.guestSaved': {
+    en: 'Saved to your profile. Only signed-in players reach the global board —',
+    vi: 'Đã lưu vào hồ sơ của bạn. Chỉ người đã đăng nhập mới lên bảng xếp hạng —',
+  },
+  'over.guestSignIn': { en: 'sign in', vi: 'đăng nhập ngay' },
+  'over.unverified': {
+    en: 'Saved to your profile, but this run could not be verified for the global board',
+    vi: 'Đã lưu vào hồ sơ, nhưng lượt này chưa xác minh được nên không lên bảng xếp hạng',
+  },
   'over.again': { en: 'Sprint again', vi: 'Chạy lại' },
   'over.board': { en: 'Leaderboard', vi: 'Bảng xếp hạng' },
   'over.menu': { en: 'Menu', vi: 'Menu' },

@@ -51,7 +51,30 @@ exports.runner_runs = pgTable("runner_runs", {
   top_speed: integer("top_speed").notNull().default(0),
   best_combo: integer("best_combo").notNull().default(0),
   duration_s: integer("duration_s").notNull().default(0),
+  // Signed-in account that played the run (null for guests).
+  account_id: integer("account_id"),
+  // True only when the run came with a valid server ticket, from a signed-in player,
+  // and passed the plausibility checks. Only verified runs reach the public board.
+  verified: boolean("verified").notNull().default(false),
+  // Why a run was kept off the board (null when verified).
+  flag: text("flag"),
   created_at: timestamp("created_at").defaultNow(),
+});
+
+// Arc Rush — one-shot run tickets. The server stamps the start of every run, so a
+// submitted duration can never exceed the real time that passed, and every ticket
+// can be spent exactly once.
+exports.runner_tickets = pgTable("runner_tickets", {
+  token: text("token").primaryKey(),
+  client_id: text("client_id").notNull(),
+  account_id: integer("account_id"),
+  ip: text("ip"),
+  // How many results were posted on it: 1 for the run, 2 after a continue (revive).
+  uses: integer("uses").notNull().default(0),
+  // The run row the first result created; a revive updates it instead of adding a run.
+  run_id: integer("run_id"),
+  created_at: timestamp("created_at").defaultNow(),
+  used_at: timestamp("used_at"),
 });
 
 // One row per completed (or failed) run — feeds the leaderboard.

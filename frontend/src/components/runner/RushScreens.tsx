@@ -79,7 +79,13 @@ export function RushMenu({
   const t = useT()
   const lang = useLang()
   const nameNotice =
-    nameState === 'taken' ? t('name.taken') : nameState === 'short' ? t('name.short') : null
+    nameState === 'taken'
+      ? t('name.taken')
+      : nameState === 'short'
+        ? t('name.short')
+        : nameState === 'blocked'
+          ? t('name.blocked')
+          : null
   const played = (profile?.runs ?? 0) > 0 ? profile : null
   // The field is a value once the name is settled, and a field again the moment it is not.
   // `editing` keeps it mounted while the player is typing: without it, a name that becomes
@@ -325,6 +331,8 @@ export function RushGameOver({
   summary,
   submitState,
   rank,
+  offBoard,
+  onSignIn,
   onRetry,
   onMenu,
   onLeaderboard,
@@ -333,6 +341,8 @@ export function RushGameOver({
   summary: RunSummary
   submitState: 'idle' | 'sending' | 'done' | 'error'
   rank: number | null
+  offBoard: 'guest' | 'unverified' | null
+  onSignIn: () => void
   onRetry: () => void
   onMenu: () => void
   onLeaderboard: () => void
@@ -381,7 +391,16 @@ export function RushGameOver({
         )}
         <div className="ar-hint mt-4">
           {submitState === 'sending' && t('over.submitting')}
-          {submitState === 'done' && (rank ? `${t('over.submitted')} #${rank}` : t('over.submitted'))}
+          {submitState === 'done' && !offBoard && (rank ? `${t('over.submitted')} #${rank}` : t('over.submitted'))}
+          {submitState === 'done' && offBoard === 'guest' && (
+            <>
+              {t('over.guestSaved')}{' '}
+              <button type="button" className="ar-link" onClick={onSignIn}>
+                {t('over.guestSignIn')}
+              </button>
+            </>
+          )}
+          {submitState === 'done' && offBoard === 'unverified' && t('over.unverified')}
           {submitState === 'error' && t('menu.connecting')}
         </div>
         <div className="ar-menu-actions">
@@ -477,7 +496,13 @@ export function RushSettings({
   const t = useT()
   const lang = useLang()
   const nameNotice =
-    nameState === 'taken' ? t('name.taken') : nameState === 'short' ? t('name.short') : null
+    nameState === 'taken'
+      ? t('name.taken')
+      : nameState === 'short'
+        ? t('name.short')
+        : nameState === 'blocked'
+          ? t('name.blocked')
+          : null
   const update = (patch: Partial<Settings>) => onChange({ ...settings, ...patch })
   const qualities: Array<{ id: Settings['quality']; label: string }> = [
     { id: 'auto', label: t('set.quality.auto') },

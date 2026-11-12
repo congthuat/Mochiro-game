@@ -29,7 +29,9 @@ import {
   type NameState,
   saveRunnerProfile,
   storeRunnerName,
+  startRunnerTicket,
   submitRunnerRun,
+  type OffBoardReason,
 } from '../lib/runnerApi'
 
 const SETTINGS_KEY = 'arcrush.settings'
@@ -136,6 +138,9 @@ export default function RushApp() {
   const phaseRef = useRef<Phase>('boot')
   const panelRef = useRef<Panel>('none')
   const clientIdRef = useRef('')
+  // The server's stamp on the run in progress; spent by the result post(s).
+  const ticketRef = useRef<Promise<string | null>>(Promise.resolve(null))
+  const [offBoard, setOffBoard] = useState<OffBoardReason>(null)
   const bestRef = useRef(loadBest())
 
   settingsRef.current = settings
@@ -254,7 +259,7 @@ export default function RushApp() {
         if (result.record) storeBest(result.score)
         setSubmitState('sending')
         const clientId = clientIdRef.current || getRunnerClientId()
-        void submitRunnerRun(clientId, nameRef.current, {
+        void ticketRef.current.then((ticket) => submitRunnerRun(clientId, nameRef.current, {
           score: result.score,
           coins: result.coins,
           distance_m: result.distance,
@@ -264,10 +269,11 @@ export default function RushApp() {
           top_speed: Math.round(result.topSpeed),
           best_combo: result.bestCombo,
           duration_s: Math.round(result.duration),
-        })
+        }, ticket))
           .then(async (response) => {
             if (response.profile) setProfile(response.profile)
             setRank(response.rank)
+            setOffBoard(response.offBoard)
             setSubmitState('done')
             try {
               const board = await fetchRunnerLeaderboard()
@@ -433,6 +439,8 @@ export default function RushApp() {
     setSubmitState('idle')
     setPanel('none')
     setHintSeen(false)
+    setOffBoard(null)
+    ticketRef.current = startRunnerTicket(clientIdRef.current || getRunnerClientId())
     runnerRef.current?.uiSound('click')
     runnerRef.current?.startRun()
   }, [])
@@ -442,6 +450,8 @@ export default function RushApp() {
     setRank(null)
     setSubmitState('idle')
     setHintSeen(false)
+    setOffBoard(null)
+    ticketRef.current = startRunnerTicket(clientIdRef.current || getRunnerClientId())
     runnerRef.current?.restartRun()
   }, [])
 
@@ -543,6 +553,8 @@ export default function RushApp() {
           summary={summary}
           submitState={submitState}
           rank={rank}
+          offBoard={offBoard}
+          onSignIn={() => setPanel('auth')}
           onRetry={handleRetry}
           onMenu={handleQuit}
           onLeaderboard={() => openPanel('board')}

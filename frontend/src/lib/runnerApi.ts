@@ -1,6 +1,6 @@
 // Player profile + leaderboard client for the Mochiro backend.
 import { api } from './api'
-import { readSession } from './auth'
+import { authToken, readSession } from './auth'
 import type { GlobalStats, LeaderboardEntry, RunnerProfile, RunSubmission } from '../runner/types'
 
 const CLIENT_KEY = 'arcrush.clientId'
@@ -47,6 +47,34 @@ export function storeRunnerName(name: string): void {
   }
 }
 
+/** JSON headers plus the session token, so wallet-bound profiles prove who is writing. */
+function writeHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  const token = authToken()
+  if (token) headers.authorization = `Bearer ${token}`
+  return headers
+}
+
+/**
+ * Asks the server to stamp the start of a run. The ticket is spent when the result is
+ * posted; without one (offline, rate limited) the run still counts for the player's own
+ * profile, it just cannot reach the public board.
+ */
+export async function startRunnerTicket(clientId: string): Promise<string | null> {
+  try {
+    const response = await fetch(api('runner/runs/start'), {
+      method: 'POST',
+      headers: writeHeaders(),
+      body: JSON.stringify({ client_id: clientId }),
+    })
+    if (!response.ok) return null
+    const data = (await response.json()) as { ticket?: string }
+    return typeof data.ticket === 'string' ? data.ticket : null
+  } catch {
+    return null
+  }
+}
+
 export async function fetchRunnerProfile(clientId: string): Promise<RunnerProfile | null> {
   const response = await fetch(`${api('runner/profile')}?client_id=${encodeURIComponent(clientId)}`)
   if (!response.ok) return null
@@ -55,7 +83,7 @@ export async function fetchRunnerProfile(clientId: string): Promise<RunnerProfil
 }
 
 /** The name's own state, as the UI needs to show it. */
-export type NameState = 'checking' | 'ok' | 'taken' | 'short'
+export type NameState = 'checking' | 'ok' | 'taken' | 'short' | 'blocked'
 
 export async function checkRunnerName(name: string, clientId: string): Promise<NameState> {
   const response = await fetch(
@@ -64,13 +92,15 @@ export async function checkRunnerName(name: string, clientId: string): Promise<N
   if (!response.ok) throw new Error('name_check_failed')
   const data = (await response.json()) as { available: boolean; reason: string | null }
   if (data.available) return 'ok'
-  return data.reason === 'short' ? 'short' : 'taken'
+  if (data.reason === 'short') return 'short'
+  if (data.reason === 'blocked') return 'blocked'
+  return 'taken'
 }
 
 export async function saveRunnerProfile(clientId: string, name: string): Promise<RunnerProfile | null> {
   const response = await fetch(api('runner/profile'), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: writeHeaders(),
     body: JSON.stringify({ client_id: clientId, name }),
   })
   if (!response.ok) return null
@@ -88,21 +118,33 @@ export async function fetchRunnerLeaderboard(): Promise<{
   return { entries: data.entries ?? [], stats: data.stats ?? { runs: 0, coins: 0, best_score: 0, best_distance: 0 } }
 }
 
+/** Why a run stayed off the public board (null when it is on it). */
+export type OffBoardReason = 'guest' | 'unverified' | null
+
 export async function submitRunnerRun(
   clientId: string,
   name: string,
-  run: RunSubmission
-): Promise<{ entry: LeaderboardEntry | null; profile: RunnerProfile | null; rank: number | null }> {
+  run: RunSubmission,
+  ticket: string | null
+): Promise<{
+  entry: LeaderboardEntry | null
+  profile: RunnerProfile | null
+  rank: number | null
+  offBoard: OffBoardReason
+}> {
   const response = await fetch(api('runner/runs'), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ client_id: clientId, name, ...run }),
+    headers: writeHeaders(),
+    body: JSON.stringify({ client_id: clientId, name, ticket, ...run }),
   })
   if (!response.ok) throw new Error('submit failed')
   const data = (await response.json()) as {
     entry: LeaderboardEntry | null
     profile: RunnerProfile | null
     rank: number | null
+    verified?: boolean
+    reason?: string | null
   }
-  return { entry: data.entry ?? null, profile: data.profile ?? null, rank: data.rank ?? null }
+  const offBoard: OffBoardReason = data.verified ? null : data.reason === 'guest' ? 'guest' : 'unverified'
+  return { entry: data.entry ?? null, profile: data.profile ?? null, rank: data.rank ?? null, offBoard }
 }

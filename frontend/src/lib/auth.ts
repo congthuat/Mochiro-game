@@ -6,7 +6,10 @@
 //   • Google — the ID token is verified server-side, and the device mints an Arc
 //     wallet whose key is encrypted with a password the player chooses. The key
 //     never leaves the browser.
-import { BrowserProvider, Wallet } from 'ethers'
+// ethers is ~100 KB gzipped and only needed at the moment a player signs in, so it is
+// fetched on demand instead of riding in the first download.
+import type { Wallet } from 'ethers'
+const loadEthers = () => import('ethers')
 import { api } from './api'
 
 export interface AuthAccount {
@@ -221,6 +224,7 @@ export async function signInWithWallet(external?: Eip1193): Promise<AuthAccount>
   }).then((response) => response.json() as Promise<{ message?: string; error?: string }>)
   if (!challenge.message) throw new Error(challenge.error || 'challenge-failed')
 
+  const { BrowserProvider } = await loadEthers()
   const provider = new BrowserProvider(injected as never)
   const signer = await provider.getSigner()
   const signature = await signer.signMessage(challenge.message)
@@ -351,6 +355,7 @@ export function forgetLocalWallet(): void {
 /** Mint a wallet on this device and lock the key behind `password`. */
 export async function createLocalWallet(password: string): Promise<{ address: string; privateKey: string }> {
   if (password.length < 8) throw new Error('weak-password')
+  const { Wallet } = await loadEthers()
   const wallet = Wallet.createRandom()
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
@@ -385,6 +390,7 @@ export async function unlockLocalWallet(password: string): Promise<Wallet | null
       key,
       b64ToBytes(vault.cipher) as unknown as BufferSource
     )
+    const { Wallet } = await loadEthers()
     return new Wallet(new TextDecoder().decode(plain))
   } catch {
     return null
