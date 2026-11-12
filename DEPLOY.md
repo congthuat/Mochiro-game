@@ -47,7 +47,60 @@ publishes an "ALIAS" or "ANAME" record, use it on `@` instead and skip the `A` r
    JSON. If it returns the HTML of the app, the proxy is sending `/api` to the static files
    instead of the backend.
 
-## Path A — GitHub Pages (no server needed)
+## Path A — Vercel (everything works)
+
+Vercel runs the backend as a serverless function, so the leaderboard and sign-in survive.
+The wiring is three files at the repository root:
+
+| File | Why |
+|---|---|
+| `api/index.js` | hands the Express app to Vercel |
+| `vercel.json` | builds `frontend/`, publishes `frontend/dist`, sends `/api/*` to the function |
+| `package.json` | Vercel installs from the root, so the SDK has to be declared there |
+
+### Why `api/index.js` looks the way it does
+
+`createServer()` returns `{ app, port, start }`. Two of those details decide the file:
+
+- It **throws without a port**. Nothing ever listens on the one passed in — Vercel calls the
+  app directly — but the call does not return without it.
+- It **registers routes at call time**, not at `start()` time, and defaults the directory to
+  `process.cwd()/routes`. A serverless function does not run from the repository root, so
+  `routesDir` is passed explicitly.
+
+`start()` is deliberately not called. That is what runs the schema sync, and a serverless
+invocation is the wrong place for it — the tables already exist in the database the SDK
+talks to.
+
+### Verified
+
+`api/index.js` was loaded and served on a real port. All five route groups registered
+(`/api/arc`, `/api/auth`, `/api/leaderboard`, `/api/profile`, `/api/runner`) and three
+endpoints answered `200` with live data:
+
+```
+/api/health                  200  {"status":"ok"}
+/api/runner/leaderboard      200  {"entries":[{"best_combo":212,"coins":212,…
+/api/arc/project             200  {"id":"05519650-14e2-46d0-bef8-8ec09c9e7709",…
+```
+
+`vercel.json` was checked key by key against `https://openapi.vercel.sh/vercel.json`; all
+five are recognised.
+
+### Setting it up
+
+1. Import the repository at vercel.com — **root directory stays the repository root**.
+2. Add one environment variable: **`SURF_API_KEY`**. The SDK's database proxy and the
+   admin-only endpoints both read it, and without it the function returns `503`.
+3. Deploy, then add `mochiro.xyz` under **Settings → Domains**.
+4. Copy the record values **from Vercel's own panel** — they are per-project and change.
+
+### What it costs you
+
+The database is not yours: `dbQuery` proxies SQL over HTTP to the Surf gateway using that
+key. Vercel hosting is free on the hobby tier, but the data lives wherever the key points.
+
+## Path B — GitHub Pages (no server needed)
 
 The `gh-pages` branch holds a build of the frontend with `BASE_PATH=/`, a `CNAME` file
 naming `mochiro.xyz`, and `.nojekyll`. GitHub serves it; nothing else has to run.
@@ -79,7 +132,7 @@ drift from what GitHub actually serves. All four answer on port 443.
 Doing step 3 before step 1 makes GitHub verify a domain that does not point anywhere yet,
 and it drops the custom domain again.
 
-## Path B — a host that runs the backend
+## Path C — a host that runs the backend as a process
 
 Keeps the leaderboard and sign-in. Point the same domain at whatever runs both halves,
 using the `A` / `CNAME` values that host gives you instead of the table above.

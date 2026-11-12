@@ -1,0 +1,9 @@
+{
+  "name": "mochiro",
+  "private": true,
+  "description": "Mochiro — a cel-shaded endless runner. Frontend in frontend/, backend in backend/, Vercel entry in api/.",
+  "dependencies": {
+    "@surf-ai/sdk": "1.0.5"
+  },
+  "engines": { "node": ">=20" }
+}
