@@ -47,6 +47,43 @@ publishes an "ALIAS" or "ANAME" record, use it on `@` instead and skip the `A` r
    JSON. If it returns the HTML of the app, the proxy is sending `/api` to the static files
    instead of the backend.
 
+## Path A — GitHub Pages (no server needed)
+
+The `gh-pages` branch holds a build of the frontend with `BASE_PATH=/`, a `CNAME` file
+naming `mochiro.xyz`, and `.nojekyll`. GitHub serves it; nothing else has to run.
+
+**What works:** the whole game. **What does not:** the leaderboard and sign-in — both need
+the Express backend. Every API call in the app already degrades: the profile tiles read
+`—`, the board stays quiet, and a finished run shows *connecting* rather than an error.
+
+### The records — verified against GitHub's live DNS, not remembered
+
+| Type | Host | Value |
+|---|---|---|
+| `A` | `@` | `185.199.108.153` |
+| `A` | `@` | `185.199.109.153` |
+| `A` | `@` | `185.199.110.153` |
+| `A` | `@` | `185.199.111.153` |
+| `CNAME` | `www` | `congthuat.github.io` |
+
+`dig +short congthuat.github.io` returns exactly those four addresses, so the table cannot
+drift from what GitHub actually serves. All four answer on port 443.
+
+### Order matters
+
+1. Add the records at Spaceship **first**.
+2. Wait for them to resolve: `dig +short mochiro.xyz A`.
+3. Then turn Pages on — **Settings → Pages → Source: `gh-pages`, folder `/`**.
+4. Type `mochiro.xyz` into the custom-domain field and save.
+
+Doing step 3 before step 1 makes GitHub verify a domain that does not point anywhere yet,
+and it drops the custom domain again.
+
+## Path B — a host that runs the backend
+
+Keeps the leaderboard and sign-in. Point the same domain at whatever runs both halves,
+using the `A` / `CNAME` values that host gives you instead of the table above.
+
 ## Spaceship — adding the domain
 
 Spaceship is the registrar for `mochiro.xyz`. Its DNS editor is at
