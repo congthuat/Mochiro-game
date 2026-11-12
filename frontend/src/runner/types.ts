@@ -149,6 +149,7 @@ export interface LeaderboardEntry {
   top_speed: number
   best_combo: number
   duration_s: number
+  difficulty?: 'easy' | 'normal' | 'hard'
   created_at: string
 }
 
@@ -166,4 +167,5 @@ export interface RunSubmission {
   top_speed: number
   best_combo: number
   duration_s: number
+  difficulty: 'easy' | 'normal' | 'hard'
 }

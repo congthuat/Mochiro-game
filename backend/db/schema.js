@@ -87,6 +87,8 @@ exports.runner_runs = pgTable("runner_runs", {
   verified: boolean("verified").notNull().default(false),
   // Why a run was kept off the board (null when verified).
   flag: text("flag"),
+  // Game mode the run was played on: easy | normal | hard.
+  difficulty: text("difficulty").notNull().default("normal"),
   created_at: timestamp("created_at").defaultNow(),
 });
 

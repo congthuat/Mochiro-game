@@ -220,9 +220,11 @@ export function RushMenu({
                     onClick={() => onDifficultyChange(item.id)}
                   >
                     {t(`diff.${item.id}`)}
+                    <span className="ar-diff-mult">×{DIFFICULTIES.find((d) => d.id === item.id)?.score}</span>
                   </button>
                 ))}
               </div>
+              <p className="ar-diff-desc">{t(`diff.${difficulty}.desc`)}</p>
             </div>
 
             {/* Signed in, the name belongs to the account: it is set once and edited in
@@ -397,6 +399,10 @@ export function RushGameOver({
         <div className="ar-modal-title">{t('over.title')}</div>
         <div className="ar-big-score mt-3">{formatScore(summary.score)}</div>
         {summary.record && <div className="ar-record">{t('over.record')}</div>}
+        <div className="ar-over-mode">
+          <span className={`ar-mode-tag is-${summary.difficulty}`}>{t(`diff.${summary.difficulty}`)}</span>
+          {t('over.modeMult', { score: DIFFICULTIES.find((d) => d.id === summary.difficulty)?.score ?? 1 })}
+        </div>
         {summary.busted && <div className="ar-bust">{t('over.busted')}</div>}
         <div className="ar-result-grid">
           <Stat value={`${summary.coins}`} label={t('over.arc')} />
@@ -802,7 +808,12 @@ export function RushLeaderboard({
                 {index < 3 ? <Medal size={16} /> : index + 1}
               </span>
               <div className="flex-1 overflow-hidden">
-                <div className="ar-row-name">{entry.name}</div>
+                <div className="ar-row-name">
+                  {entry.name}
+                  {entry.difficulty && entry.difficulty !== 'normal' && (
+                    <span className={`ar-mode-tag is-${entry.difficulty}`}>{t(`diff.${entry.difficulty}`)}</span>
+                  )}
+                </div>
                 <div className="ar-row-sub">
                   {t('board.row', {
                     coins: entry.coins,

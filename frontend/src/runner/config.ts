@@ -616,15 +616,34 @@ export interface DifficultySpec {
   gaps: number
   /** Multiplier on how often a harmful power is drawn. */
   harmful: number
-  /** Coins a continue costs. */
+  /**
+   * Multiplier on every point scored. Easy runs last far longer, so without this the
+   * gentlest mode topped the board; risk has to pay.
+   */
+  score: number
+  /** Multiplier on the Arc a run puts in the wallet (applied by the server). */
+  bank: number
+  /** Least a continue can cost, in coins. */
   reviveCost: number
 }
 
+/**
+ * Easy is for learning (half points), Normal is the reference, Hard is for the board
+ * (+50% points, +30% Arc). The server re-checks the claimed mode against the run's own
+ * distance and speed, which differ measurably between modes.
+ */
 export const DIFFICULTIES: DifficultySpec[] = [
-  { id: 'easy', speed: 0.86, gaps: 1.28, harmful: 0.5, reviveCost: 20 },
-  { id: 'normal', speed: 1, gaps: 1, harmful: 1, reviveCost: 25 },
-  { id: 'hard', speed: 1.16, gaps: 0.8, harmful: 1.45, reviveCost: 35 },
+  { id: 'easy', speed: 0.86, gaps: 1.28, harmful: 0.5, score: 0.5, bank: 0.7, reviveCost: 20 },
+  { id: 'normal', speed: 1, gaps: 1, harmful: 1, score: 1, bank: 1, reviveCost: 30 },
+  { id: 'hard', speed: 1.16, gaps: 0.8, harmful: 1.45, score: 1.5, bank: 1.3, reviveCost: 40 },
 ]
+
+/** A continue costs a quarter of the run's coins (never less than the mode's floor). */
+export const REVIVE_SHARE = 0.25
+
+export function reviveCostFor(spec: DifficultySpec, coins: number): number {
+  return Math.max(spec.reviveCost, Math.ceil(coins * REVIVE_SHARE))
+}
 
 export function difficulty(id: string | null | undefined): DifficultySpec {
   return DIFFICULTIES.find((d) => d.id === id) ?? DIFFICULTIES[1]

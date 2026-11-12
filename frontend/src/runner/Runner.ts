@@ -18,6 +18,7 @@ import {
   PURSUIT,
   biomeMix,
   difficulty,
+  reviveCostFor,
   powerTakesHold,
   rollMissions,
   type CharacterId,
@@ -1111,7 +1112,7 @@ export class Runner {
     }
 
     run.distance += run.speed * dt
-    run.score += run.speed * dt * RUN.distancePoints * run.multiplier
+    run.score += run.speed * dt * RUN.distancePoints * run.multiplier * this.diff.score
 
     this.audio.setIntensity(speedLevel(baseSpeed))
 
@@ -1557,7 +1558,7 @@ export class Runner {
     const multiplier = Math.min(RUN.maxMultiplier, 1 + Math.floor(run.combo / RUN.comboStep))
     const previousMultiplier = run.multiplier
     const doubled = run.doubleUntil > run.elapsed
-    const gained = RUN.coinValue * run.multiplier * (doubled ? 2 : 1)
+    const gained = RUN.coinValue * run.multiplier * (doubled ? 2 : 1) * this.diff.score
     run.score += gained
     run.multiplier = multiplier
 
@@ -1596,7 +1597,7 @@ export class Runner {
     if (tracker) {
       tracker.collected += 1
       if (tracker.collected >= tracker.total) {
-        run.score += RUN.perfectLineBonus * run.multiplier
+        run.score += RUN.perfectLineBonus * run.multiplier * this.diff.score
         this.lineTrackers.delete(coin.line)
         this.toast(`Perfect line +${formatScore(RUN.perfectLineBonus * run.multiplier)}`, 'good')
         this.audio.play('power')
@@ -1783,7 +1784,7 @@ export class Runner {
           run.vy = spec.launch
           run.onGround = false
           run.jumpBuffer = 0
-          run.score += spec.points * run.multiplier
+          run.score += spec.points * run.multiplier * this.diff.score
           this.audio.play('boost')
           this.sparks.burst(obstacle.mesh.position.x, 0.35, obstacle.z, {
             count: 14,
@@ -1832,7 +1833,7 @@ export class Runner {
       }
       if (boosting) {
         this.obstacles.smash(obstacle)
-        run.score += spec.points * run.multiplier
+        run.score += spec.points * run.multiplier * this.diff.score
         this.audio.play('smash')
         this.sparks.burst(obstacle.mesh.position.x, obstacle.mesh.position.y, obstacle.z, {
           count: 14,
@@ -1897,7 +1898,7 @@ export class Runner {
   private awardNearMiss(obstacle: Obstacle): void {
     const run = this.run
     run.nearMisses += 1
-    run.score += RUN.nearMissBonus * run.multiplier
+    run.score += RUN.nearMissBonus * run.multiplier * this.diff.score
     this.toast('CLOSE!', 'good')
     this.audio.play('coin')
     this.sparks.burst(obstacle.mesh.position.x, run.y + 0.9, obstacle.z, {
@@ -1975,8 +1976,9 @@ export class Runner {
    */
   revive(): boolean {
     const run = this.run
-    if (this.phase !== 'gameover' || run.revived || run.coins < this.diff.reviveCost) return false
-    run.coins -= this.diff.reviveCost
+    const cost = reviveCostFor(this.diff, run.coins)
+    if (this.phase !== 'gameover' || run.revived || run.coins < cost) return false
+    run.coins -= cost
     run.revived = true
     run.busted = false
     run.heat = 0
@@ -2023,7 +2025,7 @@ export class Runner {
       busted,
       difficulty: this.diff.id,
       revived: run.revived,
-      reviveCost: this.diff.reviveCost,
+      reviveCost: reviveCostFor(this.diff, run.coins),
     }
     this.gameOverAt = this.clockTime
     this.audio.play('gameover')
@@ -2155,8 +2157,8 @@ export class Runner {
       tierName: tier.name,
       biome: this.biomeNow,
       heat: this.run.heat,
-      canRevive: !this.run.revived && this.run.coins >= this.diff.reviveCost,
-      reviveCost: this.diff.reviveCost,
+      canRevive: !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
+      reviveCost: reviveCostFor(this.diff, this.run.coins),
       missions: this.run.missions,
     }
     void force

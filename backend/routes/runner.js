@@ -46,6 +46,45 @@ const LIMITS = {
   ticketMaxAgeMs: 3 * 3600 * 1000,
 }
 
+/**
+ * Game modes, mirrored from frontend/src/runner/config.ts (DIFFICULTIES + RUN).
+ * speed: world speed multiplier · score: points multiplier · bank: wallet multiplier.
+ */
+const MODES = {
+  easy: { speed: 0.86, score: 0.5, bank: 0.7 },
+  normal: { speed: 1, score: 1, bank: 1 },
+  hard: { speed: 1.16, score: 1.5, bank: 1.3 },
+}
+const RUN_SPEED = { start: 15, max: 42, ramp: 150, ease: 2.1, boost: 1.55 }
+
+/**
+ * Metres a run covers in `seconds` at the mode's base speed with no boost — the speed
+ * curve is deterministic, so this is exact up to a few hit-stop frames. It is what makes
+ * the claimed mode checkable: an Easy run posted as Hard is ~25% too short.
+ */
+function baseDistance(seconds, speedMult) {
+  const { start, max, ramp, ease } = RUN_SPEED
+  const t = Math.min(seconds, ramp)
+  const ramped = max * t - ((max - start) * ramp) / (ease + 1) * (1 - Math.pow(1 - t / ramp, ease + 1))
+  return (ramped + Math.max(0, seconds - ramp) * max) * speedMult
+}
+
+const cleanMode = (value) => (value === 'easy' || value === 'hard' ? value : 'normal')
+
+/**
+ * The mode a run was really played on. Live runs sit within ~2% of their mode's curve
+ * (boosts add little), and the modes are 14–16% apart, so distance ÷ time identifies
+ * the mode. The claimed mode is kept when it fits; otherwise the measured one wins.
+ */
+function resolveMode(claimed, distance, duration) {
+  const base = baseDistance(duration, 1)
+  if (base <= 0) return claimed
+  const ratio = distance / base
+  const fit = ratio / MODES[claimed].speed
+  if (fit >= 0.9 && fit <= 1.1) return claimed
+  return ratio >= 1.08 ? 'hard' : ratio >= 0.93 ? 'normal' : 'easy'
+}
+
 const RATE = {
   windowSec: 600,
   ticketsPerClient: 60,
@@ -170,7 +209,7 @@ function weekStart(ms) {
 function boardQuery(from, to, limit) {
   return dbQuery(
     `SELECT b.id, COALESCE(p.name, b.name) AS name, b.score, b.coins, b.distance_m, b.top_speed,
-            b.best_combo, b.duration_s, b.created_at
+            b.best_combo, b.duration_s, b.difficulty, b.created_at
        FROM (
          SELECT DISTINCT ON (client_id) *
            FROM runner_runs
@@ -312,15 +351,22 @@ router.post('/runs/start', async (req, res) => {
 })
 
 /** Returns null when the numbers are reachable in `duration` seconds, else the reason. */
-function implausible({ score, coins, distance, topSpeed, bestCombo, duration }) {
+function implausible({ score, coins, distance, topSpeed, bestCombo, duration, mode }) {
+  const spec = MODES[mode]
+  const base = baseDistance(duration, spec.speed)
   if (duration < LIMITS.minDuration) return 'too_short'
-  if (topSpeed > LIMITS.topSpeed) return 'speed'
+  if (topSpeed > LIMITS.topSpeed || topSpeed > RUN_SPEED.max * spec.speed * RUN_SPEED.boost + 2) return 'speed'
   if (distance > duration * LIMITS.metresPerSecond + 50) return 'distance'
-  if (score > duration * LIMITS.pointsPerSecond + 2_000) return 'score'
+  // Even boosting the whole way cannot beat the mode's curve by more than the boost.
+  if (distance > base * RUN_SPEED.boost + 60) return 'distance'
+  // …and nobody runs slower than the mode's own base speed: this is what catches an
+  // easier run being posted as a harder mode.
+  if (distance < base * 0.8 - 60) return 'mode'
+  if (score > duration * LIMITS.pointsPerSecond * spec.score + 2_000) return 'score'
   if (coins > duration * LIMITS.coinsPerSecond + 200) return 'coins'
   if (bestCombo > duration * LIMITS.comboPerSecond + 20) return 'combo'
-  // Score always includes the distance points (≥ 1 point per metre).
-  if (score + 5 < distance) return 'score_vs_distance'
+  // Score always includes the distance points (≥ 1 point per metre, times the mode).
+  if (score + 5 < distance * spec.score) return 'score_vs_distance'
   return null
 }
 
@@ -337,6 +383,7 @@ router.post('/runs', async (req, res) => {
   const topSpeed = clampInt(req.body?.top_speed, 0, 1000)
   const bestCombo = clampInt(req.body?.best_combo, 0, 100_000)
   const duration = clampInt(req.body?.duration_s, 0, 86_400)
+  let mode = cleanMode(req.body?.difficulty)
   const ticket = typeof req.body?.ticket === 'string' ? req.body.ticket.trim() : ''
 
   try {
@@ -392,7 +439,10 @@ router.post('/runs', async (req, res) => {
       if ((rows[0]?.n ?? 0) >= RATE.untrackedPerClient) return res.status(429).json({ error: 'slow_down' })
     }
 
-    const reason = implausible({ score, coins, distance, topSpeed, bestCombo, duration })
+    // A continued run keeps the mode it started on.
+    if (continued) mode = cleanMode(continued.difficulty)
+    else mode = resolveMode(mode, distance, duration)
+    const reason = implausible({ score, coins, distance, topSpeed, bestCombo, duration, mode })
     if (reason) {
       // Impossible numbers are not stored at all — not even on the cheater's profile.
       console.warn('[runner] rejected run', { clientId, reason, score, distance, duration })
@@ -409,7 +459,8 @@ router.post('/runs', async (req, res) => {
       name = rows[0]?.name ?? 'Runner'
     }
 
-    const RETURNING = 'RETURNING id, name, score, coins, distance_m, top_speed, best_combo, duration_s, verified, created_at'
+    const RETURNING =
+      'RETURNING id, name, score, coins, distance_m, top_speed, best_combo, duration_s, verified, difficulty, created_at'
     let entry
     if (continued) {
       const updated = await dbQuery(
@@ -422,9 +473,9 @@ router.post('/runs', async (req, res) => {
     } else {
       const inserted = await dbQuery(
         `INSERT INTO runner_runs
-           (client_id, name, score, coins, distance_m, top_speed, best_combo, duration_s, account_id, verified, flag)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ${RETURNING}`,
-        [clientId, name, score, coins, distance, topSpeed, bestCombo, duration, account?.id ?? null, verified, flag]
+           (client_id, name, score, coins, distance_m, top_speed, best_combo, duration_s, account_id, verified, flag, difficulty)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ${RETURNING}`,
+        [clientId, name, score, coins, distance, topSpeed, bestCombo, duration, account?.id ?? null, verified, flag, mode]
       )
       entry = inserted.rows[0] ?? null
       if (entry && /^[0-9a-f]{48}$/.test(ticket)) {
@@ -435,8 +486,12 @@ router.post('/runs', async (req, res) => {
     // Totals grow by what this post adds: the whole run, or only the part after a revive.
     const addScore = continued ? score - continued.score : score
     const addCoins = continued ? coins - continued.coins : coins
-    // Coins only reach the spendable bank from runs the server handed a ticket for.
-    const bankDelta = flag === null || flag === 'guest' ? addCoins : 0
+    // Coins only reach the spendable bank from runs the server handed a ticket for, scaled
+    // by the mode (Easy ×0.7, Hard ×1.3). A continued run banks only what it added.
+    const bankable = flag === null || flag === 'guest'
+    const bankMult = MODES[mode].bank
+    const bankedTotal = bankable ? Math.round(coins * bankMult) : 0
+    const bankDelta = bankable ? bankedTotal - (continued ? Math.round(continued.coins * bankMult) : 0) : 0
     const { rows: profileRows } = await dbQuery(
       `INSERT INTO runner_profiles
          (client_id, name, best_score, total_score, total_coins, best_distance, best_combo, runs, bank)
@@ -475,7 +530,7 @@ router.post('/runs', async (req, res) => {
       rank = rankRows[0]?.rank ?? null
     }
 
-    res.json({ entry, profile: profileRows[0] ?? null, rank, verified, reason: flag })
+    res.json({ entry, profile: profileRows[0] ?? null, rank, verified, reason: flag, banked: bankedTotal })
   } catch (error) {
     console.error('[runner] run submit failed', error)
     res.status(500).json({ error: 'submit_failed' })

@@ -325,13 +325,14 @@ export default function RushApp() {
           top_speed: Math.round(result.topSpeed),
           best_combo: result.bestCombo,
           duration_s: Math.round(result.duration),
+          difficulty: result.difficulty,
         }, ticket))
           .then(async (response) => {
             if (response.profile) setProfile(response.profile)
             setRank(response.rank)
             setOffBoard(response.offBoard)
             // Coins from a run the server stamped go straight into the wallet.
-            setBanked(response.offBoard === 'unverified' ? 0 : result.coins)
+            setBanked(response.banked ?? (response.offBoard === 'unverified' ? 0 : result.coins))
             setSubmitState('done')
             void fetchEconomy(clientId).then((state) => {
               if (state) setEconomy(state)

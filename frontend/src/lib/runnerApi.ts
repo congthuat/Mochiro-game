@@ -144,6 +144,7 @@ export async function submitRunnerRun(
   profile: RunnerProfile | null
   rank: number | null
   offBoard: OffBoardReason
+  banked: number | null
 }> {
   const response = await fetch(api('runner/runs'), {
     method: 'POST',
@@ -157,9 +158,16 @@ export async function submitRunnerRun(
     rank: number | null
     verified?: boolean
     reason?: string | null
+    banked?: number
   }
   const offBoard: OffBoardReason = data.verified ? null : data.reason === 'guest' ? 'guest' : 'unverified'
-  return { entry: data.entry ?? null, profile: data.profile ?? null, rank: data.rank ?? null, offBoard }
+  return {
+    entry: data.entry ?? null,
+    profile: data.profile ?? null,
+    rank: data.rank ?? null,
+    offBoard,
+    banked: typeof data.banked === 'number' ? data.banked : null,
+  }
 }
 
 // ---------------------------------------------------------------- economy --
