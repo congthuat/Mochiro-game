@@ -2135,13 +2135,6 @@ body {
   color: #16233d;
 }
 
-.ar-auth-sub {
-  max-width: 33ch;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: #33455f;
-}
-
 /* 11 px uppercase is the hardest way to read a sentence, and every line down here
    is a sentence — the wallet note, the guest note, the network note. */
 .ar-auth .ar-hint {

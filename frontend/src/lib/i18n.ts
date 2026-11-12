@@ -196,10 +196,6 @@ const DICT: Record<string, Entry> = {
 
   // ----------------------------------------------------------------- auth --
   'auth.title': { en: 'Sign in to Mochiro', vi: 'Đăng nhập Mochiro' },
-  'auth.subtitle': {
-    en: 'Your progress, your coins and your rank follow your account.',
-    vi: 'Tiến độ, số Arc và thứ hạng của bạn đi theo tài khoản.',
-  },
   'auth.google': { en: 'Continue with Google', vi: 'Tiếp tục với Google' },
   'auth.wallet': { en: 'Connect a wallet', vi: 'Kết nối ví' },
   'auth.noWallet': {

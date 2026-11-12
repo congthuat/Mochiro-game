@@ -256,7 +256,6 @@ export function AuthGate({
             <MochiroLogo size={60} />
           </span>
           <h1 className="ar-auth-title">{t('auth.title')}</h1>
-          <p className="ar-auth-sub">{t('auth.subtitle')}</p>
         </header>
 
         {step.name === 'choose' && (

@@ -160,7 +160,6 @@ const TARGETS: Target[] = [
   { selector: '.ar-side-label', background: PANEL },
   { selector: '.ar-menu .ar-stat-label', background: PANEL },
   { selector: '.ar-auth-title', background: PANEL },
-  { selector: '.ar-auth-sub', background: PANEL },
   { selector: '.ar-auth .ar-hint', background: PANEL },
   { selector: '.ar-guest', background: PANEL },
   { selector: '.ar-signin', background: PANEL },
