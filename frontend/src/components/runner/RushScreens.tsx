@@ -166,7 +166,7 @@ export function RushMenu({
         <Lock size={17} /> {t('menu.unlock', { price: formatNumber(heroPrice(economy, character)) })}
       </button>
       {(economy?.bank ?? 0) < heroPrice(economy, character) && (
-        <p className="ar-name-error">
+        <p className="ar-need-note">
           {t('menu.needMore', { n: formatNumber(heroPrice(economy, character) - (economy?.bank ?? 0)) })}
         </p>
       )}
@@ -309,9 +309,9 @@ export function RushMenu({
                 like a field but cannot be typed in, was a second copy and a false promise.
                 A guest has no account to hold it, so the field stays. */}
             {(!account || nameState === 'taken' || nameState === 'short' || nameState === 'blocked' || editing) && (
-            <div className="ar-side-block">
-              <div className="ar-side-label">{t('menu.runnerName')}</div>
-              {(
+            <div className="ar-side-block ar-name-block">
+              <label className="ar-name-row">
+                <span className="ar-side-label">{t('menu.runnerName')}</span>
                 <input
                   className="ar-input"
                   value={name}
@@ -326,7 +326,7 @@ export function RushMenu({
                   }}
                   onChange={(event) => onNameChange(event.target.value)}
                 />
-              )}
+              </label>
               {nameNotice && <p className="ar-name-error">{nameNotice}</p>}
             </div>
             )}

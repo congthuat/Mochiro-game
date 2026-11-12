@@ -3624,3 +3624,40 @@ a.ar-pick-card {
     letter-spacing: 0.01em;
   }
 }
+
+/* ===================== Menu review, round 3 ===================== */
+
+/* The start button lives in a wrapper now (so a phone can dock a copy of it); the
+   wrapper has to hand the full column width on, or the button shrinks to its label. */
+.ar-start-wrap { display: flex; flex-direction: column; }
+.ar-start-wrap > .ar-start { width: 100%; }
+
+/* "You need 14,286 more" is information, not an error — amber, not red. */
+.ar-need-note {
+  margin: 6px 2px 0;
+  color: #8a5300;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* A guest's name field on one line: label beside the box instead of above it. */
+.ar-name-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.ar-name-row .ar-side-label { margin: 0; white-space: nowrap; }
+.ar-name-row .ar-input { padding-top: 9px; padding-bottom: 9px; }
+
+/* The two columns end on one line whatever the right one holds: the stage takes up
+   the difference (the camera refits to any shape — see stage.ts). */
+@media (min-width: 881px) {
+  .ar-menu .ar-menu-body { align-items: stretch; }
+  .ar-menu .ar-menu-heroes .ar-stage { flex: 1 1 214px; min-height: 214px; height: auto; }
+  /* Out of flow, so the canvas's own pixel size can never feed back into the height
+     it is being sized to. */
+  .ar-menu .ar-menu-heroes .ar-stage canvas { position: absolute; inset: 0; }
+}

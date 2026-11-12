@@ -94,17 +94,29 @@ function shadowTexture(): THREE.Texture {
 
 /** A soft vertical fade: bright at the floor, gone by the head — the selection beam. */
 function beamTexture(): THREE.Texture {
+  const width = 64
+  const height = 128
   const canvas = document.createElement('canvas')
-  canvas.width = 4
-  canvas.height = 128
+  canvas.width = width
+  canvas.height = height
   const ctx = canvas.getContext('2d')
   if (ctx) {
-    const gradient = ctx.createLinearGradient(0, 0, 0, 128)
-    gradient.addColorStop(0, 'rgba(255,255,255,0)')
-    gradient.addColorStop(0.5, 'rgba(255,255,255,0.3)')
-    gradient.addColorStop(1, 'rgba(255,255,255,0.85)')
-    ctx.fillStyle = gradient
-    ctx.fillRect(0, 0, 4, 128)
+    const up = ctx.createLinearGradient(0, 0, 0, height)
+    up.addColorStop(0, 'rgba(255,255,255,0)')
+    up.addColorStop(0.5, 'rgba(255,255,255,0.32)')
+    up.addColorStop(1, 'rgba(255,255,255,0.9)')
+    ctx.fillStyle = up
+    ctx.fillRect(0, 0, width, height)
+    // Soft sides: light, not a panel. The vertical fade is masked by a horizontal one.
+    ctx.globalCompositeOperation = 'destination-in'
+    const across = ctx.createLinearGradient(0, 0, width, 0)
+    across.addColorStop(0, 'rgba(255,255,255,0)')
+    across.addColorStop(0.3, 'rgba(255,255,255,0.75)')
+    across.addColorStop(0.5, 'rgba(255,255,255,1)')
+    across.addColorStop(0.7, 'rgba(255,255,255,0.75)')
+    across.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = across
+    ctx.fillRect(0, 0, width, height)
   }
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -256,21 +268,19 @@ export class CharacterStage {
       // The chosen hero stands in a column of their own colour, and a ripple runs out
       // across the floor the moment they are picked.
       this.beamMap ??= beamTexture()
-      // Only the far half of the column is drawn, so it glows behind the hero instead
-      // of tinting them. Normal blending: the stage is pale, and additive light on a
-      // pale floor simply vanishes.
+      // A soft-edged sheet of light standing behind the hero and always turned to the
+      // camera — a column would show hard silhouette edges, and drawn in front it would
+      // tint the hero. Normal blending: additive light on a pale stage simply vanishes.
       const beamMaterial = new THREE.MeshBasicMaterial({
         color: new THREE.Color(HERO_COLORS[id]).offsetHSL(0, 0.05, 0.12),
         map: this.beamMap,
         transparent: true,
         opacity: 0,
         depthWrite: false,
-        side: THREE.BackSide,
       })
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.66, BEAM_HEIGHT, 40, 1, true), beamMaterial)
-      beam.position.y = BEAM_HEIGHT / 2
-      beam.renderOrder = 2
-      root.add(beam)
+      const beam = new THREE.Mesh(new THREE.PlaneGeometry(1.9, BEAM_HEIGHT), beamMaterial)
+      beam.renderOrder = 1
+      this.scene.add(beam)
 
       const burstMaterial = new THREE.MeshBasicMaterial({
         color: new THREE.Color(HERO_COLORS[id]),
@@ -417,7 +427,9 @@ export class CharacterStage {
       const beamTarget = active ? 0.9 + Math.sin(this.time * 2.4) * 0.08 : 0
       slot.beamMaterial.opacity = THREE.MathUtils.damp(slot.beamMaterial.opacity, beamTarget, 6, dt)
       slot.beam.visible = slot.beamMaterial.opacity > 0.01
-      slot.beam.rotation.y += dt * 0.6
+      // Follows the hero's stand (not the hop), a step behind them, facing the camera.
+      slot.beam.position.set(slot.root.position.x, BEAM_HEIGHT / 2, slot.root.position.z - 0.45)
+      slot.beam.quaternion.copy(this.camera.quaternion)
 
       slot.burstT = Math.max(0, slot.burstT - dt)
       const burstP = 1 - slot.burstT / BURST_TIME
