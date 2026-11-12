@@ -157,22 +157,42 @@ async function authorise(req, clientId) {
 }
 
 // --------------------------------------------------------------- board --
-async function fetchBoard() {
-  const [top, stats] = await Promise.all([
-    // One line per player — their best verified run — under their current name.
-    dbQuery(
-      `SELECT b.id, COALESCE(p.name, b.name) AS name, b.score, b.coins, b.distance_m, b.top_speed,
-              b.best_combo, b.duration_s, b.created_at
-         FROM (
-           SELECT DISTINCT ON (client_id) *
-             FROM runner_runs
-            WHERE verified = true
-            ORDER BY client_id, score DESC, created_at ASC
-         ) b
-         LEFT JOIN runner_profiles p ON p.client_id = b.client_id
-        ORDER BY b.score DESC, b.created_at ASC
-        LIMIT 20`
-    ),
+const DAY_MS = 24 * 3600 * 1000
+
+/** Monday 00:00 UTC of the week containing `ms` — the weekly season boundary. */
+function weekStart(ms) {
+  const d = new Date(ms)
+  const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+  return midnight - ((d.getUTCDay() + 6) % 7) * DAY_MS
+}
+
+/** Best verified run per player inside [from, to), top `limit`, under their current name. */
+function boardQuery(from, to, limit) {
+  return dbQuery(
+    `SELECT b.id, COALESCE(p.name, b.name) AS name, b.score, b.coins, b.distance_m, b.top_speed,
+            b.best_combo, b.duration_s, b.created_at
+       FROM (
+         SELECT DISTINCT ON (client_id) *
+           FROM runner_runs
+          WHERE verified = true
+            AND ($1::timestamp IS NULL OR created_at >= $1::timestamp)
+            AND ($2::timestamp IS NULL OR created_at < $2::timestamp)
+          ORDER BY client_id, score DESC, created_at ASC
+       ) b
+       LEFT JOIN runner_profiles p ON p.client_id = b.client_id
+      ORDER BY b.score DESC, b.created_at ASC
+      LIMIT ${Number(limit)}`,
+    [from, to]
+  )
+}
+
+async function fetchBoard(scope = 'all') {
+  const now = Date.now()
+  const thisWeek = weekStart(now)
+  const iso = (ms) => new Date(ms).toISOString()
+  const weekly = scope === 'week'
+  const [top, stats, lastTop] = await Promise.all([
+    weekly ? boardQuery(iso(thisWeek), null, 20) : boardQuery(null, null, 20),
     dbQuery(
       `SELECT COUNT(*)::int AS runs,
               COALESCE(SUM(coins), 0)::int AS coins,
@@ -180,17 +200,20 @@ async function fetchBoard() {
               COALESCE(MAX(distance_m) FILTER (WHERE verified), 0)::int AS best_distance
          FROM runner_runs`
     ),
+    weekly ? boardQuery(iso(thisWeek - 7 * DAY_MS), iso(thisWeek), 3) : Promise.resolve({ rows: [] }),
   ])
   return {
+    scope: weekly ? 'week' : 'all',
     entries: top.rows,
     stats: stats.rows[0] ?? { runs: 0, coins: 0, best_score: 0, best_distance: 0 },
+    season: { startsAt: iso(thisWeek), endsAt: iso(thisWeek + 7 * DAY_MS), lastWeekTop: lastTop.rows },
   }
 }
 
-// GET /api/runner/leaderboard
-router.get('/leaderboard', async (_req, res) => {
+// GET /api/runner/leaderboard?scope=all|week
+router.get('/leaderboard', async (req, res) => {
   try {
-    res.json(await fetchBoard())
+    res.json(await fetchBoard(req.query.scope === 'week' ? 'week' : 'all'))
   } catch (error) {
     console.error('[runner] leaderboard failed', error)
     res.status(500).json({ error: 'leaderboard_unavailable' })
@@ -412,12 +435,15 @@ router.post('/runs', async (req, res) => {
     // Totals grow by what this post adds: the whole run, or only the part after a revive.
     const addScore = continued ? score - continued.score : score
     const addCoins = continued ? coins - continued.coins : coins
+    // Coins only reach the spendable bank from runs the server handed a ticket for.
+    const bankDelta = flag === null || flag === 'guest' ? addCoins : 0
     const { rows: profileRows } = await dbQuery(
       `INSERT INTO runner_profiles
-         (client_id, name, best_score, total_score, total_coins, best_distance, best_combo, runs)
-       VALUES ($1, $2, $3, $7, GREATEST($8, 0), $5, $6, 1)
+         (client_id, name, best_score, total_score, total_coins, best_distance, best_combo, runs, bank)
+       VALUES ($1, $2, $3, $7, GREATEST($8, 0), $5, $6, 1, GREATEST($9, 0))
        ON CONFLICT (client_id) DO UPDATE SET
          name = EXCLUDED.name,
+         bank = GREATEST(runner_profiles.bank + $9, 0),
          best_score = GREATEST(runner_profiles.best_score, $3),
          total_score = runner_profiles.total_score + $7,
          total_coins = GREATEST(runner_profiles.total_coins + $8, 0),
@@ -426,8 +452,16 @@ router.post('/runs', async (req, res) => {
          runs = runner_profiles.runs + $4,
          updated_at = NOW()
        RETURNING *`,
-      [clientId, name, score, continued ? 0 : 1, distance, bestCombo, addScore, addCoins]
+      [clientId, name, score, continued ? 0 : 1, distance, bestCombo, addScore, addCoins, bankDelta]
     )
+    if (bankDelta !== 0 && profileRows[0]) {
+      void dbQuery('INSERT INTO runner_ledger (client_id, delta, reason, balance) VALUES ($1, $2, $3, $4)', [
+        clientId,
+        bankDelta,
+        'run',
+        profileRows[0].bank,
+      ]).catch(() => {})
+    }
 
     // Rank on the public board (one line per player). Unverified runs have no rank.
     let rank = null

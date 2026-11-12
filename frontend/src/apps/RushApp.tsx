@@ -32,10 +32,45 @@ import {
   startRunnerTicket,
   submitRunnerRun,
   type OffBoardReason,
+  cachedEconomy,
+  economyAction,
+  fetchEconomy,
+  type BoardScope,
+  type EconomyAction,
+  type EconomyState,
+  type SeasonInfo,
 } from '../lib/runnerApi'
+import { translate } from '../lib/i18n'
+import {
+  RushDaily,
+  RushQuests,
+  RushShop,
+  TutorialCoach,
+  heroUnlocked,
+  nextCoachStep,
+  type CoachStep,
+  type EcoNote,
+} from '../components/runner/RushEconomy'
 
 const SETTINGS_KEY = 'arcrush.settings'
 const BEST_KEY = 'arcrush.best'
+const TUTORIAL_KEY = 'mochiro.tutorialDone'
+
+function tutorialDone(): boolean {
+  try {
+    return window.localStorage.getItem(TUTORIAL_KEY) === '1'
+  } catch {
+    return true
+  }
+}
+
+function markTutorialDone(): void {
+  try {
+    window.localStorage.setItem(TUTORIAL_KEY, '1')
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 const DEFAULT_SETTINGS: Settings = {
   character: 'kai',
@@ -84,7 +119,7 @@ function storeBest(value: number): void {
   }
 }
 
-type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth'
+type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily'
 
 export default function RushApp() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -143,7 +178,21 @@ export default function RushApp() {
   const [offBoard, setOffBoard] = useState<OffBoardReason>(null)
   const bestRef = useRef(loadBest())
 
+  // ---- meta progression (wallet, shop, daily, quests, season) ----
+  const [economy, setEconomy] = useState<EconomyState | null>(() =>
+    typeof window === 'undefined' ? null : cachedEconomy(getRunnerClientId())
+  )
+  const [ecoBusy, setEcoBusy] = useState<string | null>(null)
+  const [ecoNote, setEcoNote] = useState<EcoNote>(null)
+  const [banked, setBanked] = useState<number | null>(null)
+  const dailyOffered = useRef(false)
+  const [boardScope, setBoardScope] = useState<BoardScope>('week')
+  const [season, setSeason] = useState<SeasonInfo | null>(null)
+  const [coach, setCoach] = useState<CoachStep | null>(null)
+
   settingsRef.current = settings
+  const economyRef = useRef<EconomyState | null>(null)
+  economyRef.current = economy
   nameRef.current = name
   phaseRef.current = phase
   panelRef.current = panel
@@ -183,6 +232,10 @@ export default function RushApp() {
     const clientId = getRunnerClientId()
     clientIdRef.current = clientId
     let cancelled = false
+    setEconomy(cachedEconomy(clientId))
+    void fetchEconomy(clientId).then((state) => {
+      if (!cancelled && state) setEconomy(state)
+    })
 
     const load = async () => {
       try {
@@ -243,6 +296,9 @@ export default function RushApp() {
       runner.events.on('pickup', (event) => setPickup(event)),
       runner.events.on('brand', (value) => setBrand(value)),
       runner.events.on('damage', () => setHitCount((count) => count + 1)),
+      runner.events.on('action', (action) =>
+        setCoach((step) => (step && step !== 'done' ? nextCoachStep(step, action) : step))
+      ),
       runner.events.on('pauseKey', () => {
         if (panelRef.current !== 'none') {
           setPanel('none')
@@ -274,7 +330,12 @@ export default function RushApp() {
             if (response.profile) setProfile(response.profile)
             setRank(response.rank)
             setOffBoard(response.offBoard)
+            // Coins from a run the server stamped go straight into the wallet.
+            setBanked(response.offBoard === 'unverified' ? 0 : result.coins)
             setSubmitState('done')
+            void fetchEconomy(clientId).then((state) => {
+              if (state) setEconomy(state)
+            })
             try {
               const board = await fetchRunnerLeaderboard()
               setEntries(board.entries)
@@ -349,6 +410,91 @@ export default function RushApp() {
     runnerRef.current?.applySettings(settings)
     storeSettings(settings)
   }, [settings])
+
+  // Shop upgrades stretch the helpful power-ups in the next run.
+  const upgradeKey = economy ? JSON.stringify(economy.upgrades) : ''
+  useEffect(() => {
+    if (!economy) return
+    runnerRef.current?.setUpgrades(economy.upgrades, economy.catalog.upgrades.step)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upgradeKey, phase === 'menu'])
+
+  // First run ever: a three-step coach (lane, jump, slide) over the live game.
+  useEffect(() => {
+    if (phase === 'playing' && coach === null && !tutorialDone()) setCoach('lane')
+  }, [phase, coach])
+  useEffect(() => {
+    if (coach !== 'done') return
+    markTutorialDone()
+    const timer = window.setTimeout(() => setCoach(null), 2600)
+    return () => window.clearTimeout(timer)
+  }, [coach])
+
+  // The daily reward offers itself once per visit, on the menu.
+  useEffect(() => {
+    if (phase !== 'menu' || gated || panel !== 'none' || dailyOffered.current) return
+    if (!economy?.daily.claimable) return
+    dailyOffered.current = true
+    setPanel('daily')
+  }, [phase, gated, panel, economy])
+
+  useEffect(() => {
+    if (panel !== 'board') return
+    let cancelled = false
+    void fetchRunnerLeaderboard(boardScope)
+      .then((board) => {
+        if (cancelled) return
+        setEntries(board.entries)
+        setStats(board.stats)
+        setSeason(board.season)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [panel, boardScope])
+
+  const runEconomy = useCallback(async (action: EconomyAction, busyKey: string, success: (reward?: number) => string) => {
+    const clientId = clientIdRef.current || getRunnerClientId()
+    setEcoBusy(busyKey)
+    setEcoNote(null)
+    const outcome = await economyAction(clientId, action)
+    setEcoBusy(null)
+    if (outcome.state) setEconomy(outcome.state)
+    if (outcome.ok) {
+      runnerRef.current?.uiSound('click')
+      setEcoNote({ tone: 'ok', text: success(outcome.reward) })
+      return true
+    }
+    if (!outcome.state) void fetchEconomy(clientId).then((state) => state && setEconomy(state))
+    setEcoNote({
+      tone: 'bad',
+      text: translate(outcome.error === 'not_enough_coins' ? 'shop.notEnough' : 'shop.failed'),
+    })
+    return false
+  }, [])
+
+  const handleBuy = useCallback(
+    (item: string) =>
+      void runEconomy({ kind: 'buy', item }, item, () => translate(item.startsWith('char:') ? 'shop.bought' : 'shop.upgraded')),
+    [runEconomy]
+  )
+  const handleClaimDaily = useCallback(() => {
+    void runEconomy({ kind: 'daily' }, 'daily', (reward) => translate('daily.got', undefined, { n: reward ?? 0 })).then(
+      (ok) => {
+        if (ok) window.setTimeout(() => setPanel((current) => (current === 'daily' ? 'none' : current)), 1200)
+      }
+    )
+  }, [runEconomy])
+  const handleClaimQuest = useCallback(
+    (quest: string) =>
+      void runEconomy({ kind: 'quest', quest }, quest, (reward) => translate('daily.got', undefined, { n: reward ?? 0 })),
+    [runEconomy]
+  )
+  const handleClaimSeason = useCallback(
+    () => void runEconomy({ kind: 'season' }, 'season', (reward) => translate('daily.got', undefined, { n: reward ?? 0 })),
+    [runEconomy]
+  )
 
   useEffect(() => {
     if (!profile?.best_score) return
@@ -434,12 +580,17 @@ export default function RushApp() {
   }, [])
 
   const handleStart = useCallback(() => {
+    if (!heroUnlocked(economyRef.current, settingsRef.current.character)) {
+      setPanel('shop')
+      return
+    }
     setSummary(null)
     setRank(null)
     setSubmitState('idle')
     setPanel('none')
     setHintSeen(false)
     setOffBoard(null)
+    setBanked(null)
     ticketRef.current = startRunnerTicket(clientIdRef.current || getRunnerClientId())
     runnerRef.current?.uiSound('click')
     runnerRef.current?.startRun()
@@ -451,6 +602,7 @@ export default function RushApp() {
     setSubmitState('idle')
     setHintSeen(false)
     setOffBoard(null)
+    setBanked(null)
     ticketRef.current = startRunnerTicket(clientIdRef.current || getRunnerClientId())
     runnerRef.current?.restartRun()
   }, [])
@@ -514,7 +666,17 @@ export default function RushApp() {
         />
       )}
       <RushToasts toasts={toasts} />
-      {isTouch && phase === 'playing' && !hintSeen && <SwipeHint onDone={() => setHintSeen(true)} />}
+      {phase === 'playing' && coach && (
+        <TutorialCoach
+          step={coach}
+          isTouch={isTouch}
+          onSkip={() => {
+            markTutorialDone()
+            setCoach(null)
+          }}
+        />
+      )}
+      {isTouch && phase === 'playing' && !hintSeen && !coach && <SwipeHint onDone={() => setHintSeen(true)} />}
 
       {(phase === 'boot' || phase === 'loading') && <RushLoading progress={progress} />}
 
@@ -525,7 +687,13 @@ export default function RushApp() {
           onNameChange={handleNameChange}
           nameState={nameState}
           onStart={handleStart}
-          onOpen={(next) => setPanel(next === 'board' ? 'board' : next === 'help' ? 'help' : 'settings')}
+          onOpen={(next) => {
+            setEcoNote(null)
+            openPanel(next)
+          }}
+          economy={economy}
+          buying={ecoBusy !== null}
+          onUnlock={(id) => handleBuy(`char:${id}`)}
           profile={profile}
           character={settings.character}
           onCharacterChange={(id) => setSettings((prev) => ({ ...prev, character: id }))}
@@ -559,6 +727,7 @@ export default function RushApp() {
           onMenu={handleQuit}
           onLeaderboard={() => openPanel('board')}
           onRevive={() => runnerRef.current?.revive()}
+          banked={banked}
         />
       )}
 
@@ -589,7 +758,37 @@ export default function RushApp() {
           stats={stats}
           highlightRank={rank}
           onClose={() => setPanel('none')}
+          scope={boardScope}
+          onScope={setBoardScope}
+          season={season}
         />
+      )}
+      {panel === 'shop' && economy && (
+        <RushShop
+          economy={economy}
+          busy={ecoBusy}
+          note={ecoNote}
+          guest={!account}
+          onBuy={handleBuy}
+          onPick={(id) => {
+            setSettings((prev) => ({ ...prev, character: id }))
+            setPanel('none')
+          }}
+          onClose={() => setPanel('none')}
+        />
+      )}
+      {panel === 'quests' && economy && (
+        <RushQuests
+          economy={economy}
+          busy={ecoBusy}
+          note={ecoNote}
+          onClaim={handleClaimQuest}
+          onClaimSeason={handleClaimSeason}
+          onClose={() => setPanel('none')}
+        />
+      )}
+      {panel === 'daily' && economy && (
+        <RushDaily economy={economy} busy={ecoBusy !== null} onClaim={handleClaimDaily} onClose={() => setPanel('none')} />
       )}
     </div>
   )

@@ -1,13 +1,14 @@
 // Mochiro screens: loading, main menu, pause, results, settings, help, board.
-import { Check, HelpCircle, Home, Loader2, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Shield, Trophy, Volume2, X } from 'lucide-react'
+import { Check, Coins, HelpCircle, Home, Loader2, Lock, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Shield, ShoppingBag, Target, Trophy, Volume2, X } from 'lucide-react'
 import { MochiroLogo } from './MochiroLogo'
 import { formatCompact, formatDistance, formatScore, formatSpeed, formatTime } from '../../runner/utils'
 import { useEffect, useRef, useState } from 'react'
 import { DIFFICULTIES, CHARACTERS, CHARACTER_IDS, type CharacterId, type CharacterSpec, type DifficultyId } from '../../runner/config'
 import { CharacterStage } from '../../runner/stage'
-import { useLang, useT, setLang, type Lang } from '../../lib/i18n'
+import { formatNumber, useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import type { AuthAccount } from '../../lib/auth'
-import { loadRunnerName, type NameState } from '../../lib/runnerApi'
+import { loadRunnerName, type BoardScope, type EconomyState, type NameState, type SeasonInfo } from '../../lib/runnerApi'
+import { BankChip, claimableCount, formatLeft, heroPrice, heroUnlocked, useNow } from './RushEconomy'
 import { AccountChip } from './AuthGate'
 import type {
   ArcBrand,
@@ -59,7 +60,13 @@ export function RushMenu({
   onSignIn,
   nameState,
   quality,
+  economy,
+  buying,
+  onUnlock,
 }: {
+  economy: EconomyState | null
+  buying: boolean
+  onUnlock: (id: CharacterId) => void
   brand: ArcBrand | null
   name: string
   character: CharacterId
@@ -73,7 +80,7 @@ export function RushMenu({
   quality: 'low' | 'medium' | 'high'
   onNameChange: (value: string) => void
   onStart: () => void
-  onOpen: (panel: 'help' | 'board' | 'settings') => void
+  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests') => void
   profile: RunnerProfile | null
 }) {
   const t = useT()
@@ -129,6 +136,7 @@ export function RushMenu({
             </div>
           </div>
           <div className="ar-menu-tools">
+            <BankChip bank={economy?.bank ?? null} onClick={() => onOpen('shop')} />
             <div className="ar-lang" role="group" aria-label={t('lang.label')}>
               {(['vi', 'en'] as Lang[]).map((id) => (
                 <button
@@ -169,11 +177,16 @@ export function RushMenu({
               {(CHARACTER_IDS.map((id) => CHARACTERS[id]) as CharacterSpec[]).map((item) => (
                 <button
                   key={item.id}
-                  className={`ar-char-tile ${character === item.id ? 'is-active' : ''}`}
+                  className={`ar-char-tile ${character === item.id ? 'is-active' : ''} ${heroUnlocked(economy, item.id) ? '' : 'is-locked'}`}
                   style={{ ['--ar-accent' as string]: `#${item.accent.toString(16).padStart(6, '0')}` }}
                   onClick={() => onCharacterChange(item.id)}
                 >
                   <span className="ar-char-tile-name">{item.name}</span>
+                  {!heroUnlocked(economy, item.id) && (
+                    <span className="ar-char-tile-price">
+                      <Lock size={10} /> {formatNumber(heroPrice(economy, item.id))}
+                    </span>
+                  )}
                   <span className="ar-char-tile-tag">{t(`char.${item.id}.tag`)}</span>
                   <span className="ar-char-tile-perk">
                     <span className="ar-char-tile-perk-label">{t('char.ability')}</span>
@@ -241,9 +254,36 @@ export function RushMenu({
             {/* Not disabled. A taken name is refused where it matters — the save — and the
                 run simply keeps the name already on the profile. A dead start button is a
                 wall: it stops the player playing over a label. */}
-            <button className="ar-btn ar-btn-primary ar-start" onClick={onStart}>
-              <Play size={18} /> {t('menu.start')}
-            </button>
+            {heroUnlocked(economy, character) ? (
+              <button className="ar-btn ar-btn-primary ar-start" onClick={onStart}>
+                <Play size={18} /> {t('menu.start')}
+              </button>
+            ) : (
+              <>
+                <button
+                  className="ar-btn ar-btn-primary ar-start"
+                  disabled={buying || (economy?.bank ?? 0) < heroPrice(economy, character)}
+                  onClick={() => onUnlock(character)}
+                >
+                  <Lock size={17} /> {t('menu.unlock', { price: formatNumber(heroPrice(economy, character)) })}
+                </button>
+                {(economy?.bank ?? 0) < heroPrice(economy, character) && (
+                  <p className="ar-name-error">
+                    {t('menu.needMore', { n: formatNumber(heroPrice(economy, character) - (economy?.bank ?? 0)) })}
+                  </p>
+                )}
+              </>
+            )}
+
+            <div className="ar-menu-row ar-eco-row">
+              <button className="ar-btn" onClick={() => onOpen('shop')}>
+                <ShoppingBag size={14} /> {t('menu.shop')}
+              </button>
+              <button className="ar-btn ar-badged" onClick={() => onOpen('quests')}>
+                <Target size={14} /> {t('menu.quests')}
+                {claimableCount(economy) > 0 && <span className="ar-badge">{claimableCount(economy)}</span>}
+              </button>
+            </div>
 
             <div className="ar-menu-row">
               <button className="ar-btn" onClick={() => onOpen('help')}>
@@ -337,7 +377,9 @@ export function RushGameOver({
   onMenu,
   onLeaderboard,
   onRevive,
+  banked,
 }: {
+  banked: number | null
   summary: RunSummary
   submitState: 'idle' | 'sending' | 'done' | 'error'
   rank: number | null
@@ -387,6 +429,11 @@ export function RushGameOver({
                 <span className="ar-over-mission-count">{summary.nearMisses}</span>
               </div>
             )}
+          </div>
+        )}
+        {submitState === 'done' && banked !== null && banked > 0 && (
+          <div className="ar-banked">
+            <Coins size={14} /> {t('over.banked', { n: formatNumber(banked) })}
           </div>
         )}
         <div className="ar-hint mt-4">
@@ -671,13 +718,20 @@ export function RushLeaderboard({
   stats,
   onClose,
   highlightRank,
+  scope,
+  onScope,
+  season,
 }: {
   entries: LeaderboardEntry[]
   stats: GlobalStats | null
   onClose: () => void
   highlightRank: number | null
+  scope: BoardScope
+  onScope: (scope: BoardScope) => void
+  season: SeasonInfo | null
 }) {
   const t = useT()
+  const now = useNow()
   return (
     <div
       className="ar-screen"
@@ -696,6 +750,37 @@ export function RushLeaderboard({
           </button>
         </div>
 
+        <div className="ar-seg mt-3">
+          {(['week', 'all'] as BoardScope[]).map((id) => (
+            <button
+              key={id}
+              className={`ar-btn ar-btn-sm ${scope === id ? 'ar-seg-active' : ''}`}
+              onClick={() => onScope(id)}
+            >
+              {t(id === 'week' ? 'season.week' : 'season.all')}
+            </button>
+          ))}
+        </div>
+
+        {scope === 'week' && season && (
+          <div className="ar-season-box">
+            <div className="ar-season-ends">
+              <Trophy size={14} /> {t('season.ends', { time: formatLeft(season.endsAt, now) })}
+            </div>
+            <div className="ar-row-sub">{t('season.prizes')}</div>
+            {season.lastWeekTop.length > 0 && (
+              <div className="ar-season-last">
+                <span className="ar-row-sub">{t('season.lastTop')}:</span>
+                {season.lastWeekTop.map((entry, index) => (
+                  <span key={entry.id} className="ar-season-champ">
+                    {['🥇', '🥈', '🥉'][index]} {entry.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="ar-hint mt-3">
           {stats
             ? t('board.stats', {
@@ -711,7 +796,7 @@ export function RushLeaderboard({
           {entries.map((entry, index) => (
             <div
               key={entry.id}
-              className={`ar-row ${highlightRank === index + 1 ? 'ar-row-highlight' : ''}`}
+              className={`ar-row ${scope === 'all' && highlightRank === index + 1 ? 'ar-row-highlight' : ''}`}
             >
               <span className={`ar-rank ${index < 3 ? 'ar-rank-medal' : ''}`}>
                 {index < 3 ? <Medal size={16} /> : index + 1}

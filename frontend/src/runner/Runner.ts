@@ -150,7 +150,12 @@ export class Runner {
     brand: ArcBrand
     pauseKey: undefined,
     pickup: PickupEvent
+    action: RushAction
   }>()
+
+  /** Shop upgrade levels (0–5) per helpful power; each level stretches it by `upgradeStep`. */
+  private upgrades: Partial<Record<PowerKind, number>> = {}
+  private upgradeStep = 0.15
 
   private container: HTMLElement
   private settings: Settings
@@ -276,6 +281,8 @@ export class Runner {
     this.input = new RushInput(container)
     // Escape / P are forwarded to the shell, which owns panel + pause state.
     this.input.onPause(() => this.events.emit('pauseKey', undefined))
+    // The first-run coach listens for the moves it asks for.
+    this.input.onAction((action) => this.events.emit('action', action))
 
     window.addEventListener('resize', this.onResize)
   }
@@ -818,6 +825,17 @@ export class Runner {
 
   private get laneScale(): number {
     return this.perkScale('quickLane')
+  }
+
+  /** Applies the levels bought in the shop; takes effect from the next pickup. */
+  setUpgrades(levels: Partial<Record<PowerKind, number>>, step = 0.15): void {
+    this.upgrades = { ...levels }
+    this.upgradeStep = step
+  }
+
+  private upgradeScale(kind: PowerKind): number {
+    const level = Math.max(0, Math.min(5, Math.floor(this.upgrades[kind] ?? 0)))
+    return 1 + level * this.upgradeStep
   }
 
   private get powerScale(): number {
@@ -1669,12 +1687,12 @@ export class Runner {
     // Bobbilee stretches every reward; Tim stretches only Overdrive, and further.
     const duration = spec.harmful
       ? spec.duration
-      : spec.duration * this.powerScale * (kind === 'boost' ? this.boostScale : 1)
+      : spec.duration * this.powerScale * (kind === 'boost' ? this.boostScale : 1) * this.upgradeScale(kind)
     if (kind === 'shield') {
       run.shield = Math.min(RUN.maxShields, run.shield + 1)
       this.toast('Shield up — one free hit', 'power')
     } else if (kind === 'magnet') {
-      const magnetTime = RUN.magnetTime * this.powerScale
+      const magnetTime = RUN.magnetTime * this.powerScale * this.upgradeScale('magnet')
       run.magnetUntil = run.elapsed + magnetTime
       this.audio.play('boost')
       this.toast(`Magnet online — ${magnetTime.toFixed(0)}s`, 'power')

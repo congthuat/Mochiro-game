@@ -261,7 +261,7 @@ export function RushHud({
                 <span className="ar-power-pill" style={{ '--ar-power': POWER_GLOW.magnet } as CSSProperties}>
                   <Magnet size={12} /> {t('power.magnet.pill')} {hud.magnet.toFixed(1)}s
                   <span className="ar-power-bar">
-                    <span style={{ width: `${(hud.magnet / POWER_BY_KIND.magnet.duration) * 100}%` }} />
+                    <span style={{ width: `${Math.min(100, (hud.magnet / POWER_BY_KIND.magnet.duration) * 100)}%` }} />
                   </span>
                 </span>
               )}
@@ -274,7 +274,7 @@ export function RushHud({
                 <span className="ar-power-pill" style={{ '--ar-power': POWER_GLOW.double } as CSSProperties}>
                   <Coins size={12} /> {t('power.double.pill')} {hud.double.toFixed(1)}s
                   <span className="ar-power-bar">
-                    <span style={{ width: `${(hud.double / POWER_BY_KIND.double.duration) * 100}%` }} />
+                    <span style={{ width: `${Math.min(100, (hud.double / POWER_BY_KIND.double.duration) * 100)}%` }} />
                   </span>
                 </span>
               )}
@@ -282,7 +282,7 @@ export function RushHud({
                 <span className="ar-power-pill" style={{ '--ar-power': POWER_GLOW.ghost } as CSSProperties}>
                   <Ghost size={12} /> {t('power.ghost.pill')} {hud.ghost.toFixed(1)}s
                   <span className="ar-power-bar">
-                    <span style={{ width: `${(hud.ghost / POWER_BY_KIND.ghost.duration) * 100}%` }} />
+                    <span style={{ width: `${Math.min(100, (hud.ghost / POWER_BY_KIND.ghost.duration) * 100)}%` }} />
                   </span>
                 </span>
               )}
@@ -290,7 +290,7 @@ export function RushHud({
                 <span className="ar-power-pill ar-power-pill-bad">
                   <Shuffle size={12} /> {t('power.invert.pill')} {hud.invert.toFixed(1)}s
                   <span className="ar-power-bar">
-                    <span style={{ width: `${(hud.invert / POWER_BY_KIND.invert.duration) * 100}%` }} />
+                    <span style={{ width: `${Math.min(100, (hud.invert / POWER_BY_KIND.invert.duration) * 100)}%` }} />
                   </span>
                 </span>
               )}
@@ -298,7 +298,7 @@ export function RushHud({
                 <span className="ar-power-pill ar-power-pill-bad">
                   <CloudFog size={12} /> {t('power.fog.pill')} {hud.fog.toFixed(1)}s
                   <span className="ar-power-bar">
-                    <span style={{ width: `${(hud.fog / POWER_BY_KIND.fog.duration) * 100}%` }} />
+                    <span style={{ width: `${Math.min(100, (hud.fog / POWER_BY_KIND.fog.duration) * 100)}%` }} />
                   </span>
                 </span>
               )}
@@ -306,7 +306,7 @@ export function RushHud({
                 <span className="ar-power-pill ar-power-pill-bad">
                   <Weight size={12} /> {t('power.heavy.pill')} {hud.heavy.toFixed(1)}s
                   <span className="ar-power-bar">
-                    <span style={{ width: `${(hud.heavy / POWER_BY_KIND.heavy.duration) * 100}%` }} />
+                    <span style={{ width: `${Math.min(100, (hud.heavy / POWER_BY_KIND.heavy.duration) * 100)}%` }} />
                   </span>
                 </span>
               )}

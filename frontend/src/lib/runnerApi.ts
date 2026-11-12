@@ -108,14 +108,27 @@ export async function saveRunnerProfile(clientId: string, name: string): Promise
   return data.profile ?? null
 }
 
-export async function fetchRunnerLeaderboard(): Promise<{
+export type BoardScope = 'all' | 'week'
+
+export interface SeasonInfo {
+  startsAt: string
+  endsAt: string
+  lastWeekTop: LeaderboardEntry[]
+}
+
+export async function fetchRunnerLeaderboard(scope: BoardScope = 'all'): Promise<{
   entries: LeaderboardEntry[]
   stats: GlobalStats
+  season: SeasonInfo | null
 }> {
-  const response = await fetch(api('runner/leaderboard'))
+  const response = await fetch(`${api('runner/leaderboard')}?scope=${scope}`)
   if (!response.ok) throw new Error('leaderboard unavailable')
-  const data = (await response.json()) as { entries: LeaderboardEntry[]; stats: GlobalStats }
-  return { entries: data.entries ?? [], stats: data.stats ?? { runs: 0, coins: 0, best_score: 0, best_distance: 0 } }
+  const data = (await response.json()) as { entries: LeaderboardEntry[]; stats: GlobalStats; season?: SeasonInfo }
+  return {
+    entries: data.entries ?? [],
+    stats: data.stats ?? { runs: 0, coins: 0, best_score: 0, best_distance: 0 },
+    season: data.season ?? null,
+  }
 }
 
 /** Why a run stayed off the public board (null when it is on it). */
@@ -147,4 +160,103 @@ export async function submitRunnerRun(
   }
   const offBoard: OffBoardReason = data.verified ? null : data.reason === 'guest' ? 'guest' : 'unverified'
   return { entry: data.entry ?? null, profile: data.profile ?? null, rank: data.rank ?? null, offBoard }
+}
+
+// ---------------------------------------------------------------- economy --
+export type UpgradeKind = 'magnet' | 'boost' | 'double' | 'ghost'
+
+export interface QuestState {
+  id: string
+  target: number
+  reward: number
+  progress: number
+  claimed: boolean
+}
+
+export interface EconomyState {
+  bank: number
+  unlocked: string[]
+  upgrades: Record<UpgradeKind, number>
+  daily: { claimable: boolean; streak: number; nextDay: number; nextReward: number; rewards: number[] }
+  quests: QuestState[]
+  resetsAt: string
+  season: {
+    key: string
+    endsAt: string
+    lastWeek: { key: string; rank: number | null; reward: number; claimable: boolean }
+  }
+  catalog: {
+    characters: Record<string, number>
+    upgrades: { kinds: UpgradeKind[]; costs: number[]; max: number; step: number }
+    daily: number[]
+  }
+}
+
+const ECONOMY_KEY = 'mochiro.economy'
+
+/** Last known state, so the menu shows coins and locks instantly while the server answers. */
+export function cachedEconomy(clientId: string): EconomyState | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(ECONOMY_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw) as { clientId: string; state: EconomyState }
+    return data.clientId === clientId ? data.state : null
+  } catch {
+    return null
+  }
+}
+
+function cacheEconomy(clientId: string, state: EconomyState) {
+  try {
+    window.localStorage.setItem(ECONOMY_KEY, JSON.stringify({ clientId, state }))
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export async function fetchEconomy(clientId: string): Promise<EconomyState | null> {
+  try {
+    const response = await fetch(`${api('economy')}?client_id=${encodeURIComponent(clientId)}`)
+    if (!response.ok) return null
+    const state = (await response.json()) as EconomyState
+    cacheEconomy(clientId, state)
+    return state
+  } catch {
+    return null
+  }
+}
+
+export type EconomyAction =
+  | { kind: 'buy'; item: string }
+  | { kind: 'daily' }
+  | { kind: 'quest'; quest: string }
+  | { kind: 'season' }
+
+export interface EconomyResult {
+  ok: boolean
+  error?: string
+  reward?: number
+  state?: EconomyState
+}
+
+export async function economyAction(clientId: string, action: EconomyAction): Promise<EconomyResult> {
+  const { kind, ...rest } = action
+  try {
+    const response = await fetch(api(`economy/${kind}`), {
+      method: 'POST',
+      headers: writeHeaders(),
+      body: JSON.stringify({ client_id: clientId, ...rest }),
+    })
+    const data = (await response.json().catch(() => ({}))) as {
+      error?: string
+      reward?: number
+      state?: EconomyState
+    }
+    if (data.state) cacheEconomy(clientId, data.state)
+    if (!response.ok) return { ok: false, error: data.error ?? 'failed', state: data.state }
+    return { ok: true, reward: data.reward, state: data.state }
+  } catch {
+    return { ok: false, error: 'offline' }
+  }
 }

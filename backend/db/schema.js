@@ -36,8 +36,37 @@ exports.runner_profiles = pgTable("runner_profiles", {
   best_distance: integer("best_distance").notNull().default(0),
   best_combo: integer("best_combo").notNull().default(0),
   runs: integer("runs").notNull().default(0),
+  // ---- Economy (server-authoritative; see routes/economy.js) ----
+  // Spendable coins, carried across runs.
+  bank: integer("bank").notNull().default(0),
+  // Comma-wrapped list of bought heroes, e.g. ",bjorn,nyx," (free heroes are implied).
+  unlocked: text("unlocked").notNull().default(","),
+  // Power-up upgrade levels, 0..5 each.
+  up_magnet: integer("up_magnet").notNull().default(0),
+  up_boost: integer("up_boost").notNull().default(0),
+  up_double: integer("up_double").notNull().default(0),
+  up_ghost: integer("up_ghost").notNull().default(0),
+  // Daily login reward: streak day 1..7 and the UTC day (YYYY-MM-DD) last claimed.
+  daily_streak: integer("daily_streak").notNull().default(0),
+  daily_last: text("daily_last"),
+  // Daily quests: the UTC day the claims below belong to, and the claimed ids ",a,b,".
+  quests_day: text("quests_day"),
+  quests_claimed: text("quests_claimed").notNull().default(","),
+  // Weekly season: the last season key (e.g. 2026-11-09) whose reward was paid out.
+  season_claimed: text("season_claimed"),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
+});
+
+// Every coin that enters or leaves a bank, for auditing and support.
+exports.runner_ledger = pgTable("runner_ledger", {
+  id: serial("id").primaryKey(),
+  client_id: text("client_id").notNull(),
+  delta: integer("delta").notNull(),
+  // 'run' | 'buy:char:<id>' | 'buy:up:<kind>' | 'daily' | 'quest:<id>' | 'season:<key>' | 'welcome'
+  reason: text("reason").notNull(),
+  balance: integer("balance"),
+  created_at: timestamp("created_at").defaultNow(),
 });
 
 // Arc Rush — one row per finished sprint, feeds the runner leaderboard.
