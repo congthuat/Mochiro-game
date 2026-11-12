@@ -1,5 +1,5 @@
 // Mochiro screens: loading, main menu, pause, results, settings, help, board.
-import { Check, Coins, HelpCircle, Home, Loader2, Lock, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Shield, ShoppingBag, Target, Trophy, Volume2, X } from 'lucide-react'
+import { Award, Check, Coins, HelpCircle, Home, Loader2, Lock, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, X } from 'lucide-react'
 import { MochiroLogo } from './MochiroLogo'
 import { formatCompact, formatDistance, formatScore, formatSpeed, formatTime } from '../../runner/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -8,7 +8,7 @@ import { CharacterStage } from '../../runner/stage'
 import { formatNumber, useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import type { AuthAccount } from '../../lib/auth'
 import { loadRunnerName, type BoardScope, type EconomyState, type NameState, type SeasonInfo } from '../../lib/runnerApi'
-import { BankChip, claimableCount, formatLeft, heroPrice, heroUnlocked, useNow } from './RushEconomy'
+import { BankChip, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
 import { AccountChip } from './AuthGate'
 import type {
   ArcBrand,
@@ -63,10 +63,18 @@ export function RushMenu({
   economy,
   buying,
   onUnlock,
+  canInstall,
+  onInstall,
+  inviteFrom,
 }: {
   economy: EconomyState | null
   buying: boolean
   onUnlock: (id: CharacterId) => void
+  /** The browser offered to install the game (or it is iOS Safari, which needs a hint). */
+  canInstall: boolean
+  onInstall: () => void
+  /** Name of the player whose invite link brought a not-yet-signed-in visitor here. */
+  inviteFrom: { name: string; welcome: number } | null
   brand: ArcBrand | null
   name: string
   character: CharacterId
@@ -80,7 +88,7 @@ export function RushMenu({
   quality: 'low' | 'medium' | 'high'
   onNameChange: (value: string) => void
   onStart: () => void
-  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests') => void
+  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite') => void
   profile: RunnerProfile | null
 }) {
   const t = useT()
@@ -277,6 +285,13 @@ export function RushMenu({
               </>
             )}
 
+            {inviteFrom && !account && (
+              <button type="button" className="ar-invite-banner" onClick={onSignIn}>
+                <UserPlus size={16} />
+                <span>{t('invite.banner', { name: inviteFrom.name, n: formatNumber(inviteFrom.welcome) })}</span>
+              </button>
+            )}
+
             <div className="ar-menu-row ar-eco-row">
               <button className="ar-btn" onClick={() => onOpen('shop')}>
                 <ShoppingBag size={14} /> {t('menu.shop')}
@@ -285,19 +300,34 @@ export function RushMenu({
                 <Target size={14} /> {t('menu.quests')}
                 {claimableCount(economy) > 0 && <span className="ar-badge">{claimableCount(economy)}</span>}
               </button>
+              <button className="ar-btn ar-badged" onClick={() => onOpen('achievements')}>
+                <Award size={14} /> {t('menu.achievements')}
+                {achievementsDue(economy) > 0 && <span className="ar-badge">{achievementsDue(economy)}</span>}
+              </button>
             </div>
 
-            <div className="ar-menu-row">
-              <button className="ar-btn" onClick={() => onOpen('help')}>
-                <HelpCircle size={14} /> {t('menu.howTo')}
+            <div className="ar-menu-row ar-menu-row-4">
+              <button className="ar-btn ar-badged" onClick={() => onOpen('invite')}>
+                <UserPlus size={14} /> {t('menu.invite')}
+                {inviteDue(economy) > 0 && <span className="ar-badge">1</span>}
               </button>
               <button className="ar-btn" onClick={() => onOpen('board')}>
                 <Trophy size={14} /> {t('menu.board')}
+              </button>
+              <button className="ar-btn" onClick={() => onOpen('help')}>
+                <HelpCircle size={14} /> {t('menu.howTo')}
               </button>
               <button className="ar-btn" onClick={() => onOpen('settings')}>
                 <SettingsIcon size={14} /> {t('menu.settings')}
               </button>
             </div>
+
+            {canInstall && (
+              <button type="button" className="ar-install" onClick={onInstall}>
+                <Smartphone size={15} />
+                <span>{t('pwa.install')}</span>
+              </button>
+            )}
           </aside>
         </div>
       </div>
@@ -380,8 +410,12 @@ export function RushGameOver({
   onLeaderboard,
   onRevive,
   banked,
+  onShare,
+  sharing,
 }: {
   banked: number | null
+  onShare: () => void
+  sharing: boolean
   summary: RunSummary
   submitState: 'idle' | 'sending' | 'done' | 'error'
   rank: number | null
@@ -469,9 +503,14 @@ export function RushGameOver({
           {/* The revive button above is the hero action of this screen; "sprint again"
               is the ordinary one. Both were filled gradients, so neither read as the
               choice — two primaries is the same as none. */}
-          <button className="ar-btn py-4" onClick={onRetry}>
-            <RotateCcw size={16} /> {t('over.again')}
-          </button>
+          <div className="ar-menu-row">
+            <button className="ar-btn py-4" onClick={onRetry}>
+              <RotateCcw size={16} /> {t('over.again')}
+            </button>
+            <button className="ar-btn ar-btn-share py-4" disabled={sharing} onClick={onShare}>
+              {sharing ? <Loader2 size={16} className="ar-spin-icon" /> : <Share2 size={16} />} {t('over.share')}
+            </button>
+          </div>
           <div className="ar-menu-row">
             <button className="ar-btn" onClick={onLeaderboard}>
               <Trophy size={14} /> {t('over.board')}
@@ -826,6 +865,46 @@ export function RushLeaderboard({
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** iOS Safari has no install button of its own to call, so the steps are shown instead. */
+export function RushInstallHint({ onClose }: { onClose: () => void }) {
+  const t = useT()
+  return (
+    <div
+      className="ar-screen"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="ar-panel ar-modal" style={{ width: 'min(420px, 100%)' }}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="ar-modal-title">
+            <Smartphone size={15} className="mr-2 inline" />
+            {t('pwa.title')}
+          </div>
+          <button className="ar-btn ar-btn-sm" onClick={onClose}>
+            <X size={14} /> {t('board.close')}
+          </button>
+        </div>
+        <div className="ar-invite-steps mt-3">
+          <div>
+            <span>1</span>
+            {t('pwa.ios1')}
+          </div>
+          <div>
+            <span>2</span>
+            {t('pwa.ios2')}
+          </div>
+          <div>
+            <span>3</span>
+            {t('pwa.ios3')}
+          </div>
+        </div>
+        <p className="ar-hint mt-3">{t('pwa.why')}</p>
       </div>
     </div>
   )

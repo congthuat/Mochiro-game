@@ -1,0 +1,20 @@
+{
+  "name": "Mochiro — Endless runner",
+  "short_name": "Mochiro",
+  "description": "Free 3D endless runner. Dash, dodge, chain combos and climb the global board.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#0b1d47",
+  "theme_color": "#0b1d47",
+  "categories": ["games", "entertainment"],
+  "lang": "vi",
+  "icons": [
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

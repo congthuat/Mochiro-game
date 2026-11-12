@@ -316,15 +316,15 @@ check(
 )
 
 // A panel you cannot dismiss by clicking beside it feels broken, and that is exactly the
-// kind of behaviour that disappears when a screen is rewritten. Four panels have it:
-// pause, settings, how-to-play and the leaderboard. The results screen deliberately does
+// kind of behaviour that disappears when a screen is rewritten. Five panels have it:
+// pause, settings, how-to-play, the leaderboard and the install hint. The results screen deliberately does
 // not — you have to choose something there.
 const SCREEN_SOURCE = readFileSync('src/components/runner/RushScreens.tsx', 'utf8')
 const backdropDismiss = (SCREEN_SOURCE.match(/if \(event\.target === event\.currentTarget\)/g) ?? []).length
 check(
   'every dismissible panel closes on a backdrop click',
-  backdropDismiss === 4,
-  `${backdropDismiss} of 4 — pause, settings, how-to-play, leaderboard`
+  backdropDismiss === 5,
+  `${backdropDismiss} of 5 — pause, settings, how-to-play, leaderboard, install hint`
 )
 
 console.log(failed === 0 ? '\nFeature check passed.' : `\n${failed} feature check(s) failed.`)

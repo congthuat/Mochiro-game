@@ -181,6 +181,37 @@ export interface QuestState {
   claimed: boolean
 }
 
+export interface AchievementTier {
+  id: string
+  target: number
+  reward: number
+  reached: boolean
+  claimed: boolean
+}
+
+export interface AchievementGroup {
+  id: string
+  value: number
+  tiers: AchievementTier[]
+}
+
+export interface InviteState {
+  /** Null for guests: only a signed-in player has a link to share. */
+  code: string | null
+  joined: number
+  paid: number
+  canJoin: boolean
+  mine: { by: string; paid: boolean; ready: boolean } | null
+}
+
+export interface InviteCatalog {
+  welcome: number
+  reward: number
+  needDistance: number
+  cap: number
+  joinWindowDays: number
+}
+
 export interface EconomyState {
   bank: number
   unlocked: string[]
@@ -193,10 +224,15 @@ export interface EconomyState {
     endsAt: string
     lastWeek: { key: string; rank: number | null; reward: number; claimable: boolean }
   }
+  /** Older servers (and the offline cache from before Phase 3) may not send these. */
+  achievements?: AchievementGroup[]
+  lifetime?: { runs: number; best_distance: number; best_score: number; coins: number }
+  invite?: InviteState
   catalog: {
     characters: Record<string, number>
     upgrades: { kinds: UpgradeKind[]; costs: number[]; max: number; step: number }
     daily: number[]
+    invite?: InviteCatalog
   }
 }
 
@@ -240,6 +276,19 @@ export type EconomyAction =
   | { kind: 'daily' }
   | { kind: 'quest'; quest: string }
   | { kind: 'season' }
+  | { kind: 'achievement'; group?: string }
+  | { kind: 'invite'; code: string }
+  | { kind: 'inviteClaim' }
+
+const ACTION_PATH: Record<EconomyAction['kind'], string> = {
+  buy: 'buy',
+  daily: 'daily',
+  quest: 'quest',
+  season: 'season',
+  achievement: 'achievement',
+  invite: 'invite',
+  inviteClaim: 'invite/claim',
+}
 
 export interface EconomyResult {
   ok: boolean
@@ -251,7 +300,7 @@ export interface EconomyResult {
 export async function economyAction(clientId: string, action: EconomyAction): Promise<EconomyResult> {
   const { kind, ...rest } = action
   try {
-    const response = await fetch(api(`economy/${kind}`), {
+    const response = await fetch(api(`economy/${ACTION_PATH[kind]}`), {
       method: 'POST',
       headers: writeHeaders(),
       body: JSON.stringify({ client_id: clientId, ...rest }),
@@ -267,4 +316,46 @@ export async function economyAction(clientId: string, action: EconomyAction): Pr
   } catch {
     return { ok: false, error: 'offline' }
   }
+}
+
+// ---------------------------------------------------------------- invites --
+const REF_KEY = 'mochiro.ref'
+
+/** Reads `?ref=CODE` from the address bar once, keeps it, and tidies the URL. */
+export function captureInviteCode(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const url = new URL(window.location.href)
+    const fromUrl = url.searchParams.get('ref')
+    if (fromUrl && /^[0-9A-Za-z]{3,10}$/.test(fromUrl)) {
+      window.localStorage.setItem(REF_KEY, fromUrl.toUpperCase())
+      url.searchParams.delete('ref')
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+    }
+    return window.localStorage.getItem(REF_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function forgetInviteCode(): void {
+  try {
+    window.localStorage.removeItem(REF_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export async function lookupInvite(code: string): Promise<{ name: string; welcome: number; needDistance: number } | null> {
+  try {
+    const response = await fetch(api(`economy/invite/${encodeURIComponent(code)}`))
+    if (!response.ok) return null
+    return (await response.json()) as { name: string; welcome: number; needDistance: number }
+  } catch {
+    return null
+  }
+}
+
+export function inviteLink(code: string): string {
+  return `https://mochiro.xyz/?ref=${encodeURIComponent(code)}`
 }

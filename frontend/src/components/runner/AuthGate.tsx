@@ -1,8 +1,8 @@
 // Sign-in gate: wallet (SIWE) or Google, with the device-minted Arc wallet that
 // Google accounts get. Also the place where the player picks their language.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import {AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, ShieldCheck, Wallet as WalletIcon, X} from 'lucide-react'
-import { useLang, useT, setLang, type Lang } from '../../lib/i18n'
+import {AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, ShieldCheck, Wallet as WalletIcon, UserPlus, X} from 'lucide-react'
+import { formatNumber, useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import { MochiroLogo } from './MochiroLogo'
 import { inAppBrowser, nativeBrowserName, openInBrowserHref } from '../../lib/inAppBrowser'
 import { QRCodeSVG } from 'qrcode.react'
@@ -83,9 +83,12 @@ export function AuthGate({
   onSignedIn,
   onGuest,
   onDismiss,
+  inviteFrom,
 }: {
   onSignedIn: (account: AuthAccount) => void
   onGuest: () => void
+  /** Who sent the invite link this visitor arrived through, if anyone. */
+  inviteFrom?: { name: string; welcome: number } | null
   /**
    * Set only when the gate is opened *over* something — the menu. At startup there is
    * nothing behind it, so there is nothing to go back to and a click outside must not
@@ -350,6 +353,13 @@ export function AuthGate({
           </span>
           <h1 className="ar-auth-title">{t('auth.title')}</h1>
         </header>
+
+        {inviteFrom && step.name === 'choose' && (
+          <div className="ar-invite-banner is-static">
+            <UserPlus size={16} />
+            <span>{t('invite.banner', { name: inviteFrom.name, n: formatNumber(inviteFrom.welcome) })}</span>
+          </div>
+        )}
 
         {step.name === 'choose' && (
           <>

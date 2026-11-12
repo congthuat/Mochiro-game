@@ -9,7 +9,7 @@ import { Runner } from '../runner/Runner'
 import { arcArtwork } from '../runner/arc'
 import type { ArcBrand, GlobalStats, HudState, LeaderboardEntry, Phase, PickupEvent, PowerKind, ProgressState, RunSummary, RunnerProfile, Settings, ToastMsg } from '../runner/types'
 import type { RushAction } from '../runner/input'
-import type { CharacterId } from '../runner/config'
+import { CHARACTERS, type CharacterId } from '../runner/config'
 import { HitOverlay, RushHud, RushToasts, SwipeHint } from '../components/runner/RushHud'
 import {
   RushGameOver,
@@ -19,6 +19,7 @@ import {
   RushMenu,
   RushPause,
   RushSettings,
+  RushInstallHint,
 } from '../components/runner/RushScreens'
 import {
   fetchRunnerLeaderboard,
@@ -39,9 +40,17 @@ import {
   type EconomyAction,
   type EconomyState,
   type SeasonInfo,
+  captureInviteCode,
+  forgetInviteCode,
+  lookupInvite,
+  inviteLink,
 } from '../lib/runnerApi'
-import { translate } from '../lib/i18n'
+import { getLang, translate } from '../lib/i18n'
+import { drawShareCard, shareCard } from '../lib/shareCard'
+import { setupPwa, type PwaInstall } from '../lib/pwa'
 import {
+  RushAchievements,
+  RushInvite,
   RushDaily,
   RushQuests,
   RushShop,
@@ -119,7 +128,7 @@ function storeBest(value: number): void {
   }
 }
 
-type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily'
+type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install'
 
 export default function RushApp() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -189,6 +198,10 @@ export default function RushApp() {
   const [boardScope, setBoardScope] = useState<BoardScope>('week')
   const [season, setSeason] = useState<SeasonInfo | null>(null)
   const [coach, setCoach] = useState<CoachStep | null>(null)
+  const [sharing, setSharing] = useState(false)
+  const [inviteFrom, setInviteFrom] = useState<{ name: string; welcome: number } | null>(null)
+  const [pwa, setPwa] = useState<PwaInstall | null>(null)
+  const inviteTried = useRef<string | null>(null)
 
   settingsRef.current = settings
   const economyRef = useRef<EconomyState | null>(null)
@@ -264,6 +277,42 @@ export default function RushApp() {
       cancelled = true
     }
   }, [account])
+
+  // ------------------------------------------------------ invites + install --
+  // A visitor who came in on someone's link sees who invited them, and the link is kept
+  // until they sign in, when the invite is accepted on their behalf.
+  useEffect(() => {
+    const code = captureInviteCode()
+    if (code && !readSession()) {
+      void lookupInvite(code).then((info) => {
+        if (info) setInviteFrom({ name: info.name, welcome: info.welcome })
+        else forgetInviteCode()
+      })
+    }
+    return setupPwa(setPwa)
+  }, [])
+
+  useEffect(() => {
+    if (!account || !economy?.invite?.canJoin) return
+    const code = captureInviteCode()
+    if (!code || inviteTried.current === `${account.address}:${code}`) return
+    if (economy.invite.code && economy.invite.code === code) {
+      forgetInviteCode()
+      return
+    }
+    inviteTried.current = `${account.address}:${code}`
+    const clientId = clientIdRef.current || getRunnerClientId()
+    void economyAction(clientId, { kind: 'invite', code }).then((outcome) => {
+      if (outcome.state) setEconomy(outcome.state)
+      if (outcome.error === 'offline') return
+      forgetInviteCode()
+      setInviteFrom(null)
+      const by = outcome.state?.invite?.mine?.by
+      if (outcome.ok && by) {
+        pushToast({ id: Date.now(), kind: 'good', text: translate('invite.joinedToast', undefined, { name: by }) })
+      }
+    })
+  }, [account, economy, pushToast])
 
   // ------------------------------------------------------------------ game --
   useEffect(() => {
@@ -396,6 +445,7 @@ export default function RushApp() {
         freezeSpawns: (freeze: boolean) => runnerRef.current?.debugFreezeSpawns(freeze),
         pause: () => runnerRef.current?.pause(),
         resume: () => runnerRef.current?.resume(),
+        finish: () => runnerRef.current?.debugFinish(),
       }
     }
 
@@ -493,6 +543,52 @@ export default function RushApp() {
       void runEconomy({ kind: 'quest', quest }, quest, (reward) => translate('daily.got', undefined, { n: reward ?? 0 })),
     [runEconomy]
   )
+  const handleClaimAchievement = useCallback(
+    (group?: string) =>
+      void runEconomy({ kind: 'achievement', group }, `ach:${group ?? 'all'}`, (reward) =>
+        translate('daily.got', undefined, { n: reward ?? 0 })
+      ),
+    [runEconomy]
+  )
+  const handleClaimInvite = useCallback(
+    () =>
+      void runEconomy({ kind: 'inviteClaim' }, 'invite', (reward) => translate('daily.got', undefined, { n: reward ?? 0 })),
+    [runEconomy]
+  )
+
+  const handleShare = useCallback(async () => {
+    if (!summary || sharing) return
+    setSharing(true)
+    runnerRef.current?.uiSound('click')
+    try {
+      const code = economyRef.current?.invite?.code ?? null
+      const link = code ? inviteLink(code) : 'https://mochiro.xyz'
+      const lang = getLang()
+      const blob = await drawShareCard({
+        score: summary.score,
+        distance: summary.distance,
+        coins: summary.coins,
+        bestCombo: summary.bestCombo,
+        duration: summary.duration,
+        record: summary.record,
+        rank,
+        difficulty: summary.difficulty,
+        hero: CHARACTERS[settingsRef.current.character]?.name ?? 'Mochiro',
+        player: nameRef.current.trim() || 'Runner',
+        link,
+        scene: runnerRef.current?.snapshot() ?? null,
+        lang,
+      })
+      const text = translate('share.text', lang, { score: summary.score.toLocaleString(lang === 'vi' ? 'vi-VN' : 'en-US') })
+      const outcome = await shareCard(blob, text, link)
+      const key =
+        outcome === 'downloaded' ? 'share.downloaded' : outcome === 'copied' ? 'share.copied' : outcome === 'failed' ? 'share.failed' : null
+      if (key) pushToast({ id: Date.now(), kind: outcome === 'failed' ? 'warn' : 'good', text: translate(key) })
+    } finally {
+      setSharing(false)
+    }
+  }, [summary, sharing, rank, pushToast])
+
   const handleClaimSeason = useCallback(
     () => void runEconomy({ kind: 'season' }, 'season', (reward) => translate('daily.got', undefined, { n: reward ?? 0 })),
     [runEconomy]
@@ -640,7 +736,7 @@ export default function RushApp() {
     return (
       <div className="ar-root relative h-screen w-full overflow-hidden bg-[#04050f]">
         <div ref={containerRef} className="absolute inset-0" />
-        <AuthGate onSignedIn={handleSignedIn} onGuest={handleGuest} />
+        <AuthGate onSignedIn={handleSignedIn} onGuest={handleGuest} inviteFrom={account ? null : inviteFrom} />
       </div>
     )
   }
@@ -705,6 +801,13 @@ export default function RushApp() {
           onSignOut={handleSignOut}
           onSignIn={() => setPanel('auth')}
           quality={settings.quality === 'auto' ? 'medium' : settings.quality}
+          canInstall={pwa !== null}
+          onInstall={() => {
+            if (!pwa) return
+            if (pwa.kind === 'ios') openPanel('install')
+            else void pwa.prompt().then((accepted) => accepted && setPwa(null))
+          }}
+          inviteFrom={inviteFrom}
         />
       )}
 
@@ -730,6 +833,8 @@ export default function RushApp() {
           onLeaderboard={() => openPanel('board')}
           onRevive={() => runnerRef.current?.revive()}
           banked={banked}
+          onShare={() => void handleShare()}
+          sharing={sharing}
         />
       )}
 
@@ -752,6 +857,7 @@ export default function RushApp() {
           }}
           onGuest={() => setPanel('none')}
           onDismiss={() => setPanel('none')}
+          inviteFrom={inviteFrom}
         />
       )}
       {panel === 'board' && (
@@ -789,6 +895,28 @@ export default function RushApp() {
           onClose={() => setPanel('none')}
         />
       )}
+      {panel === 'achievements' && economy && (
+        <RushAchievements
+          economy={economy}
+          busy={ecoBusy}
+          note={ecoNote}
+          guest={!account}
+          onClaim={handleClaimAchievement}
+          onClose={() => setPanel('none')}
+        />
+      )}
+      {panel === 'invite' && economy && (
+        <RushInvite
+          economy={economy}
+          busy={ecoBusy}
+          note={ecoNote}
+          inviteFrom={account ? null : inviteFrom}
+          onSignIn={() => setPanel('auth')}
+          onClaim={handleClaimInvite}
+          onClose={() => setPanel('none')}
+        />
+      )}
+      {panel === 'install' && <RushInstallHint onClose={() => setPanel('none')} />}
       {panel === 'daily' && economy && (
         <RushDaily economy={economy} busy={ecoBusy !== null} onClaim={handleClaimDaily} onClose={() => setPanel('none')} />
       )}

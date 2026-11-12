@@ -1021,6 +1021,25 @@ export class Runner {
     this.render()
   }
 
+  /**
+   * The current frame as a JPEG data URL (for the share card). The drawing buffer is not
+   * preserved between frames, so render and read in the same task.
+   */
+  /** DEV only: end the current run as if the runner crashed (QA of the results screen). */
+  debugFinish(): void {
+    if (!import.meta.env.DEV) return
+    if (this.phase === 'playing') this.finishRun()
+  }
+
+  snapshot(): string | null {
+    try {
+      this.render()
+      return this.renderer.domElement.toDataURL('image/jpeg', 0.88)
+    } catch {
+      return null
+    }
+  }
+
   private render(): void {
     if (this.composer) this.composer.render()
     else this.renderer.render(this.scene, this.camera)

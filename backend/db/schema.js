@@ -54,6 +54,12 @@ exports.runner_profiles = pgTable("runner_profiles", {
   quests_claimed: text("quests_claimed").notNull().default(","),
   // Weekly season: the last season key (e.g. 2026-11-09) whose reward was paid out.
   season_claimed: text("season_claimed"),
+  // Achievements: claimed tier ids, comma-wrapped, e.g. ",distance1,runs1,".
+  ach_claimed: text("ach_claimed").notNull().default(","),
+  // Invites: the inviter's client id, and whether the welcome bonus was paid out.
+  referred_by: text("referred_by"),
+  ref_paid: boolean("ref_paid").notNull().default(false),
+  ref_at: timestamp("ref_at"),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 });
@@ -64,6 +70,7 @@ exports.runner_ledger = pgTable("runner_ledger", {
   client_id: text("client_id").notNull(),
   delta: integer("delta").notNull(),
   // 'run' | 'buy:char:<id>' | 'buy:up:<kind>' | 'daily' | 'quest:<id>' | 'season:<key>' | 'welcome'
+  // | 'ach:<tier ids>' | 'invite:welcome' | 'invite:friend'
   reason: text("reason").notNull(),
   balance: integer("balance"),
   created_at: timestamp("created_at").defaultNow(),

@@ -1,11 +1,37 @@
 // Mochiro meta screens: wallet chip, shop, daily reward, daily quests, season reward and
 // the first-run coach. All coin movement is decided by the server (/api/economy); these
 // components only ask and then show whatever state the server sends back.
-import { Check, Coins, Gift, Lock, ShoppingBag, Sparkles, Target, Trophy, X, Zap } from 'lucide-react'
+import {
+  Award,
+  CalendarCheck,
+  Check,
+  Coins,
+  Copy,
+  Flame,
+  Footprints,
+  Gift,
+  Lock,
+  LogIn,
+  Route,
+  Share2,
+  ShoppingBag,
+  Skull,
+  Sparkles,
+  Star,
+  Target,
+  Trophy,
+  UserPlus,
+  Users,
+  X,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { CHARACTERS, CHARACTER_IDS, type CharacterId } from '../../runner/config'
-import { formatNumber, useT } from '../../lib/i18n'
-import type { EconomyState, UpgradeKind } from '../../lib/runnerApi'
+import { formatDistance } from '../../runner/utils'
+import { formatNumber, getLang, useT } from '../../lib/i18n'
+import { inviteLink, type AchievementGroup, type EconomyState, type UpgradeKind } from '../../lib/runnerApi'
+import { copyText, shareCard } from '../../lib/shareCard'
 
 /** Ticks every `ms` so countdowns stay live without re-rendering the whole app. */
 export function useNow(ms = 30_000): number {
@@ -42,6 +68,20 @@ export function claimableCount(economy: EconomyState | null): number {
   if (!economy) return 0
   const quests = economy.quests.filter((q) => !q.claimed && q.progress >= q.target).length
   return quests + (economy.season.lastWeek.claimable ? 1 : 0)
+}
+
+/** Achievement tiers reached but not yet cashed in. */
+export function achievementsDue(economy: EconomyState | null): number {
+  return (economy?.achievements ?? []).reduce(
+    (sum, group) => sum + group.tiers.filter((tier) => tier.reached && !tier.claimed).length,
+    0
+  )
+}
+
+/** 1 when the invited player's welcome bonus is ready to collect. */
+export function inviteDue(economy: EconomyState | null): number {
+  const mine = economy?.invite?.mine
+  return mine && mine.ready && !mine.paid ? 1 : 0
 }
 
 export function BankChip({ bank, onClick }: { bank: number | null; onClick?: () => void }) {
@@ -331,6 +371,305 @@ export function RushQuests({
           })}
         </div>
         <p className="ar-hint mt-3">{t('quest.note')}</p>
+      </div>
+    </Backdrop>
+  )
+}
+
+// ----------------------------------------------------------- achievements --
+const ACH_ICONS: Record<string, LucideIcon> = {
+  distance: Route,
+  score: Star,
+  combo: Flame,
+  runs: Footprints,
+  coins: Coins,
+  hard: Skull,
+  heroes: Users,
+  upgrades: Zap,
+  streak: CalendarCheck,
+  quests: Target,
+  friends: UserPlus,
+}
+
+/** How a target reads in a goal line: metres for distance, plain numbers otherwise. */
+/** A goal reads "1 km" or "2.5 km", not the HUD's "1.00 km". */
+function goalDistance(m: number): string {
+  if (m < 1000 || m % 100 !== 0) return formatDistance(m)
+  return `${new Intl.NumberFormat(getLang() === 'vi' ? 'vi-VN' : 'en-US', { maximumFractionDigits: 1 }).format(m / 1000)} km`
+}
+
+function achTarget(id: string, n: number): string {
+  return id === 'distance' || id === 'hard' ? goalDistance(n) : formatNumber(n)
+}
+
+function AchievementRow({
+  group,
+  busy,
+  onClaim,
+}: {
+  group: AchievementGroup
+  busy: boolean
+  onClaim: (group: string) => void
+}) {
+  const t = useT()
+  const Icon = ACH_ICONS[group.id] ?? Award
+  const reached = group.tiers.filter((tier) => tier.reached).length
+  const due = group.tiers.filter((tier) => tier.reached && !tier.claimed)
+  const dueTotal = due.reduce((sum, tier) => sum + tier.reward, 0)
+  const next = group.tiers.find((tier) => !tier.reached) ?? null
+  const prevTarget = reached > 0 ? group.tiers[reached - 1].target : 0
+  const pct = next ? Math.max(0, Math.min(100, ((group.value - prevTarget) / (next.target - prevTarget)) * 100)) : 100
+  const allDone = !next && due.length === 0
+  const goal = next ?? group.tiers[group.tiers.length - 1]
+  return (
+    <div className={`ar-ach ${due.length ? 'is-due' : ''} ${allDone ? 'is-done' : ''}`}>
+      <span className="ar-ach-icon">
+        <Icon size={20} />
+      </span>
+      <div className="flex-1 overflow-hidden">
+        <div className="ar-ach-head">
+          <span className="ar-row-name">{t(`ach.${group.id}`)}</span>
+          <span className="ar-ach-pips" aria-label={t('ach.tier', { n: reached, max: group.tiers.length })}>
+            {group.tiers.map((tier) => (
+              <span key={tier.id} className={tier.claimed ? 'is-on' : tier.reached ? 'is-due' : ''} />
+            ))}
+          </span>
+        </div>
+        <div className="ar-ach-goal">{t(`ach.${group.id}.goal`, { n: achTarget(group.id, goal.target) })}</div>
+        <div className="ar-quest-bar">
+          <span style={{ width: `${pct}%` }} />
+        </div>
+        <div className="ar-row-sub">
+          {next
+            ? `${achTarget(group.id, Math.min(group.value, next.target))} / ${achTarget(group.id, next.target)} · +${formatNumber(next.reward)} Arc`
+            : t('ach.maxed')}
+        </div>
+      </div>
+      {due.length > 0 ? (
+        <button className="ar-btn ar-btn-sm ar-btn-primary" disabled={busy} onClick={() => onClaim(group.id)}>
+          <Sparkles size={13} /> +{formatNumber(dueTotal)}
+        </button>
+      ) : allDone ? (
+        <span className="ar-up-max">
+          <Check size={13} /> {t('ach.done')}
+        </span>
+      ) : (
+        <span className="ar-ach-lock">
+          <Lock size={13} />
+        </span>
+      )}
+    </div>
+  )
+}
+
+export function RushAchievements({
+  economy,
+  busy,
+  note,
+  guest,
+  onClaim,
+  onClose,
+}: {
+  economy: EconomyState
+  busy: string | null
+  note: EcoNote
+  guest: boolean
+  onClaim: (group?: string) => void
+  onClose: () => void
+}) {
+  const t = useT()
+  const groups = economy.achievements ?? []
+  const totalTiers = groups.reduce((sum, g) => sum + g.tiers.length, 0)
+  const reachedTiers = groups.reduce((sum, g) => sum + g.tiers.filter((tier) => tier.reached).length, 0)
+  const due = achievementsDue(economy)
+  const dueTotal = groups.reduce(
+    (sum, g) => sum + g.tiers.filter((tier) => tier.reached && !tier.claimed).reduce((a, tier) => a + tier.reward, 0),
+    0
+  )
+  // Claimable first, then the closest to the next tier, finished groups last.
+  const sorted = [...groups].sort((a, b) => rank(b) - rank(a))
+  function rank(g: AchievementGroup): number {
+    const dueNow = g.tiers.some((tier) => tier.reached && !tier.claimed)
+    const next = g.tiers.find((tier) => !tier.reached)
+    if (dueNow) return 3
+    if (!next) return 0
+    return 1 + Math.min(0.99, g.value / next.target)
+  }
+  const life = economy.lifetime
+  return (
+    <Backdrop onClose={onClose}>
+      <div className="ar-panel ar-modal ar-ach-panel">
+        <PanelHead icon={<Award size={15} className="mr-2 inline" />} title={t('ach.title')} onClose={onClose} />
+        <div className="ar-shop-top">
+          <BankChip bank={economy.bank} />
+          <span className="ar-hint">{t('ach.progress', { n: reachedTiers, max: totalTiers })}</span>
+        </div>
+        {life && (
+          <div className="ar-life">
+            <div>
+              <b>{formatNumber(life.runs)}</b>
+              <span>{t('menu.sprints')}</span>
+            </div>
+            <div>
+              <b>{formatDistance(life.best_distance)}</b>
+              <span>{t('menu.farthest')}</span>
+            </div>
+            <div>
+              <b>{formatNumber(life.coins)}</b>
+              <span>{t('ach.lifeCoins')}</span>
+            </div>
+          </div>
+        )}
+        {note && <div className={`ar-eco-note ${note.tone === 'bad' ? 'is-bad' : ''}`}>{note.text}</div>}
+        {due > 1 && (
+          <button className="ar-btn ar-btn-primary ar-ach-all" disabled={busy !== null} onClick={() => onClaim()}>
+            <Sparkles size={15} /> {t('ach.claimAll', { n: formatNumber(dueTotal) })}
+          </button>
+        )}
+        <div className="ar-rows ar-ach-list">
+          {sorted.map((group) => (
+            <AchievementRow key={group.id} group={group} busy={busy !== null} onClaim={onClaim} />
+          ))}
+        </div>
+        <p className="ar-hint mt-3">{guest ? t('ach.guest') : t('ach.note')}</p>
+      </div>
+    </Backdrop>
+  )
+}
+
+// ----------------------------------------------------------------- invite --
+export function RushInvite({
+  economy,
+  busy,
+  note,
+  inviteFrom,
+  onSignIn,
+  onClaim,
+  onClose,
+}: {
+  economy: EconomyState
+  busy: string | null
+  note: EcoNote
+  inviteFrom?: { name: string; welcome: number } | null
+  onSignIn: () => void
+  onClaim: () => void
+  onClose: () => void
+}) {
+  const t = useT()
+  const invite = economy.invite
+  const rules = economy.catalog.invite ?? { welcome: 1000, reward: 1500, needDistance: 1000, cap: 10, joinWindowDays: 14 }
+  const [copied, setCopied] = useState(false)
+  const link = invite?.code ? inviteLink(invite.code) : null
+  const mine = invite?.mine ?? null
+
+  const copy = async () => {
+    if (!link) return
+    if (await copyText(link)) {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    }
+  }
+  const share = async () => {
+    if (!link) return
+    const outcome = await shareCard(null, t('invite.shareText', { n: formatNumber(rules.welcome) }), link)
+    if (outcome === 'copied' || outcome === 'failed') void copy()
+  }
+
+  return (
+    <Backdrop onClose={onClose}>
+      <div className="ar-panel ar-modal ar-invite" style={{ width: 'min(520px, 100%)' }}>
+        <PanelHead icon={<UserPlus size={15} className="mr-2 inline" />} title={t('invite.title')} onClose={onClose} />
+        {note && <div className={`ar-eco-note ${note.tone === 'bad' ? 'is-bad' : ''}`}>{note.text}</div>}
+
+        {!mine && inviteFrom && (
+          <div className="ar-invite-mine">
+            <Gift size={20} />
+            <div className="flex-1">
+              <div className="ar-row-name">{t('invite.from', { name: inviteFrom.name })}</div>
+              <div className="ar-row-sub">{t('invite.pending', { n: formatNumber(inviteFrom.welcome) })}</div>
+            </div>
+            <button className="ar-btn ar-btn-sm ar-btn-primary" onClick={onSignIn}>
+              {t('menu.signIn')}
+            </button>
+          </div>
+        )}
+
+        {mine && (
+          <div className={`ar-invite-mine ${mine.paid ? 'is-paid' : ''}`}>
+            <Gift size={20} />
+            <div className="flex-1">
+              <div className="ar-row-name">{t('invite.from', { name: mine.by })}</div>
+              <div className="ar-row-sub">
+                {mine.paid
+                  ? t('invite.welcomePaid', { n: formatNumber(rules.welcome) })
+                  : mine.ready
+                    ? t('invite.welcomeReady', { n: formatNumber(rules.welcome) })
+                    : t('invite.welcomeNeed', { m: goalDistance(rules.needDistance), n: formatNumber(rules.welcome) })}
+              </div>
+            </div>
+            {!mine.paid && (
+              <button className="ar-btn ar-btn-sm ar-btn-primary" disabled={!mine.ready || busy !== null} onClick={onClaim}>
+                {mine.ready ? <Sparkles size={13} /> : <Lock size={13} />} {t('quest.claim')}
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="ar-invite-steps">
+          <div>
+            <span>1</span>
+            {t('invite.step1')}
+          </div>
+          <div>
+            <span>2</span>
+            {t('invite.step2', { m: goalDistance(rules.needDistance) })}
+          </div>
+          <div>
+            <span>3</span>
+            {t('invite.step3', { you: formatNumber(rules.reward), them: formatNumber(rules.welcome) })}
+          </div>
+        </div>
+
+        {link ? (
+          <>
+            <div className="ar-invite-link">
+              <span className="ar-invite-code">{invite?.code}</span>
+              <span className="ar-invite-url">{link.replace(/^https?:\/\//, '')}</span>
+            </div>
+            <div className="ar-menu-row">
+              <button className="ar-btn ar-btn-primary" onClick={() => void share()}>
+                <Share2 size={14} /> {t('invite.share')}
+              </button>
+              <button className="ar-btn" onClick={() => void copy()}>
+                {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? t('auth.copied') : t('invite.copy')}
+              </button>
+            </div>
+            <div className="ar-invite-stats">
+              <div>
+                <b>
+                  {invite?.joined ?? 0}/{rules.cap}
+                </b>
+                <span>{t('invite.joined')}</span>
+              </div>
+              <div>
+                <b>{invite?.paid ?? 0}</b>
+                <span>{t('invite.paid')}</span>
+              </div>
+              <div>
+                <b>{formatNumber((invite?.paid ?? 0) * rules.reward)}</b>
+                <span>{t('invite.earned')}</span>
+              </div>
+            </div>
+          </>
+        ) : inviteFrom ? null : (
+          <div className="ar-menu-actions">
+            <p className="ar-hint">{t('invite.signIn')}</p>
+            <button className="ar-btn ar-btn-primary py-3" onClick={onSignIn}>
+              <LogIn size={15} /> {t('menu.signIn')}
+            </button>
+          </div>
+        )}
+        <p className="ar-hint mt-3">{t('invite.note', { cap: rules.cap })}</p>
       </div>
     </Backdrop>
   )

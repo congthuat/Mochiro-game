@@ -53,6 +53,7 @@ const defined = new Set(entries.map((entry) => entry.key))
 function readUsed(): { literals: Set<string>; templates: Set<string> } {
   const literals = new Set<string>()
   const templates = new Set<string>()
+  const mentioned = new Set<string>()
   const glob = new Glob('src/**/*.{ts,tsx}')
   for (const file of glob.scanSync('.')) {
     if (file.endsWith('lib/i18n.ts')) continue
@@ -61,7 +62,10 @@ function readUsed(): { literals: Set<string>; templates: Set<string> } {
     // is not enough: a key can sit inside a ternary or behind a second argument, which
     // is exactly how the power banners are written — and missing those made this check
     // report fifteen perfectly live keys as unused.
-    for (const at of src.matchAll(/\bt\(/g)) {
+    // Any quoted string that is exactly a key counts as a use: a toast picks its key
+    // in a ternary and hands the variable to `translate` later.
+    for (const quoted of src.matchAll(/'([a-zA-Z0-9_.]+)'/g)) mentioned.add(quoted[1])
+    for (const at of src.matchAll(/\b(?:t|translate)\(/g)) {
       const open = at.index + at[0].length - 1
       let depth = 0
       let close = open
@@ -92,14 +96,16 @@ function readUsed(): { literals: Set<string>; templates: Set<string> } {
       for (const quoted of args.slice(0, firstEnd).matchAll(/'([^']+)'|`([^`]+)`/g)) {
         const value = quoted[1] ?? quoted[2]
         if (value.includes('${')) templates.add(value)
-        else literals.add(value)
+        // In `t(id === 'week' ? 'season.week' : 'season.all')` the operand 'week' is
+        // a comparison, not a key — every key in the dictionary is dotted.
+        else if (value.includes('.')) literals.add(value)
       }
     }
   }
-  return { literals, templates }
+  return { literals, templates, mentioned }
 }
 
-const { literals, templates } = readUsed()
+const { literals, templates, mentioned } = readUsed()
 
 let failures = 0
 const check = (name: string, ok: boolean, detail: string): void => {
@@ -132,7 +138,7 @@ check(
 
 const templatePrefixes = [...templates].map((key) => key.slice(0, key.indexOf('${')))
 const unused = [...defined]
-  .filter((key) => !literals.has(key) && !templatePrefixes.some((prefix) => key.startsWith(prefix)))
+  .filter((key) => !literals.has(key) && !mentioned.has(key) && !templatePrefixes.some((prefix) => key.startsWith(prefix)))
   .sort()
 check(
   'and nothing sits in the dictionary unused',
