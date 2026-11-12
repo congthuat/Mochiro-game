@@ -4,7 +4,7 @@
 import * as THREE from 'three'
 import { PALETTE, RUN, type QualityPreset } from './config'
 import { buildWordmarkTexture, type ArcMark } from './arc'
-import { cloudTexture, glowTexture, skyTexture } from './textures'
+import { cloudTexture, glowTexture, skyLayerTextures } from './textures'
 import { makeRng, randRange } from './utils'
 import type { ArcBrand } from './types'
 import {
@@ -101,6 +101,71 @@ interface Chunk {
   layers: Layer[]
 }
 
+const SKY_VERTEX = /* glsl */ `
+varying vec3 vDir;
+varying vec2 vUv;
+void main() {
+  vDir = normalize(position);
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+
+const SKY_FRAGMENT = /* glsl */ `
+uniform sampler2D clouds;
+uniform sampler2D ridges;
+uniform vec3 top;
+uniform vec3 mid;
+uniform vec3 horizon;
+uniform vec3 cloudTint;
+uniform float stars;
+uniform float time;
+varying vec3 vDir;
+varying vec2 vUv;
+
+float hash(vec3 p) {
+  return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+void main() {
+  vec3 dir = normalize(vDir);
+  float up = clamp(asin(clamp(dir.y, -1.0, 1.0)) / 1.5708, 0.0, 1.0);
+  vec3 col = up < 0.5 ? mix(horizon, mid, smoothstep(0.0, 0.5, up)) : mix(mid, top, (up - 0.5) * 2.0);
+
+  // Stars: a sparse hashed field that fades out towards the horizon haze and twinkles.
+  if (stars > 0.001) {
+    vec3 cell = floor(dir * 260.0);
+    float h = hash(cell);
+    float star = step(0.9965, h) * smoothstep(0.04, 0.3, dir.y);
+    float twinkle = 0.6 + 0.4 * sin(time * (1.5 + h * 3.0) + h * 40.0);
+    col += vec3(0.85, 0.92, 1.0) * star * twinkle * stars * 1.6;
+  }
+
+  vec4 c = texture2D(clouds, vUv);
+  col = mix(col, cloudTint * mix(0.82, 1.0, up), c.a);
+
+  // Ridges sit in the haze: bright texels are far ranges (close to the horizon colour),
+  // dark ones the near range (pulled towards the zenith colour).
+  vec4 r = texture2D(ridges, vUv);
+  vec3 ridge = mix(mix(horizon, top, 0.62), horizon, r.r);
+  col = mix(col, ridge, r.a);
+
+  gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`
+
+const HOUSE_WASHES = [
+  new THREE.Color(1, 1, 1),
+  new THREE.Color(1, 0.92, 0.84),
+  new THREE.Color(0.88, 0.94, 1),
+  new THREE.Color(1, 0.88, 0.92),
+  new THREE.Color(0.9, 1, 0.9),
+  new THREE.Color(1, 0.98, 0.82),
+  new THREE.Color(0.94, 0.9, 1),
+]
+
 const TOWN_MATERIAL = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 })
 const HILL_MATERIAL = new THREE.MeshStandardMaterial({ color: PALETTE.grassDark, roughness: 0.95, flatShading: true })
 
@@ -109,6 +174,8 @@ export class Scenery {
 
   private chunks: Chunk[] = []
   private sky: THREE.Mesh
+  private skyMat: THREE.ShaderMaterial
+  private cloudMat: THREE.MeshBasicMaterial
   private ring: THREE.Mesh
   private ringGlow: THREE.Mesh
   private clouds: { mesh: THREE.Mesh; z: number; drift: number }[] = []
@@ -123,13 +190,34 @@ export class Scenery {
     const rng = makeRng(seed)
 
     // --- sky ----------------------------------------------------------------
-    const skyTex = skyTexture()
+    // A shader dome rather than a painted picture, so the zones can repaint it: the
+    // old baked day sky stayed noon-blue with the sun out while the run was in the
+    // dusk and night zones and the lights had already gone down.
+    const skyLayers = skyLayerTextures()
     const skyGeo = new THREE.SphereGeometry(520, 40, 26)
-    const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })
+    const skyMat = new THREE.ShaderMaterial({
+      uniforms: {
+        clouds: { value: skyLayers.clouds },
+        ridges: { value: skyLayers.ridges },
+        top: { value: new THREE.Color(PALETTE.skyTop) },
+        mid: { value: new THREE.Color(PALETTE.skyMid) },
+        horizon: { value: new THREE.Color(PALETTE.skyHorizon) },
+        cloudTint: { value: new THREE.Color(0xffffff) },
+        stars: { value: 0 },
+        time: { value: 0 },
+      },
+      vertexShader: SKY_VERTEX,
+      fragmentShader: SKY_FRAGMENT,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+    })
+    this.skyMat = skyMat
     this.sky = new THREE.Mesh(skyGeo, skyMat)
     this.sky.position.set(0, 0, -140)
+    this.sky.renderOrder = -2
     this.group.add(this.sky)
-    this.disposables.push(skyGeo, skyMat, skyTex)
+    this.disposables.push(skyGeo, skyMat, skyLayers.clouds, skyLayers.ridges)
 
     // --- clouds -------------------------------------------------------------
     const cloudTex = cloudTexture()
@@ -141,6 +229,7 @@ export class Scenery {
       fog: false,
       opacity: 0.82,
     })
+    this.cloudMat = cloudMat
     this.disposables.push(cloudTex, cloudGeo, cloudMat)
     const cloudCount = quality.cityBlocks > 150 ? 22 : quality.cityBlocks > 90 ? 16 : 10
     for (let i = 0; i < cloudCount; i++) {
@@ -298,6 +387,9 @@ export class Scenery {
             scale.set(s, s, s)
             matrix.compose(pos, quat, scale)
             mesh.setMatrixAt(i * 2 + (side > 0 ? 1 : 0), matrix)
+            // A wash of paint per house, so the same prototype never repeats its
+            // exact colours down the street.
+            mesh.setColorAt(i * 2 + (side > 0 ? 1 : 0), HOUSE_WASHES[Math.floor(rng() * HOUSE_WASHES.length)])
           }
         }
       })
@@ -506,6 +598,17 @@ export class Scenery {
     return mesh
   }
 
+  /** Repaints the sky dome for the zone blend Runner.applyBiome has worked out. */
+  setSky(top: THREE.Color, mid: THREE.Color, horizon: THREE.Color, cloudTint: THREE.Color, stars: number): void {
+    const u = this.skyMat.uniforms
+    ;(u.top.value as THREE.Color).copy(top)
+    ;(u.mid.value as THREE.Color).copy(mid)
+    ;(u.horizon.value as THREE.Color).copy(horizon)
+    ;(u.cloudTint.value as THREE.Color).copy(cloudTint)
+    u.stars.value = stars
+    this.cloudMat.color.copy(cloudTint)
+  }
+
   setQuality(quality: QualityPreset): void {
     this.quality = quality
     const density = quality.cityBlocks > 150 ? 1 : quality.cityBlocks > 90 ? 0.75 : 0.5
@@ -542,6 +645,7 @@ export class Scenery {
       balloon.group.rotation.y += dt * 0.05
     }
 
+    this.skyMat.uniforms.time.value = time
     this.ring.rotation.z = time * 0.05
     ;(this.ringGlow.material as THREE.MeshBasicMaterial).opacity = 0.2 + Math.sin(time * 0.8) * 0.06
   }

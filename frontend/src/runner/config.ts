@@ -119,7 +119,7 @@ export interface PowerSpec {
 }
 
 export const POWERS: PowerSpec[] = [
-  { kind: 'shield', harmful: false, label: 'SHIELD UP', hint: 'One free hit', colour: '#4fd8ff', duration: 0, weight: 22 },
+  { kind: 'shield', harmful: false, label: 'SHIELD UP', hint: 'One free hit', colour: '#4fd8ff', duration: 0, weight: 9 },
   { kind: 'magnet', harmful: false, label: 'MAGNET ONLINE', hint: 'Coins fly to you', colour: '#b47cff', duration: 8, weight: 18 },
   { kind: 'boost', harmful: false, label: 'OVERDRIVE', hint: 'Smash through traffic', colour: '#ff9b3d', duration: 3.4, weight: 14 },
   { kind: 'double', harmful: false, label: 'DOUBLE ARC', hint: 'Every coin counts twice', colour: '#ffd45e', duration: 9, weight: 13 },
@@ -546,8 +546,13 @@ export interface Biome {
   at: number
   /** i18n key suffix: `biome.<name>`. */
   name: string
-  /** Sky behind everything. */
+  /** Sky behind everything: zenith, the band halfway up, and (below) the fog colour at the horizon. */
+  skyTop: string
   sky: string
+  /** What the clouds and far ridges are lit with. */
+  cloudTint: string
+  /** 0 by day, 1 for a full star field. */
+  stars: number
   fog: string
   /** Directional light colour. */
   sun: string
@@ -563,14 +568,14 @@ export interface Biome {
 
 export const BIOMES: Biome[] = [
   // The daylight the game shipped with — a run always starts here.
-  { at: 0, name: 'day', sky: '#7ccbfb', fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04 },
+  { at: 0, name: 'day', skyTop: '#2b8ae8', sky: '#7ccbfb', cloudTint: '#ffffff', stars: 0, fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04 },
   // Golden hour: low warm sun, long light, dust in the air.
-  { at: 520, name: 'golden', sky: '#f0a266', fog: '#ffd7ad', sun: '#ffcb84', skyBounce: '#ffc188', groundBounce: '#a87c47', sunIntensity: 1.06, hemiIntensity: 0.43, fillIntensity: 0.34, exposure: 1.01 },
+  { at: 520, name: 'golden', skyTop: '#6a78c0', sky: '#f0a266', cloudTint: '#ffd9bd', stars: 0, fog: '#ffd7ad', sun: '#ffcb84', skyBounce: '#ffc188', groundBounce: '#a87c47', sunIntensity: 1.06, hemiIntensity: 0.43, fillIntensity: 0.34, exposure: 1.01 },
   // Dusk: the light goes violet and the shadows stop reading as warm.
-  { at: 1150, name: 'dusk', sky: '#5b4b9a', fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97 },
+  { at: 1150, name: 'dusk', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97 },
   // Neon night: dark sky, cold key light, the emissive lift on every prop doing the
   // work of keeping the runner and the traffic readable.
-  { at: 1900, name: 'neon', sky: '#141d40', fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95 },
+  { at: 1900, name: 'neon', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95 },
 ]
 
 /** Metres over which one zone hands over to the next. */

@@ -204,73 +204,53 @@ export function cloudTexture(): THREE.CanvasTexture {
   return texture
 }
 
-/** Bright blue day sky with a sun and fluffy clouds. */
-export function skyTexture(): THREE.CanvasTexture {
+/**
+ * The sky's printed layers on a transparent sheet: cloud puffs in the upper band and
+ * mountain ranges along the horizon. Colour comes from the sky shader (scenery.ts) so
+ * the same sheet reads as noon, golden hour, dusk or night.
+ *
+ * Clouds go in the red channel's alpha-weighted white; mountains are drawn into a
+ * second sheet so the shader can tint them with the haze rather than the clouds.
+ */
+export function skyLayerTextures(): { clouds: THREE.CanvasTexture; ridges: THREE.CanvasTexture } {
   const w = 1024
   const h = 512
-  const { canvas, ctx } = canvas2d(w, h)
 
-  // Vertical gradient: zenith at the top, warm haze at the horizon (y = h/2).
-  const gradient = ctx.createLinearGradient(0, 0, 0, h * 0.56)
-  gradient.addColorStop(0, PALETTE.skyTop)
-  gradient.addColorStop(0.45, PALETTE.skyMid)
-  gradient.addColorStop(1, PALETTE.skyHorizon)
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, w, h * 0.56)
-
-  // Below the horizon: soft haze that the ground plane covers.
-  const below = ctx.createLinearGradient(0, h * 0.5, 0, h)
-  below.addColorStop(0, PALETTE.skyHorizon)
-  below.addColorStop(0.25, '#eef8ff')
-  below.addColorStop(1, '#dceaf5')
-  ctx.fillStyle = below
-  ctx.fillRect(0, h * 0.5, w, h * 0.5)
-
-  // Sun with a wide halo.
-  const sunX = w * 0.24
-  const sunY = h * 0.13
-  const halo = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 150)
-  halo.addColorStop(0, 'rgba(255, 250, 220, 0.95)')
-  halo.addColorStop(0.25, 'rgba(255, 246, 200, 0.35)')
-  halo.addColorStop(1, 'rgba(255, 246, 200, 0)')
-  ctx.fillStyle = halo
-  ctx.fillRect(0, 0, w, h * 0.5)
-  ctx.fillStyle = PALETTE.sun
-  ctx.beginPath()
-  ctx.arc(sunX, sunY, 26, 0, Math.PI * 2)
-  ctx.fill()
-
-  // Clouds: soft clusters of circles in the upper band.
+  const cloudSheet = canvas2d(w, h)
   const rng = mulberry(20261110)
   for (let i = 0; i < 34; i++) {
     const cx = rng() * w
-    const cy = h * (0.05 + rng() * 0.3)
+    // Kept low enough (34°–60° from the zenith) that the chase camera actually sees them.
+    const cy = h * (0.19 + rng() * 0.24)
     const scale = 0.32 + rng() * 0.55
-    const alpha = 0.4 + rng() * 0.4
+    const alpha = 0.45 + rng() * 0.4
     const puffs = 3 + Math.floor(rng() * 4)
     for (let p = 0; p < puffs; p++) {
       const px = cx + (rng() - 0.5) * 60 * scale
       const py = cy + (rng() - 0.5) * 16 * scale
       const radius = (14 + rng() * 20) * scale
-      const g = ctx.createRadialGradient(px, py, radius * 0.15, px, py, radius)
+      const g = cloudSheet.ctx.createRadialGradient(px, py, radius * 0.15, px, py, radius)
       g.addColorStop(0, `rgba(255, 255, 255, ${alpha})`)
       g.addColorStop(0.6, `rgba(255, 255, 255, ${alpha * 0.75})`)
       g.addColorStop(1, 'rgba(255, 255, 255, 0)')
-      ctx.fillStyle = g
-      ctx.beginPath()
-      ctx.arc(px, py, radius, 0, Math.PI * 2)
-      ctx.fill()
+      cloudSheet.ctx.fillStyle = g
+      cloudSheet.ctx.beginPath()
+      cloudSheet.ctx.arc(px, py, radius, 0, Math.PI * 2)
+      cloudSheet.ctx.fill()
     }
   }
 
-  // Distant mountain ranges with atmospheric perspective.
+  // Ranges, far to near. Brightness says how deep in the haze a range sits: the shader
+  // mixes horizon colour (bright) towards zenith colour (dark) by it.
+  const ridgeSheet = canvas2d(w, h)
   const horizon = h * 0.5 + 4
   const ranges = [
-    { color: 'rgba(188, 214, 238, 0.55)', peak: 34, step: 96 },
-    { color: 'rgba(156, 193, 225, 0.72)', peak: 60, step: 138 },
-    { color: 'rgba(124, 169, 209, 0.88)', peak: 88, step: 196 },
+    { shade: 225, alpha: 0.6, peak: 34, step: 96 },
+    { shade: 165, alpha: 0.78, peak: 60, step: 138 },
+    { shade: 110, alpha: 0.92, peak: 88, step: 196 },
   ]
   for (const range of ranges) {
+    const ctx = ridgeSheet.ctx
     ctx.beginPath()
     ctx.moveTo(0, horizon)
     let x = 0
@@ -282,12 +262,18 @@ export function skyTexture(): THREE.CanvasTexture {
       ctx.lineTo(x, horizon - range.peak * 0.14 * rng())
     }
     ctx.lineTo(w, horizon)
+    ctx.lineTo(w, horizon + 24)
+    ctx.lineTo(0, horizon + 24)
     ctx.closePath()
-    ctx.fillStyle = range.color
+    ctx.fillStyle = `rgba(${range.shade}, ${range.shade}, ${range.shade}, ${range.alpha})`
     ctx.fill()
   }
 
-  return finish(canvas)
+  // Linear data, not colour: the shader reads these as masks.
+  const clouds = new THREE.CanvasTexture(cloudSheet.canvas)
+  const ridges = new THREE.CanvasTexture(ridgeSheet.canvas)
+  for (const texture of [clouds, ridges]) texture.anisotropy = 4
+  return { clouds, ridges }
 }
 
 /** Small star decal (jacket, shoes, UI accents). */

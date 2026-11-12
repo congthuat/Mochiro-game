@@ -376,6 +376,7 @@ export default function RushApp() {
       clear: () => runnerRef.current?.debugClearObstacles(),
       lines: (on: boolean) => runnerRef.current?.debugSpeedLines(on),
       advance: (seconds: number) => runnerRef.current?.debugAdvance(seconds),
+      distance: (metres: number) => runnerRef.current?.debugDistance(metres),
       power: (kind: string | null) => runnerRef.current?.debugPower(kind as 'shield' | null),
       spawnPower: (kind: string, lane?: number) =>
         runnerRef.current?.debugSpawnPower(kind as 'shield' | 'magnet' | 'boost', lane),

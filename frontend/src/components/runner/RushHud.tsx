@@ -127,6 +127,8 @@ export function RushHud({
 
   return (
     <div className="ar-hud">
+      {/* Overdrive: wind streaks rushing out from the vanishing point plus a hot edge glow. */}
+      <div className={`ar-rush${hud.boost > 0 ? ' is-on' : ''}`} aria-hidden />
       <div className="ar-hud-top">
         <div>
           <div className="ar-score-label">{t('hud.score')}</div>

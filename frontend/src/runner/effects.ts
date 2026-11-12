@@ -184,6 +184,7 @@ export class SpeedLines {
   private pos = new THREE.Vector3()
   private scale = new THREE.Vector3()
   private tint = new THREE.Color()
+  private boost = 0
 
   constructor(capacity: number) {
     this.count = capacity
@@ -225,12 +226,15 @@ export class SpeedLines {
     this.mesh.setColorAt(index, this.tint)
   }
 
-  update(dt: number, speed: number, intensity: number): void {
-    // Only visible once the run is genuinely fast.
-    this.material.opacity = Math.max(0, intensity - 0.45) * 0.5
+  update(dt: number, speed: number, intensity: number, boost = 0): void {
+    // Only visible once the run is genuinely fast — or flat out in Overdrive, when
+    // the road streaks run long and hot.
+    this.boost += (boost - this.boost) * Math.min(1, dt * 6)
+    this.material.opacity = Math.max(Math.max(0, intensity - 0.45) * 0.5, this.boost * 0.85)
+    this.material.color.setRGB(1, 0.95 - this.boost * 0.3, 0.85 - this.boost * 0.55)
     if (this.count === 0) return
-    const dz = speed * dt * 1.2
-    const stretch = 0.6 + intensity * 0.9
+    const dz = speed * dt * (1.2 + this.boost * 0.6)
+    const stretch = 0.6 + intensity * 0.9 + this.boost * 1.4
     for (let i = 0; i < this.count; i++) {
       this.z[i] += dz
       // Recycle before the camera so nothing flashes past the lens.

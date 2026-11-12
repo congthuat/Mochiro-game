@@ -62,11 +62,17 @@ import type {
 } from './types'
 
 const MAX_DT = 0.05
+/** Minimum seconds between two shields being offered on the road. */
+const SHIELD_GAP = 30
 
 /** Scratch colours for the zone blend — reused every frame instead of allocated. */
 const BIOME_A = new THREE.Color()
 const BIOME_B = new THREE.Color()
 const BIOME_OUT = new THREE.Color()
+const SKY_TOP = new THREE.Color()
+const SKY_MID = new THREE.Color()
+const SKY_HORIZON = new THREE.Color()
+const SKY_CLOUD = new THREE.Color()
 
 function blendColor(from: string, to: string, t: number, into: THREE.Color): THREE.Color {
   return into.copy(BIOME_OUT.copy(BIOME_A.set(from)).lerp(BIOME_B.set(to), t))
@@ -107,6 +113,8 @@ interface RunState {
   spawnCursor: number
   lineCounter: number
   powerTimer: number
+  /** When the last shield was put on the road — shields have their own cooldown. */
+  lastShieldAt: number
   tierIndex: number
   hits: number
   jumps: number
@@ -210,6 +218,7 @@ export class Runner {
   private bestScore = 0
   private spawnFrozen = false
   private portrait = false
+  private lensShift = 0
   private coinShowcase: THREE.Mesh | null = null
   private powerShowcase: THREE.Group | null = null
   private rings: ShockRings | null = null
@@ -1080,7 +1089,8 @@ export class Runner {
     const width = this.container.clientWidth || 1280
     const height = this.container.clientHeight || 720
     this.camera.aspect = width / height
-    this.camera.updateProjectionMatrix()
+    this.lensShift = -1
+    this.setLensShift(0)
     this.renderer.setSize(width, height, false)
     this.composer?.setSize(width, height)
     this.bloom?.setSize(width, height)
@@ -1088,7 +1098,10 @@ export class Runner {
 
   // ------------------------------------------------------------------ menu --
   private updateMenu(dt: number): void {
+    this.setLensShift(0)
     this.menuOrbit += dt * 0.16
+    // Back to noon: quitting from the night zone must not leave the menu in the dark.
+    this.applyBiome(0)
     this.run.speed = 9
     this.track.update(dt, 9, this.clockTime)
     this.scenery?.update(dt, 9, this.clockTime)
@@ -1172,7 +1185,7 @@ export class Runner {
     this.sparks.update(realDt, dz)
     this.updatePickupFx(realDt, dz)
     // Streaks follow the *actual* speed, so overdrive pushes them to full tilt.
-    this.speedLines.update(dt, run.speed, speedLevel(run.speed))
+    this.speedLines.update(dt, run.speed, speedLevel(run.speed), run.boostUntil > run.elapsed ? 1 : 0)
 
     this.checkCoins(dz)
     this.checkPowers()
@@ -1378,6 +1391,22 @@ export class Runner {
     })
   }
 
+  /**
+   * Slide the frame up without tilting the camera. On a tall phone the bottom third
+   * of the screen was empty asphalt behind the runner; shifting the lens drops the
+   * runner toward the thumb zone and spends that height on road ahead instead, with
+   * no change in perspective. `k` is a fraction of screen height.
+   */
+  private setLensShift(k: number): void {
+    if (Math.abs(k - this.lensShift) < 0.002) return
+    this.lensShift = k
+    const width = this.container.clientWidth || 1280
+    const height = this.container.clientHeight || 720
+    if (k <= 0) this.camera.clearViewOffset()
+    else this.camera.setViewOffset(width, height, 0, -k * height, width, height)
+    this.camera.updateProjectionMatrix()
+  }
+
   /** 0 on landscape and square screens, 1 on a phone held upright. */
   private tallScreen(): number {
     return clamp01((1.05 - this.camera.aspect) / 0.55)
@@ -1385,7 +1414,10 @@ export class Runner {
 
   private updateCamera(dt: number, boosting: boolean): void {
     this.updateSun()
-    if (this.portrait) return
+    if (this.portrait) {
+      this.setLensShift(0)
+      return
+    }
     const run = this.run
     // Tall phone screens. FOV is vertical, so a portrait screen at the landscape FOV
     // sees barely one lane either side of the runner — a car in the next lane is
@@ -1393,14 +1425,15 @@ export class Runner {
     // horizontal one stays ~40°, so nothing looks fish-eyed) and raise the camera
     // so the side lanes stay in shot and the extra height shows road, not sky.
     const tall = this.tallScreen()
+    this.setLensShift(tall * 0.12)
     const baseFov = CAMERA.fov + tall * 14
     const targetFov = baseFov + (boosting ? CAMERA.boostFov - CAMERA.fov : 0) + this.camKick
     this.camKick = Math.max(0, this.camKick - dt * 11)
     this.camera.fov = damp(this.camera.fov, targetFov, CAMERA.fovRate, dt)
     this.camera.updateProjectionMatrix()
 
-    this.cameraPos.set(run.laneX * 0.42, RUN.camHeight + tall * 1.2 + run.y * 0.3, RUN.camDistance - tall * 0.2)
-    this.cameraLook.set(run.laneX * 0.22, 1.35 - tall * 0.35 + run.y * 0.42, -8 + tall)
+    this.cameraPos.set(run.laneX * 0.42, RUN.camHeight + tall * 2.1 + run.y * 0.3, RUN.camDistance - tall * 0.1)
+    this.cameraLook.set(run.laneX * 0.22, 1.35 - tall * 0.95 + run.y * 0.42, -8 + tall)
 
     if (this.intro.t < 1) {
       const intro = this.intro
@@ -1460,14 +1493,24 @@ export class Runner {
 
   /** Weighted draw from the pickup catalogue; hazards wait for a warm-up. */
   private pickPowerKind(): PowerKind {
-    const pool = this.run.elapsed < 22 ? POWERS.filter((spec) => !spec.harmful) : POWERS
+    const run = this.run
+    // A shield is a free mistake, so it is rationed: never while one is already up,
+    // and never within SHIELD_GAP seconds of the last one offered. Before this a
+    // shield came round so often that crashing stopped costing anything.
+    const shieldOk = run.shield === 0 && run.elapsed - run.lastShieldAt >= SHIELD_GAP
+    const pool = POWERS.filter(
+      (spec) => (run.elapsed >= 22 || !spec.harmful) && (spec.kind !== 'shield' || shieldOk)
+    )
     const total = pool.reduce((sum, spec) => sum + spec.weight, 0)
     let roll = this.rng() * total
     for (const spec of pool) {
       roll -= spec.weight
-      if (roll <= 0) return spec.kind
+      if (roll <= 0) {
+        if (spec.kind === 'shield') run.lastShieldAt = run.elapsed
+        return spec.kind
+      }
     }
-    return 'shield'
+    return 'magnet'
   }
 
   private pickPattern(difficulty: number): PatternKind {
@@ -1803,6 +1846,13 @@ export class Runner {
     // dusk. It never goes dark enough to lose the runner's face.
     this.fillLight.intensity = from.fillIntensity + (to.fillIntensity - from.fillIntensity) * t
     this.renderer.toneMappingExposure = from.exposure + (to.exposure - from.exposure) * t
+    this.scenery?.setSky(
+      blendColor(from.skyTop, to.skyTop, t, SKY_TOP),
+      blendColor(from.sky, to.sky, t, SKY_MID),
+      blendColor(from.fog, to.fog, t, SKY_HORIZON),
+      blendColor(from.cloudTint, to.cloudTint, t, SKY_CLOUD),
+      from.stars + (to.stars - from.stars) * t
+    )
     this.biomeNow = t < 0.5 ? from.name : to.name
   }
 
@@ -2168,6 +2218,7 @@ export class Runner {
       spawnCursor: 18,
       lineCounter: 1,
       powerTimer: Math.round(randRange(this.rng, 4, 8)),
+      lastShieldAt: -Infinity,
       tierIndex: 0,
       hits: 0,
     }
@@ -2305,6 +2356,12 @@ export class Runner {
     if (!import.meta.env.DEV) return
     this.run.elapsed += seconds
     this.run.tierIndex = tierFor(speedAt(this.run.elapsed)).at
+  }
+
+  /** QA helper: jump the odometer, so each zone's sky can be looked at directly. */
+  debugDistance(metres: number): void {
+    if (!import.meta.env.DEV) return
+    this.run.distance = metres
   }
 
   /** QA helper: toggle the speed streaks so their look can be isolated. */
