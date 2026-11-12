@@ -40,8 +40,8 @@ export const RUN = {
   /** Z position behind the camera where content is recycled. */
   despawnZ: 14,
   /** Camera distance behind the runner. */
-  camDistance: 8.6,
-  camHeight: 4.4,
+  camDistance: 7.9,
+  camHeight: 4.1,
   /** Lane switch feel. */
   laneSwitchRate: 17,
   laneRoll: 0.34,
@@ -259,8 +259,8 @@ export const PALETTE = {
   sand: '#f6e6bd',
   // Asphalt. Dark, because that is what a road is — and because the only bright
   // thing on a real carriageway is the paint, which is what carries the speed.
-  road: '#3a4048',
-  roadDark: '#2c3138',
+  road: '#525a64',
+  roadDark: '#3f4650',
   // Road paint. One source of truth: the edge lines baked into the asphalt texture
   // and the dashed dividers laid as geometry both read this, so they can never
   // drift apart. Off-white rather than pure white — pure white blows out under the
@@ -556,19 +556,21 @@ export interface Biome {
   groundBounce: string
   sunIntensity: number
   hemiIntensity: number
+  /** The cool fill from the camera side, so the runner's face never goes dark. */
+  fillIntensity: number
   exposure: number
 }
 
 export const BIOMES: Biome[] = [
   // The daylight the game shipped with — a run always starts here.
-  { at: 0, name: 'day', sky: '#7ccbfb', fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, exposure: 0.92 },
+  { at: 0, name: 'day', sky: '#7ccbfb', fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04 },
   // Golden hour: low warm sun, long light, dust in the air.
-  { at: 520, name: 'golden', sky: '#f0a266', fog: '#ffd7ad', sun: '#ffcb84', skyBounce: '#ffc188', groundBounce: '#a87c47', sunIntensity: 1.06, hemiIntensity: 0.43, exposure: 0.9 },
+  { at: 520, name: 'golden', sky: '#f0a266', fog: '#ffd7ad', sun: '#ffcb84', skyBounce: '#ffc188', groundBounce: '#a87c47', sunIntensity: 1.06, hemiIntensity: 0.43, fillIntensity: 0.34, exposure: 1.01 },
   // Dusk: the light goes violet and the shadows stop reading as warm.
-  { at: 1150, name: 'dusk', sky: '#5b4b9a', fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, exposure: 0.87 },
+  { at: 1150, name: 'dusk', sky: '#5b4b9a', fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97 },
   // Neon night: dark sky, cold key light, the emissive lift on every prop doing the
   // work of keeping the runner and the traffic readable.
-  { at: 1900, name: 'neon', sky: '#141d40', fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, exposure: 0.85 },
+  { at: 1900, name: 'neon', sky: '#141d40', fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95 },
 ]
 
 /** Metres over which one zone hands over to the next. */

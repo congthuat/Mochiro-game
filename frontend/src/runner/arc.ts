@@ -400,9 +400,11 @@ export function buildWordmarkTexture(brand: ArcBrand, mark: ArcMark | null): THR
 
   // Panel.
   const panel = ctx.createLinearGradient(0, 0, width, height)
-  panel.addColorStop(0, '#0b2440')
-  panel.addColorStop(0.55, '#07182e')
-  panel.addColorStop(1, '#04101f')
+  // A backlit sign in daylight: a saturated brand blue that survives tone mapping.
+  // The old near-black navy rendered as a dead black hole beside a sunny road.
+  panel.addColorStop(0, '#1f6fc4')
+  panel.addColorStop(0.55, '#14559e')
+  panel.addColorStop(1, '#0c3c78')
   ctx.fillStyle = panel
   ctx.fillRect(0, 0, width, height)
 

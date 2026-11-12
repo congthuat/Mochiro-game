@@ -198,6 +198,10 @@ export class Runner {
   private cameraShakeOffset = new THREE.Vector3()
   private cameraPos = new THREE.Vector3()
   private cameraLook = new THREE.Vector3()
+  /** Where the camera is actually aiming — eased, so lane changes never whip the view. */
+  private lookNow = new THREE.Vector3(0, 1.25, 0)
+  /** Run-start sweep from wherever the menu/game-over camera was to the chase cam. */
+  private intro = { t: 1, duration: 1, angle: 0, radius: 0, height: 0, look: new THREE.Vector3() }
   private menuOrbit = 0
   private rng: () => number = makeRng(Math.floor(Math.random() * 0xffffffff))
   private toastId = 1
@@ -241,8 +245,8 @@ export class Runner {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.preset.pixelRatio))
     this.renderer.setSize(container.clientWidth || 1280, container.clientHeight || 720, false)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 0.92
+    this.renderer.toneMapping = THREE.NeutralToneMapping
+    this.renderer.toneMappingExposure = BIOMES[0].exposure
     this.renderer.shadowMap.enabled = this.preset.shadows
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.domElement.style.display = 'block'
@@ -883,9 +887,29 @@ export class Runner {
       this.audio.startMusic()
       this.audio.play('start')
     })
+    this.beginIntro()
     this.toast('GO!', 'good')
     this.setPhase('playing')
     this.emitHud(true)
+  }
+
+  /**
+   * The camera swings round the runner from its menu orbit into the chase position
+   * instead of teleporting there. Interpolated around the runner (angle, radius,
+   * height) so a camera parked in front of them circles past rather than flying
+   * through their body.
+   */
+  private beginIntro(): void {
+    const pos = this.camera.position
+    const angle = Math.atan2(pos.x, pos.z)
+    const radius = Math.hypot(pos.x, pos.z)
+    const turn = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)))
+    this.intro.angle = angle
+    this.intro.radius = radius
+    this.intro.height = pos.y
+    this.intro.look.copy(this.lookNow)
+    this.intro.duration = 0.75 + (turn / Math.PI) * 0.55
+    this.intro.t = this.portrait ? 1 : 0
   }
 
   pause(): void {
@@ -1087,7 +1111,8 @@ export class Runner {
     const radius = 7.4
     const angle = this.menuOrbit
     this.camera.position.set(Math.sin(angle) * radius, 3.4 + Math.sin(angle * 0.6) * 0.7, Math.cos(angle) * radius + 1.4)
-    this.camera.lookAt(0, 1.25, 0)
+    this.lookNow.set(0, 1.25, 0)
+    this.camera.lookAt(this.lookNow)
     this.camera.fov = CAMERA.fov
     this.camera.updateProjectionMatrix()
     this.audio.setIntensity(0)
@@ -1353,20 +1378,52 @@ export class Runner {
     })
   }
 
+  /** 0 on landscape and square screens, 1 on a phone held upright. */
+  private tallScreen(): number {
+    return clamp01((1.05 - this.camera.aspect) / 0.55)
+  }
+
   private updateCamera(dt: number, boosting: boolean): void {
     this.updateSun()
     if (this.portrait) return
     const run = this.run
-    const targetFov = (boosting ? CAMERA.boostFov : CAMERA.fov) + this.camKick
+    // Tall phone screens. FOV is vertical, so a portrait screen at the landscape FOV
+    // sees barely one lane either side of the runner — a car in the next lane is
+    // invisible until it is on top of you. Widen the vertical FOV there (the
+    // horizontal one stays ~40°, so nothing looks fish-eyed) and raise the camera
+    // so the side lanes stay in shot and the extra height shows road, not sky.
+    const tall = this.tallScreen()
+    const baseFov = CAMERA.fov + tall * 14
+    const targetFov = baseFov + (boosting ? CAMERA.boostFov - CAMERA.fov : 0) + this.camKick
     this.camKick = Math.max(0, this.camKick - dt * 11)
     this.camera.fov = damp(this.camera.fov, targetFov, CAMERA.fovRate, dt)
     this.camera.updateProjectionMatrix()
 
-    this.cameraPos.set(run.laneX * 0.42, RUN.camHeight + run.y * 0.3, RUN.camDistance)
-    this.camera.position.lerp(this.cameraPos, 1 - Math.exp(-9 * dt))
+    this.cameraPos.set(run.laneX * 0.42, RUN.camHeight + tall * 1.2 + run.y * 0.3, RUN.camDistance - tall * 0.2)
+    this.cameraLook.set(run.laneX * 0.22, 1.35 - tall * 0.35 + run.y * 0.42, -8 + tall)
 
-    this.cameraLook.set(run.laneX * 0.22, 1.35 + run.y * 0.42, -8)
-    this.camera.lookAt(this.cameraLook)
+    if (this.intro.t < 1) {
+      const intro = this.intro
+      intro.t = Math.min(1, intro.t + dt / intro.duration)
+      const k = 1 - Math.pow(1 - intro.t, 3)
+      const targetAngle = Math.atan2(this.cameraPos.x, this.cameraPos.z)
+      let turn = targetAngle - intro.angle
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn))
+      const angle = intro.angle + turn * k
+      const radius = intro.radius + (Math.hypot(this.cameraPos.x, this.cameraPos.z) - intro.radius) * k
+      // A small crane lift mid-swing so the move reads as deliberate, not a slide.
+      const lift = Math.sin(intro.t * Math.PI) * 0.6
+      this.camera.position.set(
+        Math.sin(angle) * radius,
+        intro.height + (this.cameraPos.y - intro.height) * k + lift,
+        Math.cos(angle) * radius
+      )
+      this.lookNow.lerpVectors(intro.look, this.cameraLook, k)
+    } else {
+      this.camera.position.lerp(this.cameraPos, 1 - Math.exp(-9 * dt))
+      this.lookNow.lerp(this.cameraLook, 1 - Math.exp(-14 * dt))
+    }
+    this.camera.lookAt(this.lookNow)
 
     // Impact shake.
     if (this.shake > 0.001) {
@@ -1744,7 +1801,7 @@ export class Runner {
     this.sunLight.intensity = from.sunIntensity + (to.sunIntensity - from.sunIntensity) * t
     // The fill light is the cool bounce; it follows the sky so nothing reads warm at
     // dusk. It never goes dark enough to lose the runner's face.
-    this.fillLight.intensity = 0.38 - t * 0.1
+    this.fillLight.intensity = from.fillIntensity + (to.fillIntensity - from.fillIntensity) * t
     this.renderer.toneMappingExposure = from.exposure + (to.exposure - from.exposure) * t
     this.biomeNow = t < 0.5 ? from.name : to.name
   }
@@ -2059,8 +2116,9 @@ export class Runner {
     })
     this.camera.position.z = damp(this.camera.position.z, RUN.camDistance + 2.4, 2, dt)
     this.camera.position.y = damp(this.camera.position.y, RUN.camHeight + 0.8, 2, dt)
-    this.camera.lookAt(this.avatar.root.position.x, 1.1, 0)
-    this.camera.fov = damp(this.camera.fov, CAMERA.fov + 4, 2, dt)
+    this.lookNow.set(this.avatar.root.position.x, 1.1, 0)
+    this.camera.lookAt(this.lookNow)
+    this.camera.fov = damp(this.camera.fov, CAMERA.fov + 4 + this.tallScreen() * 14, 2, dt)
     this.camera.updateProjectionMatrix()
   }
 

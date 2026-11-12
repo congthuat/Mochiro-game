@@ -222,11 +222,15 @@ export class Scenery {
     const signGeo = makeSign(geoRng)
     const hillGeo = new THREE.SphereGeometry(1, 16, 12)
     const billboardGeo = new THREE.PlaneGeometry(4.4, 2.2)
-    const billboardMat = new THREE.MeshBasicMaterial({ map: buildWordmarkTexture(brand, mark), transparent: true, side: THREE.DoubleSide })
+    const billboardMat = new THREE.MeshBasicMaterial({ map: buildWordmarkTexture(brand, mark), transparent: true })
+    // A cabinet behind the artwork so the sign has depth and a back, not a paper
+    // sheet with the logo mirrored through it.
+    const cabinetGeo = new THREE.BoxGeometry(4.62, 2.42, 0.16)
+    const cabinetMat = new THREE.MeshStandardMaterial({ color: 0x2a3340, roughness: 0.55, metalness: 0.35 })
     this.billboardMat = billboardMat
     const postGeo = new THREE.BoxGeometry(0.22, 4.4, 0.22)
     const postMat = new THREE.MeshStandardMaterial({ color: 0xb8c2cc, roughness: 0.6 })
-    this.disposables.push(...houseGeos, ...blockGeos, ...treeGeos, ...pineGeos, ...bushGeos, flowerGeo, lampGeo, fenceGeo, hedgeGeo, benchGeo, signGeo, hillGeo, billboardGeo, billboardMat, postGeo, postMat)
+    this.disposables.push(...houseGeos, ...blockGeos, ...treeGeos, ...pineGeos, ...bushGeos, flowerGeo, lampGeo, fenceGeo, hedgeGeo, benchGeo, signGeo, hillGeo, billboardGeo, billboardMat, cabinetGeo, cabinetMat, postGeo, postMat)
 
     const matrix = new THREE.Matrix4()
     const quat = new THREE.Quaternion()
@@ -465,6 +469,9 @@ export class Scenery {
         // The post is a child of the panel so it shares its tilt, and it sits *behind*
         // the artwork: a post centred on the panel's own z pokes 0.11 m towards the
         // camera and draws a grey stripe straight down the middle of the wordmark.
+        const cabinet = new THREE.Mesh(cabinetGeo, cabinetMat)
+        cabinet.position.z = -0.1
+        billboard.add(cabinet)
         const post = new THREE.Mesh(postGeo, postMat)
         post.scale.y = 1.28
         post.position.set(0, -1.91, -0.2)

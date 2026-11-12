@@ -1,6 +1,7 @@
 // Shared runner FX (boost flame, trails, shield bubble, contact shadow) used by
 // both the rigged GLB runner and the procedural fallback character.
 import * as THREE from 'three'
+import { blobShadowTexture } from './textures'
 
 export class AvatarFx {
   readonly group = new THREE.Group()
@@ -58,16 +59,20 @@ export class AvatarFx {
     this.group.add(this.shieldWire)
     this.disposables.push(wireGeo, wireMat)
 
-    const shadowGeo = new THREE.CircleGeometry(shadowRadius, 24)
+    // Soft-edged and stretched front-to-back like a runner's footprint; the old
+    // flat disc was a pale green coin that made the hero look pasted on the road.
+    const shadowGeo = new THREE.PlaneGeometry(shadowRadius * 2.6, shadowRadius * 3.1)
     const shadowMat = new THREE.MeshBasicMaterial({
-      color: 0x2b3a2a,
+      map: blobShadowTexture(),
+      color: 0x000000,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.6,
       depthWrite: false,
     })
     this.shadow = new THREE.Mesh(shadowGeo, shadowMat)
     this.shadow.rotation.x = -Math.PI / 2
     this.shadow.position.y = 0.02
+    this.shadow.renderOrder = 1
     this.group.add(this.shadow)
     this.disposables.push(shadowGeo, shadowMat)
 
@@ -130,7 +135,7 @@ export class AvatarFx {
     }
     const scale = Math.min(1.15, Math.max(0.45, 1.15 - height * 0.2))
     this.shadow.scale.setScalar(scale)
-    ;(this.shadow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.32, Math.max(0.06, 0.32 - height * 0.05))
+    ;(this.shadow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.6, Math.max(0.12, 0.6 - height * 0.12))
     this.shadow.position.y = -height + 0.03
   }
 

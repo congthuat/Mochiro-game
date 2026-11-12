@@ -112,7 +112,9 @@ for (let d = 0; d < 3000; d += 5) {
   maxExposure = Math.max(maxExposure, exposure(d))
   minSun = Math.min(minSun, intensity(d))
 }
-check('exposure stays in the band the game was tuned in', minExposure >= 0.8 && maxExposure <= 1.0, `${minExposure.toFixed(2)} … ${maxExposure.toFixed(2)}`)
+// The band is for the neutral tone curve the runner renders with: it holds colour
+// where ACES washed it out, and needs ~10% more exposure for the same brightness.
+check('exposure stays in the band the game was tuned in', minExposure >= 0.88 && maxExposure <= 1.1, `${minExposure.toFixed(2)} … ${maxExposure.toFixed(2)}`)
 check('the sun never goes out', minSun >= 0.6, `lowest key light ${minSun.toFixed(2)}`)
 check(
   'no zone paints the sky pure white',

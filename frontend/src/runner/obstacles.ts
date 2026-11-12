@@ -5,7 +5,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { LANES, OBSTACLES, RUN, type ObstacleSpec, type QualityPreset } from './config'
-import { hazardTexture, panelTexture } from './textures'
+import { blobShadowTexture, hazardTexture, panelTexture } from './textures'
 import type { ObstacleKind } from './types'
 
 export type { ObstacleKind }
@@ -20,6 +20,8 @@ export interface Obstacle {
   spin: THREE.Vector3
   lane: number
   z: number
+  /** Soft contact shadow on the road under it (hidden for the tunnel arch). */
+  shadow: THREE.Mesh
 }
 
 function paint(source: THREE.BufferGeometry, hex: number, offset?: [number, number, number]): THREE.BufferGeometry {
@@ -157,6 +159,14 @@ export class ObstacleManager {
   private materials: Record<ObstacleKind, THREE.Material>
   private trafficMaterials: THREE.MeshStandardMaterial[]
   private cap: number
+  private shadowGeometry = new THREE.PlaneGeometry(1, 1)
+  private shadowMaterial = new THREE.MeshBasicMaterial({
+    map: blobShadowTexture(),
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.5,
+    depthWrite: false,
+  })
   private disposables: Array<{ dispose: () => void }> = []
 
   constructor(preset: QualityPreset) {
@@ -203,6 +213,10 @@ export class ObstacleManager {
       tunnel: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.12 }),
     }
     this.disposables.push(...Object.values(this.geometries), ...this.trafficMaterials, hazardMat, panelMat)
+    this.disposables.push(this.shadowGeometry, this.shadowMaterial)
+    // Real shadow maps only run on high; the blob keeps every tier grounded and on
+    // high it reads as the darker contact occlusion right under the body.
+    this.shadowMaterial.opacity = preset.shadows ? 0.34 : 0.5
   }
 
   get activeCount(): number {
@@ -216,12 +230,14 @@ export class ObstacleManager {
       item.active = false
       item.smashing = false
       item.mesh.visible = false
+      item.shadow.visible = false
       item.mesh.rotation.set(0, 0, 0)
     }
   }
 
   setQuality(preset: QualityPreset): void {
     this.cap = preset.maxObstacles
+    this.shadowMaterial.opacity = preset.shadows ? 0.34 : 0.5
   }
 
   spawn(kind: ObstacleKind, lane: number, z: number): Obstacle | null {
@@ -244,6 +260,11 @@ export class ObstacleManager {
     // Vehicles and ramps sit on the road; the tunnel arch is built around y = 0.
     if (kind === 'car' || kind === 'bus' || kind === 'ramp') obstacle.mesh.position.y = 0
     if (kind === 'tunnel') obstacle.mesh.position.y = 0
+    const shadow = obstacle.shadow
+    shadow.visible = kind !== 'tunnel'
+    // A touch wider than the footprint so the soft edge spills out round the base.
+    shadow.scale.set(spec.width * 1.25, spec.depth * 1.18 + 0.5, 1)
+    shadow.position.set(obstacle.mesh.position.x, 0.025, z)
     return obstacle
   }
 
@@ -259,6 +280,7 @@ export class ObstacleManager {
         item.mesh.rotation.x += item.spin.x * 3 * dt
         item.mesh.rotation.y += item.spin.y * 3 * dt
         item.mesh.rotation.z += item.spin.z * 3 * dt
+        item.shadow.visible = false
         if (item.smashTime > 0.9) {
           item.active = false
           item.smashing = false
@@ -268,9 +290,11 @@ export class ObstacleManager {
       }
       item.z += dz
       item.mesh.position.z = item.z
+      item.shadow.position.z = item.z
       if (item.z > RUN.despawnZ) {
         item.active = false
         item.mesh.visible = false
+        item.shadow.visible = false
       }
     }
   }
@@ -309,6 +333,11 @@ export class ObstacleManager {
     mesh.visible = false
     mesh.castShadow = true
     this.group.add(mesh)
+    const shadow = new THREE.Mesh(this.shadowGeometry, this.shadowMaterial)
+    shadow.rotation.x = -Math.PI / 2
+    shadow.visible = false
+    shadow.renderOrder = 1
+    this.group.add(shadow)
     const obstacle: Obstacle = {
       kind,
       spec,
@@ -319,6 +348,7 @@ export class ObstacleManager {
       spin: new THREE.Vector3(),
       lane: 1,
       z: 0,
+      shadow,
     }
     this.pool.push(obstacle)
     return obstacle

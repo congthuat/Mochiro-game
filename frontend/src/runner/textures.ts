@@ -14,13 +14,34 @@ function canvas2d(width: number, height: number): { canvas: HTMLCanvasElement; c
 function finish(canvas: HTMLCanvasElement, repeat?: [number, number]): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 4
+  texture.anisotropy = 8
   if (repeat) {
     texture.wrapS = THREE.RepeatWrapping
     texture.wrapT = THREE.RepeatWrapping
     texture.repeat.set(repeat[0], repeat[1])
   }
   return texture
+}
+
+let blobShadow: THREE.CanvasTexture | null = null
+
+/**
+ * Soft contact shadow: a dark core that fades to nothing, so anything standing on
+ * the road looks planted on it instead of hovering. Shared by every caster; the
+ * texture is never disposed (it lives as long as the page).
+ */
+export function blobShadowTexture(): THREE.CanvasTexture {
+  if (blobShadow) return blobShadow
+  const { canvas, ctx } = canvas2d(128, 128)
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 1)')
+  gradient.addColorStop(0.35, 'rgba(0, 0, 0, 0.85)')
+  gradient.addColorStop(0.7, 'rgba(0, 0, 0, 0.32)')
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 128, 128)
+  blobShadow = new THREE.CanvasTexture(canvas)
+  return blobShadow
 }
 
 /**
