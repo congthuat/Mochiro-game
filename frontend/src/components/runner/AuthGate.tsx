@@ -1,9 +1,11 @@
 // Sign-in gate: wallet (SIWE) or Google, with the device-minted Arc wallet that
 // Google accounts get. Also the place where the player picks their language.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {Check, Copy, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon} from 'lucide-react'
+import {AlertTriangle, Check, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon} from 'lucide-react'
 import { useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import { MochiroLogo } from './MochiroLogo'
+import { inAppBrowser, nativeBrowserName, openInBrowserHref } from '../../lib/inAppBrowser'
+import { WC_WALLETS, connectWallet as connectViaWalletConnect, isMobile, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
 import {
   chainConfig,
   createLocalWallet,
@@ -70,11 +72,14 @@ export function AuthGate({
   onDismiss?: () => void
 }) {
   const t = useT()
+  const appBrowser = inAppBrowser()
+  const browserHref = openInBrowserHref()
   const [step, setStep] = useState<Step>({ name: 'choose' })
   const [password, setPassword] = useState('')
   const [clientIdInput, setClientIdInput] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [pairing, setPairing] = useState<string | null>(null)
   const googleButton = useRef<HTMLDivElement>(null)
   const credentialRef = useRef<string>('')
   const emailRef = useRef<string | null>(null)
@@ -160,6 +165,21 @@ export function AuthGate({
       const message = issue instanceof Error ? issue.message : ''
       setError(message === 'no-wallet' ? t('auth.noWallet') : message || t('auth.error'))
       setStep({ name: 'choose' })
+    }
+  }
+
+  /** Same sign-in, different way of obtaining the provider — paired over WalletConnect. */
+  const connectViaApp = async (wallet: WcWallet) => {
+    setError('')
+    setPairing(wallet.id)
+    try {
+      const provider = await connectViaWalletConnect(wallet)
+      finish(await signInWithWallet(provider))
+    } catch (issue) {
+      const message = issue instanceof Error ? issue.message : ''
+      setError(message || t('auth.error'))
+    } finally {
+      setPairing(null)
     }
   }
 
@@ -260,6 +280,21 @@ export function AuthGate({
 
         {step.name === 'choose' && (
           <>
+            {appBrowser && (
+              <div className="ar-auth-inapp">
+                <AlertTriangle size={15} className="ar-auth-inapp-icon" />
+                <div className="ar-auth-inapp-text">
+                  <p className="ar-auth-inapp-title">{t('auth.inAppTitle')}</p>
+                  <p className="ar-auth-inapp-body">{t('auth.inAppBody')}</p>
+                  {browserHref && (
+                    <a className="ar-auth-inapp-open" href={browserHref}>
+                      {t('auth.openIn')} {nativeBrowserName()} <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
             {googleReady ? (
               <div className="ar-google-slot" ref={googleButton} />
             ) : (
@@ -272,11 +307,35 @@ export function AuthGate({
               <span>{t('auth.or')}</span>
             </div>
 
-            <button className="ar-btn py-4 text-[15px]" onClick={() => void connectWallet()} disabled={!wallet}>
-              <WalletIcon size={16} />
-              {wallet ? `${t('auth.wallet')} — ${label}` : t('auth.wallet')}
-            </button>
-            {!wallet && <div className="ar-hint mt-2 text-left">{t('auth.noWallet')}</div>}
+            {wallet && (
+              <button className="ar-btn py-4 text-[15px]" onClick={() => void connectWallet()}>
+                <WalletIcon size={16} />
+                {`${t('auth.wallet')} — ${label}`}
+              </button>
+            )}
+
+            {/* A phone has nothing to inject, so the wallet has to be reached over the relay. */}
+            {isMobile() && walletConnectReady() && (
+              <>
+                <div className="ar-hint">{t('auth.mobileWallet')}</div>
+                <div className="ar-auth-wallets">
+                  {WC_WALLETS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className="ar-auth-wallet"
+                      disabled={pairing !== null}
+                      onClick={() => void connectViaApp(option)}
+                    >
+                      {pairing === option.id ? <Loader2 size={14} className="ar-spin" /> : <WalletIcon size={14} />}
+                      {option.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {!wallet && !isMobile() && <div className="ar-hint mt-2 text-left">{t('auth.noWallet')}</div>}
 
             {error ? <div className="ar-auth-error">{error}</div> : null}
 

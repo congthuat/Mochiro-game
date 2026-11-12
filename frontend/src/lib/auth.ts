@@ -144,7 +144,7 @@ export function rememberGoogleClientId(id: string): void {
 }
 
 // ------------------------------------------------------------ injected wallet --
-interface Eip1193 {
+export interface Eip1193 {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
   on?: (event: string, handler: (...args: never[]) => void) => void
   removeListener?: (event: string, handler: (...args: never[]) => void) => void
@@ -190,8 +190,15 @@ export async function ensureArcNetwork(provider: Eip1193, config: ChainConfig): 
 }
 
 /** Connect an injected wallet and complete a SIWE sign-in. */
-export async function signInWithWallet(): Promise<AuthAccount> {
-  const injected = injectedProvider()
+/**
+ * Sign in by proving control of a wallet address.
+ *
+ * The provider is a parameter because there are two ways to have one: a wallet that injected
+ * itself into the page, and a wallet paired over WalletConnect. Everything after the provider
+ * is identical, so it lives here once.
+ */
+export async function signInWithWallet(external?: Eip1193): Promise<AuthAccount> {
+  const injected = external ?? injectedProvider()
   if (!injected) throw new Error('no-wallet')
   const config = await chainConfig()
 

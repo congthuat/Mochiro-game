@@ -2127,6 +2127,87 @@ body {
 
 /* 11 px uppercase is the hardest way to read a sentence, and every line down here
    is a sentence — the wallet note, the guest note, the network note. */
+/* Google refuses to sign in inside Zalo, Facebook and the like. The notice has to read as a
+   way out rather than a scolding, so it is a warm panel with one real button. */
+.ar-auth-inapp {
+  display: flex;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(160, 100, 0, 0.28);
+  background: #fff2d9;
+  text-align: left;
+}
+.ar-auth-inapp-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #6f4100;
+}
+.ar-auth-inapp-text {
+  min-width: 0;
+}
+.ar-auth-inapp-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #6f4100;
+}
+.ar-auth-inapp-body {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #5c3600;
+}
+.ar-auth-inapp-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  background: #6f4100;
+  color: #fff6e6;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.ar-auth-inapp-open:hover {
+  background: #5c3600;
+}
+
+/* Wallet apps, reached over the relay. One tap names one app, so a phone never hands the
+   pairing to whichever wallet happens to be the default. */
+.ar-auth-wallets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.ar-auth-wallet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(40, 70, 120, 0.22);
+  background: rgba(255, 255, 255, 0.92);
+  color: #16233d;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.ar-auth-wallet:hover:not(:disabled) {
+  border-color: rgba(43, 111, 216, 0.5);
+  background: #ffffff;
+}
+.ar-auth-wallet:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .ar-auth .ar-hint {
   font-size: 12px;
   letter-spacing: 0.01em;

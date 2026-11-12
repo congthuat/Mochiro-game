@@ -197,6 +197,16 @@ const DICT: Record<string, Entry> = {
   // ----------------------------------------------------------------- auth --
   'auth.title': { en: 'Sign in to Mochiro', vi: 'Đăng nhập Mochiro' },
   'auth.google': { en: 'Continue with Google', vi: 'Tiếp tục với Google' },
+  'auth.inAppTitle': {
+    en: 'Google sign-in is blocked inside an app\u2019s browser',
+    vi: 'Đăng nhập Google bị chặn trong trình duyệt của app',
+  },
+  'auth.inAppBody': {
+    en: 'Zalo, Facebook and the like open pages in their own browser, and Google refuses to sign in there. Open the game in your phone\u2019s browser instead.',
+    vi: 'Zalo, Facebook và các app khác mở trang bằng trình duyệt riêng, và Google từ chối đăng nhập ở đó. Hãy mở game bằng trình duyệt của điện thoại.',
+  },
+  'auth.openIn': { en: 'Open in', vi: 'Mở bằng' },
+  'auth.mobileWallet': { en: 'Sign in with a wallet app', vi: 'Đăng nhập bằng ví trên điện thoại' },
   'auth.wallet': { en: 'Connect a wallet', vi: 'Kết nối ví' },
   'auth.noWallet': {
     en: 'No browser wallet found. Install MetaMask, Rabby or OKX to sign in with a wallet.',
