@@ -47,7 +47,38 @@ publishes an "ALIAS" or "ANAME" record, use it on `@` instead and skip the `A` r
    JSON. If it returns the HTML of the app, the proxy is sending `/api` to the static files
    instead of the backend.
 
-## Path A — Vercel (everything works)
+## Path A — Vercel (LIVE)
+
+**mochiro.xyz and www.mochiro.xyz are serving this application, with the backend behind them.**
+
+| | |
+|---|---|
+| Project | `mochiro`, linked to `congthuat/Mochiro-game`, branch `main` |
+| Frontend | `frontend/dist/client`, built on every push to `main` |
+| Backend | `api/index.js` as a serverless function, reached at `/api/*` |
+| Database | the Surf gateway, through `SURF_API_KEY` |
+| DNS | `A @ 76.76.21.21` · `CNAME www cname.vercel-dns.com`, both at Spaceship |
+
+### The build needed two things the platform supplies on its own
+
+`frontend/package.json` runs `scripts/check-env.cjs` before building, and that script
+requires `BACKEND_PORT` and a defined `BASE_PATH`. Locally the platform injects both; on
+Vercel they have to be set as project environment variables. Without them the build stops
+at `Missing required env vars: BACKEND_PORT`.
+
+The build emits `dist/client` (the browser bundle) and `dist/server` (an SSR bundle). Only
+the first is served here — the platform's own server consumes the second.
+
+### Verified live
+
+```
+https://mochiro.xyz/                       200
+https://www.mochiro.xyz/                   200
+https://mochiro.xyz/api/health             200  {"status":"ok"}
+https://mochiro.xyz/api/runner/leaderboard 200  6 entries, best 92906
+```
+
+## Path A (original notes) — Vercel
 
 Vercel runs the backend as a serverless function, so the leaderboard and sign-in survive.
 The wiring is three files at the repository root:
