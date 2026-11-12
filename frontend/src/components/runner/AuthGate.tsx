@@ -1,11 +1,12 @@
 // Sign-in gate: wallet (SIWE) or Google, with the device-minted Arc wallet that
 // Google accounts get. Also the place where the player picks their language.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {AlertTriangle, Check, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon} from 'lucide-react'
+import {AlertTriangle, Check, ChevronLeft, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon} from 'lucide-react'
 import { useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import { MochiroLogo } from './MochiroLogo'
 import { inAppBrowser, nativeBrowserName, openInBrowserHref } from '../../lib/inAppBrowser'
-import { WC_WALLETS, connectWallet as connectViaWalletConnect, isMobile, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
+import { QRCodeSVG } from 'qrcode.react'
+import { WC_WALLETS, connectWallet as connectViaWalletConnect, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
 import {
   chainConfig,
   createLocalWallet,
@@ -27,6 +28,7 @@ import {
 
 type Step =
   | { name: 'choose' }
+  | { name: 'wallet' }
   | { name: 'google-setup' }
   | { name: 'create'; credential: string; email: string | null }
   | { name: 'reveal'; credential: string; email: string | null; address: string; privateKey: string }
@@ -80,6 +82,9 @@ export function AuthGate({
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [pairing, setPairing] = useState<string | null>(null)
+  const [qrUri, setQrUri] = useState<string | null>(null)
+  /** Bumped whenever the player leaves a pairing, so a late answer cannot sign them in. */
+  const pairToken = useRef(0)
   const googleButton = useRef<HTMLDivElement>(null)
   const credentialRef = useRef<string>('')
   const emailRef = useRef<string | null>(null)
@@ -170,17 +175,35 @@ export function AuthGate({
 
   /** Same sign-in, different way of obtaining the provider — paired over WalletConnect. */
   const connectViaApp = async (wallet: WcWallet) => {
+    const token = (pairToken.current += 1)
     setError('')
     setPairing(wallet.id)
+    setQrUri(null)
     try {
-      const provider = await connectViaWalletConnect(wallet)
+      const provider = await connectViaWalletConnect(wallet, (uri) => {
+        if (pairToken.current === token) setQrUri(uri)
+      })
+      if (pairToken.current !== token) return
       finish(await signInWithWallet(provider))
     } catch (issue) {
+      if (pairToken.current !== token) return
       const message = issue instanceof Error ? issue.message : ''
       setError(message || t('auth.error'))
     } finally {
-      setPairing(null)
+      if (pairToken.current === token) {
+        setPairing(null)
+        setQrUri(null)
+      }
     }
+  }
+
+  /** Leaving the picker abandons any pairing in flight. */
+  const leaveWalletStep = () => {
+    pairToken.current += 1
+    setPairing(null)
+    setQrUri(null)
+    setError('')
+    setStep({ name: 'choose' })
   }
 
   const submitCreate = async () => {
@@ -307,35 +330,9 @@ export function AuthGate({
               <span>{t('auth.or')}</span>
             </div>
 
-            {wallet && (
-              <button className="ar-btn py-4 text-[15px]" onClick={() => void connectWallet()}>
-                <WalletIcon size={16} />
-                {`${t('auth.wallet')} — ${label}`}
-              </button>
-            )}
-
-            {/* A phone has nothing to inject, so the wallet has to be reached over the relay. */}
-            {isMobile() && walletConnectReady() && (
-              <>
-                <div className="ar-hint">{t('auth.mobileWallet')}</div>
-                <div className="ar-auth-wallets">
-                  {WC_WALLETS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className="ar-auth-wallet"
-                      disabled={pairing !== null}
-                      onClick={() => void connectViaApp(option)}
-                    >
-                      {pairing === option.id ? <Loader2 size={14} className="ar-spin" /> : <WalletIcon size={14} />}
-                      {option.name}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {!wallet && !isMobile() && <div className="ar-hint mt-2 text-left">{t('auth.noWallet')}</div>}
+            <button className="ar-btn py-4 text-[15px]" onClick={() => setStep({ name: 'wallet' })}>
+              <WalletIcon size={16} /> {t('auth.wallet')}
+            </button>
 
             {error ? <div className="ar-auth-error">{error}</div> : null}
 
@@ -428,6 +425,70 @@ export function AuthGate({
             <button className="ar-btn ar-btn-primary mt-3 py-3" onClick={() => void revealDone()}>
               <Check size={15} /> {t('auth.keySaved')}
             </button>
+          </>
+        )}
+
+        {step.name === 'wallet' && (
+          <>
+            <div className="ar-auth-pick-bar">
+              <button type="button" className="ar-auth-back" onClick={leaveWalletStep}>
+                <ChevronLeft size={14} /> {t('auth.back')}
+              </button>
+              <span className="ar-auth-pick-head">{t('auth.pickWallet')}</span>
+            </div>
+
+            {qrUri ? (
+              /* A desktop has no wallet app to open, so the phone becomes the wallet. */
+              <div className="ar-auth-qr">
+                <div className="ar-auth-qr-code">
+                  <QRCodeSVG value={qrUri} size={164} marginSize={2} level="M" />
+                </div>
+                <p className="ar-auth-qr-note">{t('auth.scanQr')}</p>
+              </div>
+            ) : (
+              <>
+                {wallet ? (
+                  <button
+                    type="button"
+                    className="ar-auth-opt"
+                    disabled={pairing !== null}
+                    onClick={() => void connectWallet()}
+                  >
+                    <span className="ar-auth-opt-icon">
+                      <WalletIcon size={15} />
+                    </span>
+                    <span className="ar-auth-opt-text">
+                      <span className="ar-auth-opt-name">{label}</span>
+                      <span className="ar-auth-opt-sub">{t('auth.inBrowser')}</span>
+                    </span>
+                  </button>
+                ) : (
+                  <p className="ar-hint">{t('auth.noWallet')}</p>
+                )}
+
+                {walletConnectReady() && (
+                  <>
+                    <div className="ar-auth-pick-sub">{t('auth.mobileWallet')}</div>
+                    <div className="ar-auth-wallets">
+                      {WC_WALLETS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className="ar-auth-wallet"
+                          disabled={pairing !== null}
+                          onClick={() => void connectViaApp(option)}
+                        >
+                          {pairing === option.id ? <Loader2 size={14} className="ar-spin" /> : <WalletIcon size={14} />}
+                          {option.name}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {error ? <div className="ar-auth-error">{error}</div> : null}
           </>
         )}
 

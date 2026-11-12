@@ -2127,6 +2127,116 @@ body {
 
 /* 11 px uppercase is the hardest way to read a sentence, and every line down here
    is a sentence — the wallet note, the guest note, the network note. */
+/* The wallet picker. One button on the gate, and the choice of wallet behind it — a browser
+   wallet where one exists, a phone wallet reached over the relay where one does not. */
+.ar-auth-pick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ar-auth-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 9px 0 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(40, 70, 120, 0.22);
+  background: rgba(255, 255, 255, 0.9);
+  color: #234a86;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ar-auth-back:hover {
+  background: #ffffff;
+  border-color: rgba(43, 111, 216, 0.45);
+}
+.ar-auth-pick-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: #16233d;
+}
+.ar-auth-pick-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #33455f;
+  text-align: left;
+}
+.ar-auth-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(43, 111, 216, 0.35);
+  background: rgba(255, 255, 255, 0.95);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.ar-auth-opt:hover:not(:disabled) {
+  border-color: rgba(43, 111, 216, 0.7);
+  background: #ffffff;
+}
+.ar-auth-opt:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ar-auth-opt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #e8f0ff;
+  color: #234a86;
+}
+.ar-auth-opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ar-auth-opt-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #16233d;
+}
+.ar-auth-opt-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #33455f;
+}
+
+/* A desktop has no wallet app to open, so the pairing is shown as a code to scan. */
+.ar-auth-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+}
+.ar-auth-qr-code {
+  display: inline-flex;
+  padding: 9px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(40, 70, 120, 0.18);
+  box-shadow: 0 6px 18px rgba(22, 35, 61, 0.1);
+}
+.ar-auth-qr-note {
+  max-width: 30ch;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #33455f;
+  text-align: center;
+}
+
 /* Google refuses to sign in inside Zalo, Facebook and the like. The notice has to read as a
    way out rather than a scolding, so it is a warm panel with one real button. */
 .ar-auth-inapp {

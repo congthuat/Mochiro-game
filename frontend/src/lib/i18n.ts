@@ -207,6 +207,13 @@ const DICT: Record<string, Entry> = {
   },
   'auth.openIn': { en: 'Open in', vi: 'Mở bằng' },
   'auth.mobileWallet': { en: 'Sign in with a wallet app', vi: 'Đăng nhập bằng ví trên điện thoại' },
+  'auth.pickWallet': { en: 'Choose a wallet', vi: 'Chọn ví đăng nhập' },
+  'auth.inBrowser': { en: 'In this browser', vi: 'Trong trình duyệt này' },
+  'auth.scanQr': {
+    en: 'Open the wallet app on your phone and scan this code.',
+    vi: 'Mở ví trên điện thoại và quét mã này.',
+  },
+  'auth.back': { en: 'Back', vi: 'Quay lại' },
   'auth.wallet': { en: 'Connect a wallet', vi: 'Kết nối ví' },
   'auth.noWallet': {
     en: 'No browser wallet found. Install MetaMask, Rabby or OKX to sign in with a wallet.',

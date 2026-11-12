@@ -62,7 +62,7 @@ type WcProvider = Eip1193 & {
  * the wallet with the request already loaded. On a desktop there is no app to open, so the
  * caller is expected to have offered the injected route instead.
  */
-export async function connectWallet(wallet: WcWallet): Promise<Eip1193> {
+export async function connectWallet(wallet: WcWallet, onUri?: (uri: string) => void): Promise<Eip1193> {
   if (!walletConnectReady()) throw new Error('walletconnect-not-configured')
   if (typeof window === 'undefined') throw new Error('walletconnect-no-window')
 
@@ -100,11 +100,19 @@ export async function connectWallet(wallet: WcWallet): Promise<Eip1193> {
     },
   })
 
-  if (isMobile()) {
+  const first = await Promise.race([
+    uri,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), isMobile() ? 4000 : 8000)),
+  ])
+
+  if (first && isMobile()) {
     // The wallet app cannot be opened without a tap somewhere, and the tap already happened —
     // the player chose this wallet. Waiting forever would strand them if the event never fires.
-    const first = await Promise.race([uri, new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))])
-    if (first) window.location.href = wcNativeLink(wallet.native, first)
+    window.location.href = wcNativeLink(wallet.native, first)
+  } else if (first) {
+    // A desktop has no app to open. The caller draws the URI as a code instead, which is what
+    // turns a phone into the wallet for this session.
+    onUri?.(first)
   }
 
   await connecting
