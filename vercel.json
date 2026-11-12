@@ -2,9 +2,16 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd backend && bun install && cd ../frontend && bun install",
   "buildCommand": "cd frontend && bun run build",
-  "outputDirectory": "frontend/dist",
+  "outputDirectory": "frontend/dist/client",
   "build": {
-    "env": { "BASE_PATH": "/" }
+    "env": {
+      "BASE_PATH": "/"
+    }
   },
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api" }]
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    }
+  ]
 }
