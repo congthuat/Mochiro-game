@@ -679,18 +679,51 @@ function GoogleMark() {
 }
 
 /** Compact account chip for the menu header. */
-export function AccountChip({ account, onSignOut }: { account: AuthAccount; onSignOut: () => void }) {
+/** Two-letter monogram tinted from the name, so each player gets a steady colour. */
+function monogram(label: string): { text: string; hue: number } {
+  const clean = label.trim().replace(/^0x/i, '')
+  const parts = clean.split(/[\s._-]+/).filter(Boolean)
+  const text = (parts.length > 1 ? parts[0][0] + parts[1][0] : clean.slice(0, 2)).toUpperCase() || '?'
+  let hash = 0
+  for (const ch of clean) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  return { text, hue: hash % 360 }
+}
+
+export function AccountChip({
+  account,
+  name,
+  onSignOut,
+}: {
+  account: AuthAccount
+  /** The runner name on the profile — who the player is in the game. */
+  name?: string | null
+  onSignOut: () => void
+}) {
   const t = useT()
+  // The player is a name, not an address: the address is only a quiet second line
+  // that tells them which account (Google or which wallet) they are signed in with.
+  const title = name?.trim() || account.displayName?.trim() || account.email || shortAddress(account.address)
+  const via = account.method === 'google' ? account.email ?? 'Google' : shortAddress(account.address)
+  const mark = monogram(title)
   return (
-    <div className="ar-account">
-      <span className={`ar-account-dot ${account.method === 'google' ? 'is-google' : 'is-wallet'}`} />
-      <span className="ar-account-text">
-        {account.email ? <strong>{account.email}</strong> : null}
-        <span className="ar-mono">{shortAddress(account.address)}</span>
+    <div className="ar-account" title={account.email ?? account.address}>
+      <span className="ar-account-avatar" style={{ ['--ar-hue' as string]: String(mark.hue) }} aria-hidden="true">
+        {mark.text}
       </span>
-      <button className="ar-btn ar-btn-mini" onClick={onSignOut} title={t('auth.logout')}>
+      <span className="ar-account-text">
+        <strong>{title}</strong>
+        <span className={`ar-account-via ${account.method === 'google' ? 'is-google' : 'is-wallet'}`}>
+          {account.method === 'google' ? <GoogleDot /> : <WalletIcon size={10} />}
+          <span className={account.method === 'google' ? '' : 'ar-mono'}>{via}</span>
+        </span>
+      </span>
+      <button className="ar-btn ar-btn-mini" onClick={onSignOut} title={t('auth.logout')} aria-label={t('auth.logout')}>
         <LogOut size={13} />
       </button>
     </div>
   )
+}
+
+function GoogleDot() {
+  return <span className="ar-account-g" aria-hidden="true">G</span>
 }

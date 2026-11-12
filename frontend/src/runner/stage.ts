@@ -2,7 +2,7 @@
 // the player picks a character by looking at it — clicking the model itself
 // selects it, the way a character-select screen in a console game works.
 import * as THREE from 'three'
-import { CHARACTERS, CHARACTER_IDS, type CharacterId } from './config'
+import { CHARACTERS, CHARACTER_IDS, HERO_COLORS, type CharacterId } from './config'
 import { ModelAvatar } from './model'
 
 export type StageQuality = 'low' | 'medium' | 'high'
@@ -92,6 +92,29 @@ function shadowTexture(): THREE.Texture {
   return texture
 }
 
+/** A soft vertical fade: bright at the floor, gone by the head — the selection beam. */
+function beamTexture(): THREE.Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 4
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const gradient = ctx.createLinearGradient(0, 0, 0, 128)
+    gradient.addColorStop(0, 'rgba(255,255,255,0)')
+    gradient.addColorStop(0.55, 'rgba(255,255,255,0.18)')
+    gradient.addColorStop(1, 'rgba(255,255,255,0.62)')
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, 4, 128)
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
+const BEAM_HEIGHT = 2.6
+const BURST_TIME = 0.6
+const HOP_TIME = 0.42
+
 interface Slot {
   id: CharacterId
   avatar: ModelAvatar
@@ -99,8 +122,15 @@ interface Slot {
   ring: THREE.Mesh
   ringMaterial: THREE.MeshBasicMaterial
   shadow: THREE.Mesh
+  beam: THREE.Mesh
+  beamMaterial: THREE.MeshBasicMaterial
+  burst: THREE.Mesh
+  burstMaterial: THREE.MeshBasicMaterial
   home: THREE.Vector3
   spin: number
+  /** Seconds left on the "picked!" hop and floor ripple. */
+  hop: number
+  burstT: number
   ready: boolean
 }
 
@@ -120,6 +150,7 @@ export class CharacterStage {
   private hovered: CharacterId | null = null
   private canvas: HTMLCanvasElement
   private shadowMap: THREE.Texture
+  private beamMap: THREE.Texture | null = null
   private onReady?: () => void
   private time = 0
 
@@ -211,11 +242,10 @@ export class CharacterStage {
       root.add(shadow)
 
       const ringMaterial = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(spec.accent),
+        color: new THREE.Color(HERO_COLORS[id]),
         transparent: true,
         opacity: 0,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
         side: THREE.DoubleSide,
       })
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.66, 48, 1), ringMaterial)
@@ -223,7 +253,54 @@ export class CharacterStage {
       ring.position.y = 0.02
       root.add(ring)
 
-      const slot: Slot = { id, avatar, root, ring, ringMaterial, shadow, home, spin: 0, ready: false }
+      // The chosen hero stands in a column of their own colour, and a ripple runs out
+      // across the floor the moment they are picked.
+      this.beamMap ??= beamTexture()
+      // Only the far half of the column is drawn, so it glows behind the hero instead
+      // of tinting them. Normal blending: the stage is pale, and additive light on a
+      // pale floor simply vanishes.
+      const beamMaterial = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(HERO_COLORS[id]).offsetHSL(0, 0.05, 0.12),
+        map: this.beamMap,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.BackSide,
+      })
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.66, BEAM_HEIGHT, 40, 1, true), beamMaterial)
+      beam.position.y = BEAM_HEIGHT / 2
+      beam.renderOrder = 2
+      root.add(beam)
+
+      const burstMaterial = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(HERO_COLORS[id]),
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+      const burst = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.7, 48, 1), burstMaterial)
+      burst.rotation.x = -Math.PI / 2
+      burst.position.y = 0.025
+      root.add(burst)
+
+      const slot: Slot = {
+        id,
+        avatar,
+        root,
+        ring,
+        ringMaterial,
+        shadow,
+        beam,
+        beamMaterial,
+        burst,
+        burstMaterial,
+        home,
+        spin: 0,
+        hop: 0,
+        burstT: 0,
+        ready: false,
+      }
       this.slots.push(slot)
       void avatar.ready.then((ok) => {
         slot.ready = ok
@@ -275,7 +352,12 @@ export class CharacterStage {
   /** Highlight a hero; also called when the HTML buttons pick one. */
   select(id: CharacterId, notify = true): void {
     this.selected = id
-    for (const slot of this.slots) if (slot.id === id) slot.spin = Math.PI * 2
+    for (const slot of this.slots) {
+      if (slot.id !== id) continue
+      slot.spin = Math.PI * 2
+      slot.hop = HOP_TIME
+      slot.burstT = BURST_TIME
+    }
     if (notify) this.onSelect?.(id)
   }
 
@@ -309,6 +391,10 @@ export class CharacterStage {
       const targetZ = slot.home.z + (active ? SELECT_LIFT : 0) + (hovered && !active ? 0.16 : 0)
       slot.root.position.z = THREE.MathUtils.damp(slot.root.position.z, targetZ, 8, dt)
       slot.root.position.y = THREE.MathUtils.damp(slot.root.position.y, active ? 0.02 : 0, 8, dt)
+      // The hop moves the hero, not the stand: beam, ring and shadow stay on the floor.
+      slot.hop = Math.max(0, slot.hop - dt)
+      const hopY = slot.hop > 0 ? Math.sin(Math.PI * (1 - slot.hop / HOP_TIME)) * 0.3 : 0
+      slot.avatar.root.position.y = hopY
       const targetScale = active ? 1.06 : hovered ? 1.02 : 0.98
       const scale = THREE.MathUtils.damp(slot.root.scale.x, targetScale, 8, dt)
       slot.root.scale.setScalar(scale)
@@ -325,7 +411,19 @@ export class CharacterStage {
 
       slot.ringMaterial.opacity = active ? 0.55 + Math.sin(this.time * 3.2) * 0.16 : hovered ? 0.24 : 0
       slot.ring.scale.setScalar(active ? 1 + Math.sin(this.time * 3.2) * 0.03 : 1)
-      ;(slot.shadow.material as THREE.MeshBasicMaterial).opacity = active ? 1 : 0.72
+      ;(slot.shadow.material as THREE.MeshBasicMaterial).opacity = active ? 1 - hopY * 1.2 : 0.72
+      slot.shadow.scale.setScalar(1 - hopY * 0.6)
+
+      const beamTarget = active ? 0.62 + Math.sin(this.time * 2.4) * 0.1 : 0
+      slot.beamMaterial.opacity = THREE.MathUtils.damp(slot.beamMaterial.opacity, beamTarget, 6, dt)
+      slot.beam.visible = slot.beamMaterial.opacity > 0.01
+      slot.beam.rotation.y += dt * 0.6
+
+      slot.burstT = Math.max(0, slot.burstT - dt)
+      const burstP = 1 - slot.burstT / BURST_TIME
+      slot.burst.visible = slot.burstT > 0
+      slot.burst.scale.setScalar(1 + burstP * 1.6)
+      slot.burstMaterial.opacity = slot.burstT > 0 ? (1 - burstP) * 0.85 : 0
 
       slot.avatar.update(dt, {
         speed01: 0,
@@ -347,10 +445,15 @@ export class CharacterStage {
     this.canvas.removeEventListener('pointerdown', this.handleDown)
     this.canvas.removeEventListener('pointerleave', this.handleLeave)
     this.shadowMap.dispose()
+    this.beamMap?.dispose()
     for (const slot of this.slots) {
       slot.avatar.dispose?.()
       slot.ringMaterial.dispose()
       slot.ring.geometry.dispose()
+      slot.beamMaterial.dispose()
+      slot.beam.geometry.dispose()
+      slot.burstMaterial.dispose()
+      slot.burst.geometry.dispose()
       ;(slot.shadow.material as THREE.MeshBasicMaterial).dispose()
       slot.shadow.geometry.dispose()
     }

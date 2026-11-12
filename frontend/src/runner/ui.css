@@ -3321,3 +3321,245 @@ a.ar-pick-card {
 .ar-char-tile.is-affordable { background: rgba(255, 255, 255, 0.82); border-color: rgba(18, 185, 129, 0.45); }
 .ar-char-tile.is-affordable .ar-char-tile-name { color: #16233d; }
 .ar-char-tile.is-affordable .ar-char-tile-price { background: #d6f5e8; color: #0b6b4a; }
+
+/* ===================== Menu 9/10 pass =====================
+   Hero cards: the ability is the card's reason to exist, so it gets a tinted panel and
+   its own glyph instead of a tiny "ABILITY" caption, and it fills the card — no slab of
+   blank white under two lines of text. The hero's colour runs along the top edge. */
+.ar-menu .ar-char-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-height: 0;
+  padding: 11px 7px 7px;
+  text-align: left;
+  overflow: hidden;
+}
+.ar-menu .ar-char-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--ar-accent, #2b6fd8);
+}
+.ar-menu .ar-char-tile.is-locked::before { opacity: 0.35; }
+.ar-menu .ar-char-tile-name {
+  padding: 0 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  font-weight: 800;
+}
+.ar-menu .ar-char-tile-tag {
+  min-height: 0;
+  padding: 0 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #33455f;
+}
+.ar-menu .ar-char-tile-perk {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 7px 7px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ar-accent, #2b6fd8) 13%, #fff);
+  text-align: left;
+}
+.ar-menu .ar-char-tile.is-locked .ar-char-tile-perk {
+  background: color-mix(in srgb, var(--ar-accent, #2b6fd8) 8%, #f1f4fa);
+}
+.ar-char-tile-perk-icon {
+  flex: none;
+  color: color-mix(in srgb, var(--ar-accent, #2b6fd8) 70%, #16233d);
+}
+.ar-menu .ar-char-tile-perk-text {
+  min-height: 0;
+  -webkit-line-clamp: 3;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.32;
+  color: #16233d;
+}
+.ar-menu .ar-char-tile-price {
+  align-self: stretch;
+  justify-content: center;
+  margin: 3px 0 0;
+  padding: 2px 6px;
+}
+
+/* The stage names its pick, in that hero's colour. Re-keyed on every change so the
+   plate drops in again — a small, clear "got it". */
+.ar-stage-plate {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 24px);
+  padding: 5px 13px 5px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid color-mix(in srgb, var(--ar-accent, #2b6fd8) 50%, transparent);
+  box-shadow: 0 6px 16px rgba(20, 50, 110, 0.12);
+  font-size: 12.5px;
+  color: #16233d;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: ar-plate-in 280ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.ar-stage-plate strong { font-weight: 800; }
+.ar-stage-plate-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ar-accent, #2b6fd8);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ar-accent, #2b6fd8) 25%, transparent);
+}
+.ar-stage-plate-tag { color: #33455f; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+@keyframes ar-plate-in {
+  from { opacity: 0; transform: translate(-50%, -8px) scale(0.92); }
+}
+
+/* "What is waiting for me today?" — one line under the start button. */
+.ar-nudge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px 9px 9px;
+  border-radius: 14px;
+  border: 1px solid rgba(40, 70, 120, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  color: #16233d;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease;
+}
+.ar-nudge:hover { transform: translateY(-1px); background: #fff; }
+.ar-nudge-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #e3edff;
+  color: #2563c9;
+}
+.ar-nudge-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ar-nudge-text strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.ar-nudge-text > span:not(.ar-nudge-bar) { font-size: 11.5px; color: #33455f; line-height: 1.2; }
+.ar-nudge-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: #e1e8f3;
+  overflow: hidden;
+}
+.ar-nudge-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 6px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2b6fd8, #7a4bd8);
+}
+.ar-nudge-reward {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff1cc;
+  color: #8a5300;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+.ar-nudge-go { flex: none; color: #8a5300; }
+.ar-nudge.is-ready {
+  background: linear-gradient(100deg, #fff7df, #ffe8b0);
+  border-color: rgba(222, 150, 20, 0.55);
+  animation: ar-nudge-glow 2.2s ease-in-out infinite;
+}
+.ar-nudge.is-ready .ar-nudge-icon { background: #f5a516; color: #fff; }
+.ar-nudge.is-ready .ar-nudge-text strong { color: #5a3600; }
+.ar-nudge.is-ready .ar-nudge-text > span { color: #7a4a00; }
+@keyframes ar-nudge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 165, 22, 0), 0 4px 12px rgba(245, 165, 22, 0.2); }
+  50% { box-shadow: 0 0 0 4px rgba(245, 165, 22, 0.2), 0 6px 18px rgba(245, 165, 22, 0.32); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ar-nudge.is-ready, .ar-stage-plate { animation: none; }
+}
+
+/* Account: a face and a name, with the sign-in method as a quiet second line. */
+.ar-menu .ar-account { padding: 4px 5px 4px 4px; gap: 8px; }
+.ar-account-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, hsl(var(--ar-hue, 215) 68% 52%), hsl(calc(var(--ar-hue, 215) + 40) 64% 40%));
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+.ar-account-text strong {
+  max-width: 150px;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: #16233d;
+}
+.ar-account-via {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: #33455f;
+}
+.ar-account-via > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.ar-account-via .ar-mono { font-size: 10.5px; }
+.ar-account-g { font-weight: 800; color: #4285f4; }
+.ar-char-tile-foot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  align-self: stretch;
+  margin: 3px 0 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #eef2f8;
+  color: #33455f;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+.ar-char-tile-foot.is-using {
+  background: var(--ar-accent, #2b6fd8);
+  color: #fff;
+}

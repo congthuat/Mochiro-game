@@ -353,6 +353,25 @@ export interface CharacterSpec {
   eye: number
 }
 
+/**
+ * Each hero's signature colour on screen — card edge, stage plate, the light column on
+ * the stage. `accent` is the yellow of the in-game gear and is shared by five of the six,
+ * so it could not tell anyone apart. These are taken from each hero's outfit and darkened
+ * until white text on them clears WCAG AA (4.5:1 or better).
+ */
+export const HERO_COLORS: Record<CharacterId, number> = {
+  kai: 0x2563c9,
+  mika: 0xd13a83,
+  bjorn: 0xc2461f,
+  nyx: 0x6b4fd8,
+  rin: 0x23794a,
+  tim: 0x9a6200,
+}
+
+export function heroColorCss(id: CharacterId): string {
+  return `#${HERO_COLORS[id].toString(16).padStart(6, '0')}`
+}
+
 export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
   kai: {
     id: 'kai',

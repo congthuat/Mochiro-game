@@ -1,14 +1,14 @@
 // Mochiro screens: loading, main menu, pause, results, settings, help, board.
-import { Award, Check, Coins, Globe, HelpCircle, Home, Loader2, Lock, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, X } from 'lucide-react'
+import { ArrowLeftRight, Award, Check, Coins, Globe, HelpCircle, Home, Hourglass, Loader2, Lock, LogIn, Magnet, Medal, Play, Rocket, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShieldPlus, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, X, type LucideIcon } from 'lucide-react'
 import { MochiroLogo } from './MochiroLogo'
 import { formatCompact, formatDistance, formatScore, formatSpeed, formatTime } from '../../runner/utils'
 import { useEffect, useRef, useState } from 'react'
-import { DIFFICULTIES, CHARACTERS, CHARACTER_IDS, type CharacterId, type CharacterSpec, type DifficultyId } from '../../runner/config'
+import { DIFFICULTIES, CHARACTERS, CHARACTER_IDS, heroColorCss, type CharacterId, type CharacterSpec, type DifficultyId } from '../../runner/config'
 import { CharacterStage } from '../../runner/stage'
 import { formatNumber, useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import type { AuthAccount } from '../../lib/auth'
 import { loadRunnerName, type BoardScope, type EconomyState, type NameState, type SeasonInfo } from '../../lib/runnerApi'
-import { BankChip, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
+import { BankChip, RushMenuNudge, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
 import { AccountChip } from './AuthGate'
 import type {
   ArcBrand,
@@ -33,6 +33,22 @@ export function RushLoading({ progress }: { progress: ProgressState }) {
       <div className="ar-hint">{progress.label}</div>
     </div>
   )
+}
+
+/** Every ability has its own glyph, so the six cards can be told apart at a glance and
+ *  no card has to spend a line on the word "Ability". */
+const PERK_ICONS: Record<string, LucideIcon> = {
+  shieldStart: Shield,
+  longPower: Hourglass,
+  badImmunity: ShieldPlus,
+  quickLane: ArrowLeftRight,
+  wideMagnet: Magnet,
+  longBoost: Rocket,
+}
+
+function PerkIcon({ id }: { id: string }) {
+  const Icon = PERK_ICONS[id] ?? Shield
+  return <Icon size={14} className="ar-char-tile-perk-icon" aria-hidden="true" />
 }
 
 function Stat({ value, label }: { value: string; label: string }) {
@@ -88,7 +104,7 @@ export function RushMenu({
   quality: 'low' | 'medium' | 'high'
   onNameChange: (value: string) => void
   onStart: () => void
-  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite') => void
+  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily') => void
   profile: RunnerProfile | null
 }) {
   const t = useT()
@@ -161,7 +177,7 @@ export function RushMenu({
             {/* A guest has no account, and the gate only appears once — at startup. Without
                 this button there was no way back to sign-in for the rest of the session. */}
             {account ? (
-              <AccountChip account={account} onSignOut={onSignOut} />
+              <AccountChip account={account} name={nameState === 'ok' ? name : null} onSignOut={onSignOut} />
             ) : (
               <button type="button" className="ar-signin" onClick={onSignIn}>
                 <LogIn size={14} /> {t('menu.signIn')}
@@ -179,7 +195,18 @@ export function RushMenu({
                   <Loader2 size={16} className="ar-spin" /> {t('menu.chooseRunner')}
                 </div>
               )}
-              <div className="ar-stage-hint">{t('menu.tapToPick')}</div>
+              {/* The pick is named on the stage itself: the 3D line-up shows who, the plate
+                  says who and what they are, in that hero's colour. */}
+              <div
+                className="ar-stage-plate"
+                key={character}
+                style={{ ['--ar-accent' as string]: heroColorCss(character) }}
+                title={t('menu.tapToPick')}
+              >
+                <span className="ar-stage-plate-dot" />
+                <strong>{CHARACTERS[character].name}</strong>
+                <span className="ar-stage-plate-tag">{t(`char.${character}.tag`)}</span>
+              </div>
             </div>
 
             <div className="ar-char-row">
@@ -193,20 +220,27 @@ export function RushMenu({
                         ? 'is-locked is-affordable'
                         : 'is-locked'
                   }`}
-                  style={{ ['--ar-accent' as string]: `#${item.accent.toString(16).padStart(6, '0')}` }}
+                  style={{ ['--ar-accent' as string]: heroColorCss(item.id) }}
                   onClick={() => onCharacterChange(item.id)}
                 >
                   <span className="ar-char-tile-name">{item.name}</span>
-                  {!heroUnlocked(economy, item.id) && (
+                  <span className="ar-char-tile-tag">{t(`char.${item.id}.tag`)}</span>
+                  <span className="ar-char-tile-perk" title={t('char.ability')}>
+                    <PerkIcon id={item.perk.id} />
+                    <span className="ar-char-tile-perk-text">{t(`perk.${item.perk.id}`)}</span>
+                  </span>
+                  {/* Every card ends in the same status line — in use, owned, or its price —
+                      so all six are one shape and the ability panels line up. */}
+                  {heroUnlocked(economy, item.id) ? (
+                    <span className={`ar-char-tile-foot${character === item.id ? ' is-using' : ''}`}>
+                      {character === item.id && <Check size={11} strokeWidth={3} />}
+                      {character === item.id ? t('char.inUse') : t('shop.owned')}
+                    </span>
+                  ) : (
                     <span className="ar-char-tile-price">
                       <Lock size={10} /> {formatNumber(heroPrice(economy, item.id))}
                     </span>
                   )}
-                  <span className="ar-char-tile-tag">{t(`char.${item.id}.tag`)}</span>
-                  <span className="ar-char-tile-perk">
-                    <span className="ar-char-tile-perk-label">{t('char.ability')}</span>
-                    <span className="ar-char-tile-perk-text">{t(`perk.${item.perk.id}`)}</span>
-                  </span>
                 </button>
               ))}
             </div>
@@ -293,6 +327,8 @@ export function RushMenu({
                 )}
               </>
             )}
+
+            <RushMenuNudge economy={economy} onOpen={onOpen} />
 
             {inviteFrom && !account && (
               <button type="button" className="ar-invite-banner" onClick={onSignIn}>

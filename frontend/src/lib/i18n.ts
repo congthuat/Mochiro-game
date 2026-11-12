@@ -53,6 +53,7 @@ const DICT: Record<string, Entry> = {
   'hud.swipeLanes': { en: 'Swipe left / right to switch lanes', vi: 'Vuốt trái / phải để đổi làn' },
   'hud.swipeRest': { en: 'Swipe up to jump · down to slide · tap to jump', vi: 'Vuốt lên để nhảy · xuống để trượt · chạm để nhảy' },
   'char.ability': { en: 'Ability', vi: 'Kỹ năng' },
+  'char.inUse': { en: 'In use', vi: 'Đang dùng' },
   'hud.pursuit': { en: 'Danger', vi: 'Nguy hiểm' },
   'mission.distance': { en: 'Distance', vi: 'Quãng đường' },
   'mission.coins': { en: 'Arc coins', vi: 'Coin Arc' },
@@ -252,6 +253,10 @@ const DICT: Record<string, Entry> = {
     vi: 'Đang chơi khách: ví chỉ lưu trên trình duyệt này. Đăng nhập để giữ ví trên mọi thiết bị.',
   },
   'daily.title': { en: 'Daily reward', vi: 'Quà mỗi ngày' },
+  'nudge.daily': { en: 'Day {d} gift is ready', vi: 'Quà ngày {d} đã sẵn sàng' },
+  'nudge.dailySub': { en: 'Tap to collect {n} Arc', vi: 'Bấm để nhận {n} Arc' },
+  'nudge.rewards': { en: 'Quest rewards waiting: {n}', vi: '{n} phần thưởng nhiệm vụ đang chờ' },
+  'nudge.rewardsSub': { en: 'Collect before they reset', vi: 'Nhận trước khi nhiệm vụ làm mới' },
   'daily.day': { en: 'Day {n}', vi: 'Ngày {n}' },
   'daily.claim': { en: 'Claim {n} Arc', vi: 'Nhận {n} Arc' },
   'daily.streak': {

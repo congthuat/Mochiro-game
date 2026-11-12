@@ -5,6 +5,7 @@ import {
   Award,
   CalendarCheck,
   Check,
+  ChevronRight,
   Coins,
   Copy,
   Flame,
@@ -27,7 +28,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { CHARACTERS, CHARACTER_IDS, type CharacterId } from '../../runner/config'
+import { CHARACTERS, CHARACTER_IDS, heroColorCss, type CharacterId } from '../../runner/config'
 import { formatDistance } from '../../runner/utils'
 import { formatNumber, getLang, useT } from '../../lib/i18n'
 import { inviteLink, type AchievementGroup, type EconomyState, type UpgradeKind } from '../../lib/runnerApi'
@@ -172,7 +173,7 @@ export function RushShop({
               const price = heroPrice(economy, id)
               const owned = heroUnlocked(economy, id)
               const short = Math.max(0, price - economy.bank)
-              const accent = `#${spec.accent.toString(16).padStart(6, '0')}`
+              const accent = heroColorCss(id)
               return (
                 <div key={id} className={`ar-shop-card ${owned ? 'is-owned' : ''}`} style={{ ['--ar-accent' as string]: accent }}>
                   <div className="ar-shop-card-head">
@@ -295,6 +296,67 @@ export function RushDaily({
 function questLabel(t: ReturnType<typeof useT>, id: string, target: number): string {
   const n = id === 'time' ? Math.round(target / 60) : formatNumber(target)
   return t(`quest.${id}`, { n })
+}
+
+/**
+ * One line under the start button that answers "what is waiting for me today?".
+ * A reward that is ready glows and says how much; with nothing to collect it shows the
+ * nearest unfinished quest, so the player always has a next small goal in view. When
+ * every quest is done it says nothing at all — an empty nudge is just noise.
+ */
+export function RushMenuNudge({
+  economy,
+  onOpen,
+}: {
+  economy: EconomyState | null
+  onOpen: (panel: 'daily' | 'quests') => void
+}) {
+  const t = useT()
+  if (!economy) return null
+  if (economy.daily.claimable) {
+    return (
+      <button type="button" className="ar-nudge is-ready" onClick={() => onOpen('daily')}>
+        <span className="ar-nudge-icon"><Gift size={17} /></span>
+        <span className="ar-nudge-text">
+          <strong>{t('nudge.daily', { d: economy.daily.nextDay })}</strong>
+          <span>{t('nudge.dailySub', { n: formatNumber(economy.daily.nextReward) })}</span>
+        </span>
+        <ChevronRight size={16} className="ar-nudge-go" />
+      </button>
+    )
+  }
+  const ready = claimableCount(economy)
+  if (ready > 0) {
+    return (
+      <button type="button" className="ar-nudge is-ready" onClick={() => onOpen('quests')}>
+        <span className="ar-nudge-icon"><Target size={17} /></span>
+        <span className="ar-nudge-text">
+          <strong>{t('nudge.rewards', { n: ready })}</strong>
+          <span>{t('nudge.rewardsSub')}</span>
+        </span>
+        <ChevronRight size={16} className="ar-nudge-go" />
+      </button>
+    )
+  }
+  // The quest the player is closest to finishing is the one most likely to pull them
+  // into "one more run".
+  const open = economy.quests
+    .filter((quest) => !quest.claimed && quest.progress < quest.target)
+    .sort((a, b) => b.progress / b.target - a.progress / a.target)[0]
+  if (!open) return null
+  const pct = Math.max(0, Math.min(1, open.progress / Math.max(1, open.target)))
+  return (
+    <button type="button" className="ar-nudge" onClick={() => onOpen('quests')}>
+      <span className="ar-nudge-icon"><Target size={16} /></span>
+      <span className="ar-nudge-text">
+        <strong>{questLabel(t, open.id, open.target)}</strong>
+        <span className="ar-nudge-bar" aria-hidden="true">
+          <span style={{ width: `${Math.round(pct * 100)}%` }} />
+        </span>
+      </span>
+      <span className="ar-nudge-reward">+{formatNumber(open.reward)}</span>
+    </button>
+  )
 }
 
 export function RushQuests({
