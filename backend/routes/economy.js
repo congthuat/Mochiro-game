@@ -20,35 +20,48 @@ router.use((_req, res, next) => {
 })
 
 // ------------------------------------------------------------- catalog --
-/** Hero prices. Two heroes are free so a new player always has a choice. */
-const CHARACTER_PRICES = { kai: 0, mika: 0, bjorn: 800, nyx: 1500, rin: 2500, tim: 4000 }
+// Balance model (measured on live runs: ~5 Arc/s, average run ≈ 730 Arc / 2.4 min).
+// A regular player (≈10 min a day) earns ≈ 3,000 from runs + ≈ 800 daily login
+// + ≈ 1,200 from quests ≈ 5,000 Arc a day. Runs stay the main income (~60%), but
+// showing up every day and finishing quests is worth ~40% — not a rounding error.
+//   first paid hero  ≈ 2 days · every hero ≈ 2.5 weeks · every upgrade maxed ≈ +1 month
 
-/** Each level stretches that power-up by +15%. */
+/** Hero prices, ordered by how much the perk helps score and income. */
+const CHARACTER_PRICES = {
+  kai: 0, // Sam — starts with a shield
+  mika: 0, // Bobbilee — helpful power-ups last +25%
+  nyx: 8000, // Lecter — faster lane changes (comfort, not raw score)
+  bjorn: 15000, // Teddyz — immune to the three bad pick-ups
+  tim: 25000, // Tim — Overdrive lasts twice as long (speed + invulnerable)
+  rin: 40000, // Mike — 45% wider magnet: more Arc every run, so it costs the most
+}
+
+/** Each level stretches that power-up by +10% (max +50%). Costs climb per level. */
 const UPGRADE_KINDS = ['magnet', 'boost', 'double', 'ghost']
-const UPGRADE_COSTS = [250, 500, 900, 1500, 2400]
+const UPGRADE_COSTS = [2000, 4000, 7000, 11000, 16000]
 const UPGRADE_MAX = UPGRADE_COSTS.length
-const UPGRADE_STEP = 0.15
+const UPGRADE_STEP = 0.1
 
-/** Login streak rewards, day 1 … day 7 (then the week starts over). */
-const DAILY_REWARDS = [50, 80, 120, 160, 220, 300, 600]
+/** Login streak rewards, day 1 … day 7 (≈ 6,000 a week; day 7 is the big one). */
+const DAILY_REWARDS = [300, 400, 500, 600, 800, 1000, 2000]
 
 /** Daily quest pool. Three are picked per UTC day, the same three for everybody. */
 const QUEST_POOL = [
-  { id: 'runs', stat: 'runs', target: 3, reward: 120 },
-  { id: 'distance', stat: 'distance', target: 5000, reward: 150 },
-  { id: 'coins', stat: 'coins', target: 400, reward: 150 },
-  { id: 'score', stat: 'best_score', target: 60000, reward: 180 },
-  { id: 'combo', stat: 'best_combo', target: 40, reward: 150 },
-  { id: 'time', stat: 'seconds', target: 300, reward: 120 },
+  { id: 'runs', stat: 'runs', target: 5, reward: 300 },
+  { id: 'distance', stat: 'distance', target: 10000, reward: 400 },
+  { id: 'coins', stat: 'coins', target: 1500, reward: 400 },
+  { id: 'score', stat: 'best_score', target: 200000, reward: 500 },
+  { id: 'combo', stat: 'best_combo', target: 100, reward: 400 },
+  { id: 'time', stat: 'seconds', target: 600, reward: 300 },
 ]
 const QUESTS_PER_DAY = 3
 
-/** Weekly season payout by final rank. */
+/** Weekly season payout by final rank (signed-in, verified runs only). */
 function seasonReward(rank) {
-  if (rank === 1) return 3000
-  if (rank === 2) return 2000
-  if (rank === 3) return 1500
-  if (rank <= 10) return 600
+  if (rank === 1) return 10000
+  if (rank === 2) return 6000
+  if (rank === 3) return 4000
+  if (rank <= 10) return 2000
   return 0
 }
 

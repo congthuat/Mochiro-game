@@ -155,7 +155,7 @@ export class Runner {
 
   /** Shop upgrade levels (0–5) per helpful power; each level stretches it by `upgradeStep`. */
   private upgrades: Partial<Record<PowerKind, number>> = {}
-  private upgradeStep = 0.15
+  private upgradeStep = 0.1
 
   private container: HTMLElement
   private settings: Settings
@@ -828,7 +828,7 @@ export class Runner {
   }
 
   /** Applies the levels bought in the shop; takes effect from the next pickup. */
-  setUpgrades(levels: Partial<Record<PowerKind, number>>, step = 0.15): void {
+  setUpgrades(levels: Partial<Record<PowerKind, number>>, step = 0.1): void {
     this.upgrades = { ...levels }
     this.upgradeStep = step
   }

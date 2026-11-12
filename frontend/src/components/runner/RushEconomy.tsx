@@ -127,7 +127,7 @@ export function RushShop({
 
         {tab === 'heroes' ? (
           <div className="ar-shop-grid">
-            {CHARACTER_IDS.map((id) => {
+            {[...CHARACTER_IDS].sort((a, b) => heroPrice(economy, a) - heroPrice(economy, b)).map((id) => {
               const spec = CHARACTERS[id]
               const price = heroPrice(economy, id)
               const owned = heroUnlocked(economy, id)

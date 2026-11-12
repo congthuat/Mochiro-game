@@ -265,8 +265,8 @@ const DICT: Record<string, Entry> = {
   'season.all': { en: 'All time', vi: 'Mọi thời đại' },
   'season.ends': { en: 'Season ends in {time}', vi: 'Mùa giải kết thúc sau {time}' },
   'season.prizes': {
-    en: 'Weekly prizes: #1 3,000 · #2 2,000 · #3 1,500 · top 10 600 Arc',
-    vi: 'Thưởng tuần: #1 3.000 · #2 2.000 · #3 1.500 · top 10 nhận 600 Arc',
+    en: 'Weekly prizes: #1 10,000 · #2 6,000 · #3 4,000 · top 10 2,000 Arc',
+    vi: 'Thưởng tuần: #1 10.000 · #2 6.000 · #3 4.000 · top 10 nhận 2.000 Arc',
   },
   'season.lastTop': { en: 'Last week’s champions', vi: 'Top 3 tuần trước' },
   'season.reward': { en: 'You finished #{rank} last week!', vi: 'Tuần trước bạn đứng hạng #{rank}!' },
