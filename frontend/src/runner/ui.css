@@ -3290,3 +3290,34 @@ a.ar-pick-card {
 .ar-share-hold { margin-top: 8px; text-align: center; font-size: 12.5px; color: #5b6b85; }
 .ar-share-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .ar-share-actions > .ar-btn { width: 100%; padding-top: 13px; padding-bottom: 13px; }
+
+/* ------------------------------------------------- menu polish (review) --
+   Header tools on one line: they were stacked in a column and pushed the whole
+   menu down by ~90px. */
+.ar-menu .ar-menu-tools {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ar-menu .ar-menu-head { align-items: center; }
+@media (max-width: 620px) {
+  .ar-menu .ar-menu-tools { justify-content: flex-start; }
+}
+
+/* The secondary actions: four across, at every width. The menu's generic three-column
+   rule outranked this one, so "Cài đặt" dropped to a row of its own. */
+.ar-menu .ar-menu-row.ar-menu-row-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* Difficulty now lives under the heroes. */
+.ar-menu-diff { padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(40, 70, 120, 0.12); background: rgba(255, 255, 255, 0.55); }
+.ar-menu-diff .ar-diff-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 0; }
+.ar-menu-diff .ar-diff { padding: 9px 4px; text-align: center; }
+.ar-menu-diff .ar-diff-desc { margin-top: 2px; }
+
+/* A locked hero the player can already pay for says so, instead of looking exactly
+   like one that is out of reach. */
+.ar-char-tile.is-affordable { background: rgba(255, 255, 255, 0.82); border-color: rgba(18, 185, 129, 0.45); }
+.ar-char-tile.is-affordable .ar-char-tile-name { color: #16233d; }
+.ar-char-tile.is-affordable .ar-char-tile-price { background: #d6f5e8; color: #0b6b4a; }

@@ -58,9 +58,10 @@ function WalletMark({ logo }: { logo: string | null }) {
 function LangSwitch() {
   const lang = useLang()
   const t = useT()
-  const options: { id: Lang; label: string; flag: string }[] = [
-    { id: 'vi', label: 'Tiếng Việt', flag: '🇻🇳' },
-    { id: 'en', label: 'English', flag: '🇬🇧' },
+  // No flag emoji: Windows has none, and draws "VN" / "GB" in their place.
+  const options: { id: Lang; label: string }[] = [
+    { id: 'vi', label: 'Tiếng Việt' },
+    { id: 'en', label: 'English' },
   ]
   return (
     <div className="ar-lang" role="group" aria-label={t('lang.label')}>
@@ -72,7 +73,7 @@ function LangSwitch() {
           className={`ar-lang-btn ${lang === option.id ? 'is-active' : ''}`}
           onClick={() => setLang(option.id)}
         >
-          <span aria-hidden>{option.flag}</span> {option.label}
+          {option.label}
         </button>
       ))}
     </div>

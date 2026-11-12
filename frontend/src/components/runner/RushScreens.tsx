@@ -1,5 +1,5 @@
 // Mochiro screens: loading, main menu, pause, results, settings, help, board.
-import { Award, Check, Coins, HelpCircle, Home, Loader2, Lock, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, X } from 'lucide-react'
+import { Award, Check, Coins, Globe, HelpCircle, Home, Loader2, Lock, LogIn, Medal, Play, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, X } from 'lucide-react'
 import { MochiroLogo } from './MochiroLogo'
 import { formatCompact, formatDistance, formatScore, formatSpeed, formatTime } from '../../runner/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -146,6 +146,7 @@ export function RushMenu({
           <div className="ar-menu-tools">
             <BankChip bank={economy?.bank ?? null} onClick={() => onOpen('shop')} />
             <div className="ar-lang" role="group" aria-label={t('lang.label')}>
+              <Globe size={14} className="ar-lang-icon" />
               {(['vi', 'en'] as Lang[]).map((id) => (
                 <button
                   key={id}
@@ -153,7 +154,7 @@ export function RushMenu({
                   className={`ar-lang-btn ${lang === id ? 'is-active' : ''}`}
                   onClick={() => setLang(id)}
                 >
-                  {id === 'vi' ? '🇻🇳 Tiếng Việt' : '🇬🇧 English'}
+                  {id === 'vi' ? 'Tiếng Việt' : 'English'}
                 </button>
               ))}
             </div>
@@ -185,7 +186,13 @@ export function RushMenu({
               {(CHARACTER_IDS.map((id) => CHARACTERS[id]) as CharacterSpec[]).map((item) => (
                 <button
                   key={item.id}
-                  className={`ar-char-tile ${character === item.id ? 'is-active' : ''} ${heroUnlocked(economy, item.id) ? '' : 'is-locked'}`}
+                  className={`ar-char-tile ${character === item.id ? 'is-active' : ''} ${
+                    heroUnlocked(economy, item.id)
+                      ? ''
+                      : (economy?.bank ?? 0) >= heroPrice(economy, item.id)
+                        ? 'is-locked is-affordable'
+                        : 'is-locked'
+                  }`}
                   style={{ ['--ar-accent' as string]: `#${item.accent.toString(16).padStart(6, '0')}` }}
                   onClick={() => onCharacterChange(item.id)}
                 >
@@ -203,21 +210,10 @@ export function RushMenu({
                 </button>
               ))}
             </div>
-          </section>
 
-          <aside className="ar-menu-side">
-            {/* These are the player's own numbers, not the world's — but having a profile is
-                not the same as having played. A row is created for a guest the moment they
-                arrive, so `profile` alone proves nothing; `runs > 0` does. Four zeros where
-                a scoreboard should be reads as broken, a dash reads as "not yet". */}
-            <div className="ar-stats-grid">
-              <Stat value={played ? formatScore(played.best_score) : '—'} label={t('menu.best')} />
-              <Stat value={played ? formatCompact(played.total_coins) : '—'} label={t('menu.arcTotal')} />
-              <Stat value={played ? formatCompact(played.runs) : '—'} label={t('menu.sprints')} />
-              <Stat value={played ? formatDistance(played.best_distance) : '—'} label={t('menu.farthest')} />
-            </div>
-
-            <div className="ar-side-block">
+            {/* Hero, then difficulty, then go: the two choices that shape the run sit
+                together, and the column no longer ends in a slab of empty panel. */}
+            <div className="ar-side-block ar-menu-diff">
               <div className="ar-side-label">{t('set.difficulty')}</div>
               <div className="ar-diff-row">
                 {DIFFICULTIES.map((item) => (
@@ -233,6 +229,19 @@ export function RushMenu({
                 ))}
               </div>
               <p className="ar-diff-desc">{t(`diff.${difficulty}.desc`)}</p>
+            </div>
+          </section>
+
+          <aside className="ar-menu-side">
+            {/* These are the player's own numbers, not the world's — but having a profile is
+                not the same as having played. A row is created for a guest the moment they
+                arrive, so `profile` alone proves nothing; `runs > 0` does. Four zeros where
+                a scoreboard should be reads as broken, a dash reads as "not yet". */}
+            <div className="ar-stats-grid">
+              <Stat value={played ? formatScore(played.best_score) : '—'} label={t('menu.best')} />
+              <Stat value={played ? formatCompact(played.total_coins) : '—'} label={t('menu.arcTotal')} />
+              <Stat value={played ? formatCompact(played.runs) : '—'} label={t('menu.sprints')} />
+              <Stat value={played ? formatDistance(played.best_distance) : '—'} label={t('menu.farthest')} />
             </div>
 
             {/* Signed in, the name belongs to the account: it is set once and edited in
@@ -302,7 +311,9 @@ export function RushMenu({
               </button>
               <button className="ar-btn ar-badged" onClick={() => onOpen('achievements')}>
                 <Award size={14} /> {t('menu.achievements')}
-                {achievementsDue(economy) > 0 && <span className="ar-badge">{achievementsDue(economy)}</span>}
+                {achievementsDue(economy) > 0 && (
+                  <span className="ar-badge">{achievementsDue(economy) > 9 ? '9+' : achievementsDue(economy)}</span>
+                )}
               </button>
             </div>
 

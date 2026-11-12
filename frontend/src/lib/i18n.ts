@@ -16,7 +16,7 @@ const DICT: Record<string, Entry> = {
 
   // ----------------------------------------------------------------- menu --
   'menu.best': { en: 'Best', vi: 'Kỷ lục' },
-  'menu.arcTotal': { en: 'Arc total', vi: 'Tổng Arc' },
+  'menu.arcTotal': { en: 'Arc collected', vi: 'Arc đã nhặt' },
   'menu.sprints': { en: 'Sprints', vi: 'Lượt chạy' },
   'menu.farthest': { en: 'Farthest', vi: 'Xa nhất' },
   'menu.chooseRunner': { en: 'Choose your runner', vi: 'Chọn nhân vật của bạn' },

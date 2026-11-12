@@ -1,4 +1,22 @@
 // Small math / formatting helpers shared by the runner runtime.
+import { getLang } from '../lib/i18n'
+
+// Numbers follow the interface language: 5.444.623 and 58,25 km in Vietnamese, 5,444,623
+// and 58.25 km in English. The menu used to mix both — "5,444,623" beside "26.093 Arc".
+const formatters = new Map<string, Intl.NumberFormat>()
+function fmt(digits: number): Intl.NumberFormat {
+  const lang = getLang()
+  const key = `${lang}:${digits}`
+  let f = formatters.get(key)
+  if (!f) {
+    f = new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    })
+    formatters.set(key, f)
+  }
+  return f
+}
 
 export const clamp = (value: number, min: number, max: number): number =>
   value < min ? min : value > max ? max : value
@@ -40,17 +58,17 @@ export const randInt = (rng: () => number, min: number, max: number): number =>
 export const pick = <T>(rng: () => number, items: readonly T[]): T => items[Math.floor(rng() * items.length)]
 
 export function formatScore(value: number): string {
-  return Math.max(0, Math.round(value)).toLocaleString('en-US')
+  return fmt(0).format(Math.max(0, Math.round(value)))
 }
 
 export function formatCompact(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
-  if (value >= 10_000) return `${(value / 1000).toFixed(1)}k`
+  if (value >= 1_000_000) return `${fmt(2).format(value / 1_000_000)}M`
+  if (value >= 10_000) return `${fmt(1).format(value / 1000)}k`
   return formatScore(value)
 }
 
 export function formatDistance(meters: number): string {
-  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`
+  if (meters >= 1000) return `${fmt(2).format(meters / 1000)} km`
   return `${Math.round(meters)} m`
 }
 
