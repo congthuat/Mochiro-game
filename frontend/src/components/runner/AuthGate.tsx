@@ -233,7 +233,12 @@ export function AuthGate({
     } catch (issue) {
       if (pairToken.current !== token) return
       const message = issue instanceof Error ? issue.message : ''
-      setError(message || t('auth.error'))
+      const friendly: Record<string, string> = {
+        'wc-origin': t('pick.wcErrOrigin'),
+        'wc-timeout': t('pick.wcErrTimeout'),
+        'wc-expired': t('pick.wcErrExpired'),
+      }
+      setError(friendly[message] || message || t('auth.error'))
     } finally {
       if (pairToken.current === token) {
         setPairing(null)
@@ -576,10 +581,23 @@ export function AuthGate({
                   <QRCodeSVG value={qrUri} size={168} marginSize={2} level="M" />
                 </div>
                 <p className="ar-pick-qr-note">{t('auth.scanQr')}</p>
+                <button
+                  type="button"
+                  className="ar-pick-mini"
+                  onClick={() => {
+                    pairToken.current += 1
+                    setPairing(null)
+                    setQrUri(null)
+                  }}
+                >
+                  {t('pick.wcRetry')}
+                </button>
               </div>
             ) : (
               <>
-                <p className="ar-pick-sub">{t('pick.wcHint')}</p>
+                <p className="ar-pick-sub" aria-live="polite">
+                  {pairing ? t('pick.wcPreparing') : t('pick.wcHint')}
+                </p>
                 <div className="ar-pick-grid">
                   {WC_WALLETS.map((option) => (
                     <button

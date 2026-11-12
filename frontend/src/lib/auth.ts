@@ -31,6 +31,7 @@ export interface ChainConfig {
   explorer: string
   currency: { name: string; symbol: string; decimals: number }
   googleClientId: string | null
+  walletConnectProjectId?: string | null
 }
 
 interface Stored {

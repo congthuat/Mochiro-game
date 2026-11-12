@@ -167,6 +167,8 @@ router.get('/config', (_req, res) => {
     explorer: 'https://testnet.arcscan.app',
     currency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
     googleClientId: DEFAULT_CLIENT_ID || null,
+    // WalletConnect ids are public; serving it lets a deployment swap ids without a rebuild.
+    walletConnectProjectId: (process.env.WALLETCONNECT_PROJECT_ID || '').trim() || null,
   })
 })
 

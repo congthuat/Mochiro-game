@@ -232,6 +232,17 @@ const DICT: Record<string, Entry> = {
   'pick.store': { en: 'Chrome Web Store', vi: 'Chrome Web Store' },
   'pick.wcTitle': { en: 'WalletConnect', vi: 'WalletConnect' },
   'pick.wcHint': { en: 'Scan with a phone wallet', vi: 'Quét bằng ví trên điện thoại' },
+  'pick.wcPreparing': { en: 'Preparing the code…', vi: 'Đang tạo mã QR…' },
+  'pick.wcErrOrigin': {
+    en: 'WalletConnect has not approved this website yet, so the code cannot be created. Use a browser wallet for now.',
+    vi: 'WalletConnect chưa cho phép trang web này nên chưa tạo được mã QR. Tạm thời hãy dùng ví cài trên trình duyệt.',
+  },
+  'pick.wcErrTimeout': {
+    en: 'The code took too long to load. Check your connection and try again.',
+    vi: 'Tạo mã QR quá lâu. Kiểm tra mạng rồi thử lại nhé.',
+  },
+  'pick.wcErrExpired': { en: 'The code expired. Pick your wallet again for a new one.', vi: 'Mã QR đã hết hạn. Chọn lại ví để lấy mã mới.' },
+  'pick.wcRetry': { en: 'Choose another wallet', vi: 'Chọn ví khác' },
   'pick.scanShort': { en: 'Scan the code', vi: 'Quét mã' },
   'pick.openApp': { en: 'Open the app', vi: 'Mở app' },
   'pick.safety': { en: 'Mochiro never asks for your seed phrase.', vi: 'Mochiro không bao giờ hỏi cụm từ khôi phục.' },
