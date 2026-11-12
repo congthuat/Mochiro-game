@@ -2127,65 +2127,20 @@ body {
 
 /* 11 px uppercase is the hardest way to read a sentence, and every line down here
    is a sentence — the wallet note, the guest note, the network note. */
-/* The wallet picker. One button on the gate, and the choice of wallet behind it — a browser
-   wallet where one exists, a phone wallet reached over the relay where one does not. */
-.ar-auth-pick-bar {
+/* The wallet picker. A header, one group per place a wallet can live, and a help panel for the
+   case that has no answer anywhere else: no wallet in this browser at all. */
+.ar-pick {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ar-auth-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 9px 0 5px;
-  border-radius: 8px;
-  border: 1px solid rgba(40, 70, 120, 0.22);
-  background: rgba(255, 255, 255, 0.9);
-  color: #234a86;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.ar-auth-back:hover {
-  background: #ffffff;
-  border-color: rgba(43, 111, 216, 0.45);
-}
-.ar-auth-pick-head {
-  font-size: 13px;
-  font-weight: 700;
-  color: #16233d;
-}
-.ar-auth-pick-sub {
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: #33455f;
+  flex-direction: column;
+  gap: 12px;
   text-align: left;
 }
-.ar-auth-opt {
+.ar-pick-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(43, 111, 216, 0.35);
-  background: rgba(255, 255, 255, 0.95);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 140ms ease, background 140ms ease;
+  gap: 6px;
 }
-.ar-auth-opt:hover:not(:disabled) {
-  border-color: rgba(43, 111, 216, 0.7);
-  background: #ffffff;
-}
-.ar-auth-opt:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.ar-auth-opt-icon {
+.ar-pick-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2193,42 +2148,168 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 9px;
-  background: #e8f0ff;
+  border: 1px solid rgba(40, 70, 120, 0.2);
+  background: rgba(255, 255, 255, 0.9);
+  color: #234a86;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.ar-pick-icon-btn:hover {
+  background: #ffffff;
+  border-color: rgba(43, 111, 216, 0.45);
+}
+.ar-pick-title {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #16233d;
+}
+.ar-pick-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ar-pick-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.ar-pick-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #33455f;
+}
+.ar-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.ar-pick-card,
+.ar-pick-ready {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(40, 70, 120, 0.16);
+  background: rgba(255, 255, 255, 0.94);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.ar-pick-card {
+  min-height: 56px;
+}
+.ar-pick-card:hover:not(:disabled),
+.ar-pick-ready:hover:not(:disabled) {
+  border-color: rgba(43, 111, 216, 0.5);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+.ar-pick-card:disabled,
+.ar-pick-ready:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ar-pick-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #f2f6fd;
   color: #234a86;
 }
-.ar-auth-opt-text {
+.ar-pick-logo img {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.ar-pick-text {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
 }
-.ar-auth-opt-name {
-  font-size: 13.5px;
+.ar-pick-name {
+  font-size: 13px;
   font-weight: 700;
   color: #16233d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ar-auth-opt-sub {
+.ar-pick-sub {
   font-size: 11.5px;
   font-weight: 600;
   color: #33455f;
 }
+.ar-pick-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #4f5f78;
+}
+
+/* The one case with no answer in the list: this browser has no wallet at all. */
+.ar-pick-help {
+  padding: 12px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(160, 100, 0, 0.22);
+  background: #fff8ea;
+}
+.ar-pick-help-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #6f4100;
+}
+.ar-pick-help-body {
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #5c3600;
+}
+.ar-pick-help-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: #6f4100;
+  color: #fff6e6;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.ar-pick-help-link:hover {
+  background: #5c3600;
+}
 
 /* A desktop has no wallet app to open, so the pairing is shown as a code to scan. */
-.ar-auth-qr {
+.ar-pick-qr {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
 }
-.ar-auth-qr-code {
+.ar-pick-qr-code {
   display: inline-flex;
-  padding: 9px;
+  padding: 10px;
   border-radius: 14px;
   background: #ffffff;
   border: 1px solid rgba(40, 70, 120, 0.18);
   box-shadow: 0 6px 18px rgba(22, 35, 61, 0.1);
 }
-.ar-auth-qr-note {
+.ar-pick-qr-note {
   max-width: 30ch;
   font-size: 12px;
   font-weight: 600;

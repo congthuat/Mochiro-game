@@ -1,12 +1,12 @@
 // Sign-in gate: wallet (SIWE) or Google, with the device-minted Arc wallet that
 // Google accounts get. Also the place where the player picks their language.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {AlertTriangle, Check, ChevronLeft, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon} from 'lucide-react'
+import {AlertTriangle, Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Globe, KeyRound, Loader2, LogOut, Wallet as WalletIcon, X} from 'lucide-react'
 import { useLang, useT, setLang, type Lang } from '../../lib/i18n'
 import { MochiroLogo } from './MochiroLogo'
 import { inAppBrowser, nativeBrowserName, openInBrowserHref } from '../../lib/inAppBrowser'
 import { QRCodeSVG } from 'qrcode.react'
-import { WC_WALLETS, connectWallet as connectViaWalletConnect, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
+import { INJECTED_LOGOS, WC_WALLETS, connectWallet as connectViaWalletConnect, isMobile, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
 import {
   chainConfig,
   createLocalWallet,
@@ -34,6 +34,22 @@ type Step =
   | { name: 'reveal'; credential: string; email: string | null; address: string; privateKey: string }
   | { name: 'unlock'; credential: string; email: string | null }
   | { name: 'busy'; what: 'google' | 'wallet' | 'link' }
+
+/** A wallet's own mark. Decorative — the name sits beside it. */
+function WalletMark({ logo }: { logo: string | null }) {
+  if (!logo) {
+    return (
+      <span className="ar-pick-logo">
+        <WalletIcon size={16} />
+      </span>
+    )
+  }
+  return (
+    <span className="ar-pick-logo">
+      <img src={`${import.meta.env.BASE_URL}wallets/${logo}`} alt="" width={26} height={26} loading="lazy" decoding="async" />
+    </span>
+  )
+}
 
 function LangSwitch() {
   const lang = useLang()
@@ -429,67 +445,94 @@ export function AuthGate({
         )}
 
         {step.name === 'wallet' && (
-          <>
-            <div className="ar-auth-pick-bar">
-              <button type="button" className="ar-auth-back" onClick={leaveWalletStep}>
-                <ChevronLeft size={14} /> {t('auth.back')}
+          <div className="ar-pick">
+            <div className="ar-pick-head">
+              <button type="button" className="ar-pick-icon-btn" onClick={leaveWalletStep} aria-label={t('auth.back')}>
+                <ChevronLeft size={16} />
               </button>
-              <span className="ar-auth-pick-head">{t('auth.pickWallet')}</span>
+              <span className="ar-pick-title">{t('auth.pickWallet')}</span>
+              <button type="button" className="ar-pick-icon-btn" onClick={leaveWalletStep} aria-label={t('auth.back')}>
+                <X size={15} />
+              </button>
             </div>
 
             {qrUri ? (
               /* A desktop has no wallet app to open, so the phone becomes the wallet. */
-              <div className="ar-auth-qr">
-                <div className="ar-auth-qr-code">
-                  <QRCodeSVG value={qrUri} size={164} marginSize={2} level="M" />
+              <div className="ar-pick-qr">
+                <div className="ar-pick-qr-code">
+                  <QRCodeSVG value={qrUri} size={168} marginSize={2} level="M" />
                 </div>
-                <p className="ar-auth-qr-note">{t('auth.scanQr')}</p>
+                <p className="ar-pick-qr-note">{t('auth.scanQr')}</p>
               </div>
             ) : (
-              <>
+              <div className="ar-pick-body">
                 {wallet ? (
-                  <button
-                    type="button"
-                    className="ar-auth-opt"
-                    disabled={pairing !== null}
-                    onClick={() => void connectWallet()}
-                  >
-                    <span className="ar-auth-opt-icon">
-                      <WalletIcon size={15} />
-                    </span>
-                    <span className="ar-auth-opt-text">
-                      <span className="ar-auth-opt-name">{label}</span>
-                      <span className="ar-auth-opt-sub">{t('auth.inBrowser')}</span>
-                    </span>
-                  </button>
-                ) : (
-                  <p className="ar-hint">{t('auth.noWallet')}</p>
-                )}
+                  <section className="ar-pick-group">
+                    <h4 className="ar-pick-label">{t('auth.browserGroup')}</h4>
+                    <button
+                      type="button"
+                      className="ar-pick-ready"
+                      disabled={pairing !== null}
+                      onClick={() => void connectWallet()}
+                    >
+                      <WalletMark logo={INJECTED_LOGOS[label ?? ''] ?? null} />
+                      <span className="ar-pick-text">
+                        <span className="ar-pick-name">{label}</span>
+                        <span className="ar-pick-sub">{t('auth.inBrowser')}</span>
+                      </span>
+                      <ChevronRight size={16} className="ar-pick-chevron" />
+                    </button>
+                  </section>
+                ) : null}
 
                 {walletConnectReady() && (
-                  <>
-                    <div className="ar-auth-pick-sub">{t('auth.mobileWallet')}</div>
-                    <div className="ar-auth-wallets">
+                  <section className="ar-pick-group">
+                    <h4 className="ar-pick-label">{t('auth.phoneGroup')}</h4>
+                    <div className="ar-pick-grid">
                       {WC_WALLETS.map((option) => (
                         <button
                           key={option.id}
                           type="button"
-                          className="ar-auth-wallet"
+                          className="ar-pick-card"
                           disabled={pairing !== null}
                           onClick={() => void connectViaApp(option)}
                         >
-                          {pairing === option.id ? <Loader2 size={14} className="ar-spin" /> : <WalletIcon size={14} />}
-                          {option.name}
+                          {pairing === option.id ? (
+                            <span className="ar-pick-logo">
+                              <Loader2 size={16} className="ar-spin" />
+                            </span>
+                          ) : (
+                            <WalletMark logo={option.logo} />
+                          )}
+                          <span className="ar-pick-text">
+                            <span className="ar-pick-name">{option.name}</span>
+                            <span className="ar-pick-sub">{isMobile() ? t('auth.openApp') : t('auth.scanShort')}</span>
+                          </span>
                         </button>
                       ))}
                     </div>
-                  </>
+                  </section>
                 )}
-              </>
-            )}
 
-            {error ? <div className="ar-auth-error">{error}</div> : null}
-          </>
+                {!wallet && (
+                  <section className="ar-pick-help">
+                    <p className="ar-pick-help-title">{t('auth.noWallet')}</p>
+                    <p className="ar-pick-help-body">{t('auth.noWalletBody')}</p>
+                    <a
+                      className="ar-pick-help-link"
+                      href="https://chromewebstore.google.com/detail/metamask/nkbihfbeogaeaoehlefnkodbefgpgknn"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      MetaMask · Chrome Web Store <ExternalLink size={11} />
+                    </a>
+                  </section>
+                )}
+
+                {error ? <div className="ar-auth-error">{error}</div> : null}
+              </div>
+            )}
+          </div>
         )}
 
         {step.name === 'busy' && (

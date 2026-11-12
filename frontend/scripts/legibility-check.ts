@@ -147,8 +147,14 @@ const STAGE = '#e0efff'
 interface Target {
   selector: string
   background: string
-  /** Large text gets 3:1; everything else 4.5:1. */
+  /** Large text gets 4.5:1; everything else 7:1. */
   large?: boolean
+  /**
+   * A control rather than a word — an icon button, a chevron. WCAG asks 3:1 of a graphical
+   * object and sets no size floor, because there is no glyph to read. Its colour still has to
+   * be measured: a chevron nobody can see is not a control.
+   */
+  icon?: boolean
 }
 
 const TARGETS: Target[] = [
@@ -164,13 +170,16 @@ const TARGETS: Target[] = [
   { selector: '.ar-auth-inapp-title', background: '#fff2d9' },
   { selector: '.ar-auth-inapp-body', background: '#fff2d9' },
   { selector: '.ar-auth-inapp-open', background: '#6f4100' },
-  { selector: '.ar-auth-wallet', background: PANEL },
-  { selector: '.ar-auth-pick-head', background: PANEL },
-  { selector: '.ar-auth-pick-sub', background: PANEL },
-  { selector: '.ar-auth-back', background: PANEL },
-  { selector: '.ar-auth-opt-name', background: PANEL },
-  { selector: '.ar-auth-opt-sub', background: PANEL },
-  { selector: '.ar-auth-qr-note', background: PANEL },
+  { selector: '.ar-pick-title', background: PANEL },
+  { selector: '.ar-pick-label', background: PANEL },
+  { selector: '.ar-pick-name', background: PANEL },
+  { selector: '.ar-pick-sub', background: PANEL },
+  { selector: '.ar-pick-icon-btn', background: PANEL, icon: true },
+  { selector: '.ar-pick-chevron', background: PANEL, icon: true },
+  { selector: '.ar-pick-qr-note', background: PANEL },
+  { selector: '.ar-pick-help-title', background: '#fff8ea' },
+  { selector: '.ar-pick-help-body', background: '#fff8ea' },
+  { selector: '.ar-pick-help-link', background: '#6f4100' },
   { selector: '.ar-guest', background: PANEL },
   { selector: '.ar-signin', background: PANEL },
   { selector: '.ar-name-fixed', background: PANEL },
@@ -207,11 +216,11 @@ for (const target of TARGETS) {
   // 4.5:1 is the AA floor, and text that only just clears it reads as washed out —
   // which is exactly what a player said when they looked at the menu. Small text is
   // held to AAA (7:1) here; large text keeps the 4.5:1 that AAA asks of it.
-  const need = target.large ? 4.5 : 7
+  const need = target.icon ? 3 : target.large ? 4.5 : 7
   const size = parseFloat(rule['font-size'] ?? '0')
-  const ok = contrast >= need && size >= MIN_FONT
+  const ok = target.icon ? contrast >= need : contrast >= need && size >= MIN_FONT
   if (!ok) failures += 1
-  const sizeNote = size >= MIN_FONT ? `${size}px` : `${size}px TOO SMALL`
+  const sizeNote = target.icon ? 'icon' : size >= MIN_FONT ? `${size}px` : `${size}px TOO SMALL`
   rows.push(
     `${ok ? '✓' : '✗'} ${target.selector} — ${contrast.toFixed(2)}:1 (needs ${need}:1) · ${sizeNote} · ${hex(drawn)} on ${target.background}`
   )

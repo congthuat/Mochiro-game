@@ -206,7 +206,14 @@ const DICT: Record<string, Entry> = {
     vi: 'Zalo, Facebook và các app khác mở trang bằng trình duyệt riêng, và Google từ chối đăng nhập ở đó. Hãy mở game bằng trình duyệt của điện thoại.',
   },
   'auth.openIn': { en: 'Open in', vi: 'Mở bằng' },
-  'auth.mobileWallet': { en: 'Sign in with a wallet app', vi: 'Đăng nhập bằng ví trên điện thoại' },
+  'auth.browserGroup': { en: 'In your browser', vi: 'Ví trong trình duyệt' },
+  'auth.phoneGroup': { en: 'On your phone', vi: 'Ví trên điện thoại' },
+  'auth.scanShort': { en: 'Scan the code', vi: 'Quét mã' },
+  'auth.openApp': { en: 'Open the app', vi: 'Mở app' },
+  'auth.noWalletBody': {
+    en: 'Each browser keeps its own extensions. A wallet installed in Chrome is not in C\u1ed1c C\u1ed1c, Edge or Brave until you install it there too.',
+    vi: 'Mỗi trình duyệt giữ tiện ích riêng. Ví cài trong Chrome sẽ không có trong C\u1ed1c C\u1ed1c, Edge hay Brave cho tới khi bạn cài ở đó.',
+  },
   'auth.pickWallet': { en: 'Choose a wallet', vi: 'Chọn ví đăng nhập' },
   'auth.inBrowser': { en: 'In this browser', vi: 'Trong trình duyệt này' },
   'auth.scanQr': {

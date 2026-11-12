@@ -20,20 +20,32 @@ export const walletConnectReady = (): boolean => /^[0-9a-f]{32}$/i.test(WALLETCO
 const ARC_CHAIN_ID = 5042002
 const ARC_RPC = 'https://rpc.testnet.arc.io'
 
-export type WcWallet = { id: string; name: string; native: string }
+export type WcWallet = { id: string; name: string; native: string; logo: string }
 
 /**
  * Deep links taken from the official WalletConnect registry. Each button names one app on both
  * Android and iOS, so a phone never hands the pairing to whichever wallet happens to be default.
+ * Ordered by how many people carry them, not alphabetically.
  */
 export const WC_WALLETS: WcWallet[] = [
-  { id: 'okx', name: 'OKX', native: 'okex://main' },
-  { id: 'okxwallet', name: 'OKX Wallet', native: 'okxwallet://main' },
-  { id: 'binance', name: 'Binance Wallet', native: 'bnc://app.binance.com/cedefi/' },
-  { id: 'metamask', name: 'MetaMask', native: 'metamask://' },
-  { id: 'trust', name: 'Trust Wallet', native: 'trust://' },
-  { id: 'bitget', name: 'Bitget Wallet', native: 'bitkeep://' },
+  { id: 'metamask', name: 'MetaMask', native: 'metamask://', logo: 'metamask.svg' },
+  { id: 'okxwallet', name: 'OKX Wallet', native: 'okxwallet://main', logo: 'okxwallet.png' },
+  { id: 'binance', name: 'Binance Wallet', native: 'bnc://app.binance.com/cedefi/', logo: 'binance.png' },
+  { id: 'trust', name: 'Trust Wallet', native: 'trust://', logo: 'trust.png' },
+  { id: 'bitget', name: 'Bitget Wallet', native: 'bitkeep://', logo: 'bitget.png' },
+  { id: 'okx', name: 'OKX', native: 'okex://main', logo: 'okx.png' },
 ]
+
+/**
+ * The mark for a wallet that has put itself into the page. `walletLabel` names the four the
+ * detector can recognise; anything else falls back to a generic icon rather than a wrong logo.
+ */
+export const INJECTED_LOGOS: Record<string, string> = {
+  MetaMask: 'metamask.svg',
+  Rabby: 'rabby.svg',
+  'OKX Wallet': 'okxwallet.png',
+  'Coinbase Wallet': 'coinbase.png',
+}
 
 /** A scheme has to end in "://" or "/" before `wc?uri=` can be appended to it. */
 export function wcNativeLink(native: string, uri: string): string {
