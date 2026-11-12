@@ -213,7 +213,6 @@ const DICT: Record<string, Entry> = {
   'auth.back': { en: 'Back', vi: 'Quay lại' },
   'pick.more': { en: 'More wallets', vi: 'Ví khác' },
   'pick.install': { en: 'Install', vi: 'Cài đặt' },
-  'pick.connect': { en: 'Connect', vi: 'Kết nối' },
   'pick.detected': { en: 'Installed in this browser', vi: 'Đã cài trong trình duyệt' },
   'pick.googleNote': {
     en: 'Get a Mochiro wallet with your Google account. Your keys stay on your device.',
