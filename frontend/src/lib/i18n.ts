@@ -206,10 +206,6 @@ const DICT: Record<string, Entry> = {
   'auth.signing': { en: 'Check your wallet and sign the message', vi: 'Mở ví và ký thông báo xác nhận' },
   'auth.or': { en: 'or', vi: 'hoặc' },
   'auth.skip': { en: 'Play as guest', vi: 'Chơi không đăng nhập' },
-  'auth.guestNote': {
-    en: 'Guests can play — scores are kept on this device only.',
-    vi: 'Khách vẫn chơi được — điểm chỉ lưu trên máy này.',
-  },
   'auth.createTitle': { en: 'Create your Arc wallet', vi: 'Tạo ví Arc của bạn' },
   'auth.createNote': {
     en: 'Your Google account has no wallet yet. One is generated on this device — the key never leaves it.',
@@ -235,10 +231,6 @@ const DICT: Record<string, Entry> = {
   'auth.googleUnconfigured': {
     en: 'Google sign-in needs a client id (see README → Accounts).',
     vi: 'Đăng nhập Google cần client id (xem README → Tài khoản).',
-  },
-  'auth.walletOnly': {
-    en: 'Wallet sign-in works on Arc testnet (chain id 5042002).',
-    vi: 'Đăng nhập ví hoạt động trên Arc testnet (chain id 5042002).',
   },
 }
 

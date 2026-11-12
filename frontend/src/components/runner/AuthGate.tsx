@@ -276,14 +276,13 @@ export function AuthGate({
               <WalletIcon size={16} />
               {wallet ? `${t('auth.wallet')} — ${label}` : t('auth.wallet')}
             </button>
-            <div className="ar-hint mt-2 text-left">{wallet ? t('auth.walletOnly') : t('auth.noWallet')}</div>
+            {!wallet && <div className="ar-hint mt-2 text-left">{t('auth.noWallet')}</div>}
 
             {error ? <div className="ar-auth-error">{error}</div> : null}
 
             <button className="ar-guest" onClick={onGuest}>
               {t('auth.skip')}
             </button>
-            <div className="ar-hint">{t('auth.guestNote')}</div>
           </>
         )}
 
@@ -382,10 +381,6 @@ export function AuthGate({
           </div>
         )}
 
-        <div className="ar-auth-foot">
-          <span>Arc Testnet · 5042002</span>
-          <span className="ar-mono">{hasLocalWallet() ? shortAddress(localWalletAddress()) : '—'}</span>
-        </div>
       </div>
     </div>
   )

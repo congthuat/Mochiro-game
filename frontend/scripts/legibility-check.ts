@@ -165,7 +165,6 @@ const TARGETS: Target[] = [
   { selector: '.ar-signin', background: PANEL },
   { selector: '.ar-name-fixed', background: PANEL },
   { selector: '.ar-name-error', background: PANEL },
-  { selector: '.ar-auth .ar-auth-foot', background: PANEL },
   { selector: '.ar-row-sub', background: PANEL },
   { selector: '.ar-modal-title', background: PANEL },
   { selector: '.ar-hint', background: PANEL },
