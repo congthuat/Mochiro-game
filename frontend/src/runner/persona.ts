@@ -29,7 +29,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { recolorTexture } from './recolor'
 
-export type PersonaId = 'sam' | 'bobbilee' | 'teddyz'
+export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter'
 
 /* ------------------------------------------------------------------ *
  * Palette
@@ -57,14 +57,22 @@ const FAIR = 0xf1bf9c
 const WHITE_TEE = 0xf8f9fb
 const BLACK_TROUSER = 0x1c1d22
 const TAN = 0xe1a078
+// Lecter: a black piqué polo, stone chinos, white sneakers, fair skin.
+const POLO = 0x17181c
+const CHINO = 0xc9b89c
 const USDC_BLUE = '#2775ca'
 const PRINT_BLUE = '#2f6fe0'
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: POLO }
+/**
+ * …and what it sees below that: the trousers. Two people in black tops are still told
+ * apart from behind by their legs (kit-check uses this when the tops are close).
+ */
+export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: CHINO }
 
 /** Order matters: a colour's index is its palette cell. */
-const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN] as const
+const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, POLO, CHINO] as const
 const enum Cell {
   Tee = 0,
   Jeans = 1,
@@ -81,6 +89,8 @@ const enum Cell {
   WhiteTee = 12,
   BlackTrouser = 13,
   Tan = 14,
+  Polo = 15,
+  Chino = 16,
 }
 
 /** Skin re-hue for the painted head: the artist's peach becomes a warm deep brown. */
@@ -2313,6 +2323,770 @@ function dressTeddyz(root: THREE.Object3D): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Lecter
+ * ------------------------------------------------------------------ */
+
+// Lecter, from a photo of him: thick black hair worn as a soft, messy fringe down to the
+// brows with the sides kept short, clear glasses in thin silver frames, fair skin, dark
+// eyes, a closed half-smile, and a black polo shirt. The rogue keeps its skeleton and
+// every animation; its hood, cape, knives and bomb stay home.
+//
+// Measured on the rogue rig (bind pose, arms out along x): the tunic's shoulder band
+// (x 0.28–0.38) is the fullest part of the upper arm, so the polo's short sleeve ends at
+// its outer edge; the bracer and the glove's flared cuff (x 0.6–0.79) are drawn in to a
+// bare forearm. The belt sits at y 0.43–0.67 with a pouch on either side, the boots
+// reach y 0.15. The head: eyes y 1.54–1.67 (x ±0.14–0.27), brows are raised blocks at
+// y 1.68–1.77, the nose a separate block down to its tip at z 0.52, the face flat across
+// |x| < 0.22 and turning back hard beyond.
+const POLO_SLEEVE = 0.47
+const POLO_HEM = 0.585
+const ROGUE_SHOE_TOP = 0.145
+const ROGUE_SOLE_TOP = 0.04
+const ROGUE_ARM_AXIS = 1.107
+
+const poloArm: Classifier = (x) => (Math.abs(x) < POLO_SLEEVE ? Cell.Polo : Cell.Fair)
+const poloBody: Classifier = (_x, y) => (y > POLO_HEM ? Cell.Polo : Cell.Chino)
+const chinoLeg: Classifier = (_x, y) => {
+  if (y < ROGUE_SOLE_TOP) return Cell.SneakerSole
+  if (y < ROGUE_SHOE_TOP) return Cell.Sneaker
+  return Cell.Chino
+}
+
+/** Bare forearms: the bracer and the glove's flared cuff come in to the wrist's size. */
+function bareForearm(p: THREE.Vector3): void {
+  const ax = Math.abs(p.x)
+  const w = smooth(0.585, 0.62, ax) * (1 - smooth(0.77, 0.81, ax))
+  if (w <= 0) return
+  const dy = p.y - ROGUE_ARM_AXIS
+  const r = Math.hypot(dy, p.z)
+  const target = 0.104
+  if (r <= target) return
+  const k = 1 + (target / r - 1) * w
+  p.y = ROGUE_ARM_AXIS + dy * k
+  p.z *= k
+}
+
+/** No belt pouches: whatever stands proud of the waist is drawn back onto it. */
+function flatWaist(p: THREE.Vector3): void {
+  const w = smooth(0.4, 0.43, p.y) * (1 - smooth(0.665, 0.69, p.y))
+  if (w <= 0) return
+  const extent = (p.x / 0.386) ** 4 + (p.z / 0.33) ** 4
+  if (extent <= 1.02) return
+  const k = 1 + ((1.02 / extent) ** 0.25 - 1) * w
+  p.x *= k
+  p.z *= k
+}
+
+/** A soft oval face: the rogue's broad jaw is drawn in toward the chin. */
+function ovalJaw(p: THREE.Vector3): void {
+  const w = smooth(1.47, 1.24, p.y) * smooth(-0.25, 0.1, p.z)
+  if (w <= 0) return
+  p.x *= 1 - 0.13 * w
+  p.z -= 0.015 * w * smooth(0.25, 0.45, p.z)
+}
+
+/** Connected pieces of a non-indexed mesh (corners matched by position), per triangle. */
+function pieces(geometry: THREE.BufferGeometry): { piece: Int32Array; boxes: THREE.Box3[] } {
+  const position = geometry.getAttribute('position')
+  const triangles = Math.floor(position.count / 3)
+  const parent = new Int32Array(triangles).map((_, i) => i)
+  const find = (a: number): number => {
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]]
+      a = parent[a]
+    }
+    return a
+  }
+  const owner = new Map<string, number>()
+  for (let i = 0; i < position.count; i += 1) {
+    const id = `${position.getX(i).toFixed(4)},${position.getY(i).toFixed(4)},${position.getZ(i).toFixed(4)}`
+    const triangle = Math.floor(i / 3)
+    const seen = owner.get(id)
+    if (seen === undefined) owner.set(id, triangle)
+    else parent[find(seen)] = find(triangle)
+  }
+  const index = new Map<number, number>()
+  const piece = new Int32Array(triangles)
+  const boxes: THREE.Box3[] = []
+  const p = new THREE.Vector3()
+  for (let t = 0; t < triangles; t += 1) {
+    const rootOf = find(t)
+    let id = index.get(rootOf)
+    if (id === undefined) {
+      id = boxes.length
+      index.set(rootOf, id)
+      boxes.push(new THREE.Box3())
+    }
+    piece[t] = id
+    for (let k = 0; k < 3; k += 1) boxes[id].expandByPoint(p.fromBufferAttribute(position, t * 3 + k))
+  }
+  return { piece, boxes }
+}
+
+/** Ray-casts a bind-pose geometry: the first surface met from `origin` along `direction`. */
+function prober(geometry: THREE.BufferGeometry): (origin: THREE.Vector3, direction: THREE.Vector3) => THREE.Vector3 | null {
+  const probe = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }))
+  probe.updateMatrixWorld(true)
+  const ray = new THREE.Raycaster()
+  return (origin, direction) => {
+    ray.set(origin, direction.clone().normalize())
+    const hit = ray.intersectObject(probe, false)[0]
+    return hit ? hit.point.clone() : null
+  }
+}
+
+const LECTER_SKIN_SHIFT = [1.0, 1.07, 1.12] as const
+const JET = { dark: [17, 17, 20], light: [50, 49, 56] } as const
+
+type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'other'
+
+/**
+ * Lecter's head. The rogue's hair is already short-backed and cut with a fringe, so it
+ * keeps its sculpt and only turns from auburn to jet black; a modelled fringe and
+ * textured top go over it (see buildLecterHair). The face is redrawn on a front-projected
+ * patch, the brow blocks fold away behind the forehead (his brows are painted), the
+ * earrings go, and the jaw is drawn in to a soft oval. Returns a probe of the finished
+ * head surface, for fitting the hair and the glasses to it.
+ */
+function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | null {
+  const material = head.material as THREE.MeshStandardMaterial
+  if (!material.map) return null
+  const copy = editableCopy(material.map)
+  if (!copy) return null
+  const { texture, ctx } = copy
+  const { width, height } = ctx.canvas
+  const pixels = ctx.getImageData(0, 0, width, height)
+  const data = pixels.data
+  for (let at = 0; at < data.length; at += 4) {
+    const r = data[at]
+    const g = data[at + 1]
+    const b = data[at + 2]
+    if (r > 200 && g > 140 && b > 100) {
+      // Skin: a little paler and less orange.
+      for (let c = 0; c < 3; c += 1) data[at + c] = Math.min(255, Math.round(data[at + c] * LECTER_SKIN_SHIFT[c]))
+    } else if (r > 100 && r < 190 && r - g > 40 && g - b > 5) {
+      // Hair: the auburn gradient (r 120–175) becomes jet black, keeping its shading.
+      const t = Math.min(1, Math.max(0, (r - 120) / 55))
+      for (let c = 0; c < 3; c += 1) data[at + c] = Math.round(JET.dark[c] + (JET.light[c] - JET.dark[c]) * t)
+    }
+  }
+  ctx.putImageData(pixels, 0, 0)
+  const texel = (u: number, v: number): [number, number, number] => {
+    const px = Math.min(width - 1, Math.max(0, Math.floor(u * width)))
+    const py = Math.min(height - 1, Math.max(0, Math.floor(v * height)))
+    const at = (py * width + px) * 4
+    return [data[at], data[at + 1], data[at + 2]]
+  }
+  const isSkin = ([r, g, b]: [number, number, number]) => r > 200 && g > 150 && b > 110
+
+  const geometry = head.geometry.index ? head.geometry.toNonIndexed() : head.geometry.clone()
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uv || !normal) return null
+
+  const { piece, boxes } = pieces(geometry)
+  const centre = new THREE.Vector3()
+  const size = new THREE.Vector3()
+  const kinds: HeadPiece[] = boxes.map((box) => {
+    box.getCenter(centre)
+    box.getSize(size)
+    const ax = Math.abs(centre.x)
+    if (size.x > 0.6) return 'main'
+    if (centre.z > 0.3 && centre.y > 1.68 && centre.y < 1.78 && ax > 0.12 && ax < 0.28) return 'brow'
+    if (centre.z > 0.3 && centre.y > 1.56 && centre.y < 1.65 && ax > 0.14 && ax < 0.27) return 'eye'
+    if (centre.z > 0.3 && ax < 0.03) return 'nose'
+    if (ax > 0.42 && centre.y < 1.5 && size.y < 0.15) return 'earring'
+    return 'other'
+  })
+
+  const forehead = [0, 0, 0, 0]
+  const chin = [0, 0, 0, 0]
+  const faceTriangles: number[] = []
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    const kind = kinds[piece[i / 3]]
+    let x = 0
+    let y = 0
+    let z = 0
+    let nz = 0
+    let u = 0
+    let v = 0
+    for (let k = 0; k < 3; k += 1) {
+      x += position.getX(i + k) / 3
+      y += position.getY(i + k) / 3
+      z += position.getZ(i + k) / 3
+      nz += normal.getZ(i + k) / 3
+      u += uv.getX(i + k) / 3
+      v += uv.getY(i + k) / 3
+    }
+    if (kind === 'earring') {
+      for (let k = 0; k < 3; k += 1) position.setXYZ(i + k, x * 0.9, y, z)
+      continue
+    }
+    if (kind === 'brow') {
+      for (let k = 0; k < 3; k += 1) position.setZ(i + k, position.getZ(i + k) - 0.07)
+      continue
+    }
+    if (kind === 'eye' || kind === 'nose') {
+      faceTriangles.push(i)
+      continue
+    }
+    if (kind !== 'main') continue
+    const colour = texel(u, v)
+    if (isSkin(colour) && nz > 0.3 && z > 0.2 && Math.abs(x) < 0.45 && y > FACE.bottom && y < FACE.ceiling) {
+      faceTriangles.push(i)
+      if (Math.abs(x) < 0.3) {
+        const into = y > 1.68 ? forehead : y < 1.36 ? chin : null
+        if (into) {
+          into[0] += colour[0]
+          into[1] += colour[1]
+          into[2] += colour[2]
+          into[3] += 1
+        }
+      }
+    }
+  }
+  const tone = (sum: number[], fallback: string) =>
+    sum[3] ? `rgb(${Math.round(sum[0] / sum[3])},${Math.round(sum[1] / sum[3])},${Math.round(sum[2] / sum[3])})` : fallback
+  paintLecterFace(ctx, tone(forehead, '#f6cdb0'), tone(chin, '#f1bf9f'))
+  texture.needsUpdate = true
+
+  for (const i of faceTriangles) {
+    for (let k = 0; k < 3; k += 1) {
+      uv.setXY(i + k, faceU(position.getX(i + k)) / width, faceV(position.getY(i + k)) / height)
+    }
+  }
+  uv.needsUpdate = true
+  position.needsUpdate = true
+  head.geometry = geometry
+  sculpt(head, ovalJaw)
+  material.map = texture
+  material.emissiveMap = texture
+  material.needsUpdate = true
+  return prober(geometry)
+}
+
+/**
+ * Lecter as in the photo: straight soft dark brows, dark almond eyes that smile a
+ * little, a small straight nose and a closed half-smile in soft pink.
+ */
+function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: string): void {
+  const u = faceU
+  const v = faceV
+  const s = FACE.scale
+  const left = u(-FACE.half)
+  const right = u(FACE.half)
+  const skin = ctx.createLinearGradient(0, v(1.75), 0, v(1.3))
+  skin.addColorStop(0, top)
+  skin.addColorStop(1, bottom)
+  ctx.fillStyle = skin
+  ctx.fillRect(left, v(FACE.ceiling + 0.05), right - left, v(FACE.bottom - 0.05) - v(FACE.ceiling + 0.05))
+
+  const glow = (x: number, y: number, radius: number, colour: string, alpha: number) => {
+    const g = ctx.createRadialGradient(u(x), v(y), 0, u(x), v(y), radius * s)
+    g.addColorStop(0, `rgba(${colour},${alpha})`)
+    g.addColorStop(1, `rgba(${colour},0)`)
+    ctx.fillStyle = g
+    ctx.fillRect(u(x) - radius * s, v(y) - radius * s, radius * 2 * s, radius * 2 * s)
+  }
+  // A faint warmth on the cheeks; shade under the nose and the lower lip.
+  for (const side of [-1, 1]) glow(side * 0.29, 1.46, 0.11, '236,150,140', 0.2)
+  glow(0, 1.452, 0.05, '176,108,88', 0.3)
+  for (const side of [-1, 1]) glow(side * 0.033, 1.452, 0.014, '150,84,70', 0.45)
+  glow(0, 1.318, 0.05, '190,120,100', 0.18)
+
+  // Brows: straight, soft-edged, a touch fuller at the inner end.
+  ctx.fillStyle = '#231b18'
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.075), v(1.699))
+    ctx.quadraticCurveTo(u(side * 0.07), v(1.72), u(side * 0.082), v(1.733))
+    ctx.quadraticCurveTo(u(side * 0.2), v(1.742), u(side * 0.3), v(1.73))
+    ctx.quadraticCurveTo(u(side * 0.312), v(1.722), u(side * 0.298), v(1.716))
+    ctx.quadraticCurveTo(u(side * 0.19), v(1.71), u(side * 0.075), v(1.699))
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  // Eyes: almond-shaped, dark brown irises under a defined upper lid, the lower lid
+  // lifted a little by the smile.
+  for (const side of [-1, 1]) {
+    const inner = side * 0.142
+    const outer = side * 0.268
+    const mid = side * 0.204
+    const lid = () => {
+      ctx.beginPath()
+      ctx.moveTo(u(inner), v(1.598))
+      ctx.quadraticCurveTo(u(mid - side * 0.01), v(1.652), u(outer), v(1.61))
+      ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.566), u(inner), v(1.598))
+      ctx.closePath()
+    }
+    ctx.save()
+    lid()
+    ctx.fillStyle = '#f6f1ea'
+    ctx.fill()
+    ctx.clip()
+    const cx = u(mid - side * 0.004)
+    const cy = v(1.604)
+    const iris = ctx.createRadialGradient(cx, cy - 0.012 * s, 0, cx, cy, 0.036 * s)
+    iris.addColorStop(0, '#4a2f22')
+    iris.addColorStop(0.75, '#2d1c14')
+    iris.addColorStop(1, '#150d09')
+    ctx.fillStyle = iris
+    ctx.beginPath()
+    ctx.arc(cx, cy, 0.035 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#0a0706'
+    ctx.beginPath()
+    ctx.arc(cx, cy, 0.016 * s, 0, Math.PI * 2)
+    ctx.fill()
+    // The upper lid's shadow across the top of the eye.
+    ctx.fillStyle = 'rgba(60,35,28,0.28)'
+    ctx.fillRect(u(Math.min(inner, outer)) - 4, v(1.66), Math.abs(u(outer) - u(inner)) + 8, 0.022 * s)
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(cx + side * 0.011 * s, cy - 0.013 * s, 0.009 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    // Upper lash line, heavier toward the outer corner.
+    ctx.strokeStyle = '#150f0c'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = 0.011 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner), v(1.598))
+    ctx.quadraticCurveTo(u(mid - side * 0.01), v(1.652), u(outer), v(1.61))
+    ctx.stroke()
+    ctx.lineWidth = 0.009 * s
+    ctx.beginPath()
+    ctx.moveTo(u(outer - side * 0.03), v(1.627))
+    ctx.lineTo(u(outer + side * 0.012), v(1.614))
+    ctx.stroke()
+    // A thin lid crease above, and the soft lower lid.
+    ctx.strokeStyle = 'rgba(150,92,74,0.4)'
+    ctx.lineWidth = 0.005 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner + side * 0.012), v(1.626))
+    ctx.quadraticCurveTo(u(mid), v(1.668), u(outer - side * 0.004), v(1.632))
+    ctx.stroke()
+    ctx.strokeStyle = 'rgba(110,64,52,0.5)'
+    ctx.lineWidth = 0.005 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner + side * 0.01), v(1.594))
+    ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.571), u(outer - side * 0.004), v(1.606))
+    ctx.stroke()
+    // The smile lifts a soft fold under each eye.
+    ctx.strokeStyle = 'rgba(170,108,92,0.28)'
+    ctx.lineWidth = 0.006 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner + side * 0.02), v(1.574))
+    ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.551), u(outer - side * 0.01), v(1.583))
+    ctx.stroke()
+  }
+
+  // Lips: closed, soft pink, the corners turned up into a slight smile.
+  const my = 1.372
+  ctx.fillStyle = '#d89a95'
+  ctx.beginPath()
+  ctx.moveTo(u(-0.074), v(my + 0.009))
+  ctx.quadraticCurveTo(u(0), v(my - 0.012), u(0.074), v(my + 0.009))
+  ctx.quadraticCurveTo(u(0.03), v(my - 0.045), u(0), v(my - 0.044))
+  ctx.quadraticCurveTo(u(-0.03), v(my - 0.045), u(-0.074), v(my + 0.009))
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = '#c9837f'
+  ctx.beginPath()
+  ctx.moveTo(u(-0.074), v(my + 0.009))
+  ctx.quadraticCurveTo(u(-0.04), v(my + 0.024), u(-0.014), v(my + 0.023))
+  ctx.lineTo(u(0), v(my + 0.017))
+  ctx.lineTo(u(0.014), v(my + 0.023))
+  ctx.quadraticCurveTo(u(0.04), v(my + 0.024), u(0.074), v(my + 0.009))
+  ctx.quadraticCurveTo(u(0), v(my - 0.012), u(-0.074), v(my + 0.009))
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = '#94534f'
+  ctx.lineWidth = 0.006 * s
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(u(-0.076), v(my + 0.011))
+  ctx.quadraticCurveTo(u(0), v(my - 0.012), u(0.076), v(my + 0.011))
+  ctx.stroke()
+  ctx.strokeStyle = 'rgba(150,88,78,0.45)'
+  ctx.lineWidth = 0.005 * s
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.074), v(my + 0.005))
+    ctx.quadraticCurveTo(u(side * 0.088), v(my + 0.01), u(side * 0.09), v(my + 0.024))
+    ctx.stroke()
+  }
+  ctx.fillStyle = 'rgba(255,238,232,0.55)'
+  ctx.beginPath()
+  ctx.ellipse(u(0.012), v(my - 0.026), 0.022 * s, 0.006 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+/* Hair, glasses, collar --------------------------------------------- */
+
+const HAIR_CENTRE = new THREE.Vector3(0, 1.8, 0)
+const HAIR_RADII = new THREE.Vector3(0.5, 0.39, 0.5)
+
+/** Tapered locks of hair along paths, merged into one geometry. */
+class Locks {
+  private positions: number[] = []
+  private uvs: number[] = []
+  private indices: number[] = []
+
+  add(path: THREE.Vector3[], width: number, thickness: number): void {
+    const curve = new THREE.CatmullRomCurve3(path, false, 'centripetal')
+    const rings = 10
+    const sides = 6
+    const base = this.positions.length / 3
+    const out = new THREE.Vector3()
+    const side = new THREE.Vector3()
+    for (let i = 0; i <= rings; i += 1) {
+      const t = i / rings
+      const p = curve.getPoint(t)
+      const tangent = curve.getTangent(t)
+      out.subVectors(p, HAIR_CENTRE).normalize()
+      out.addScaledVector(tangent, -out.dot(tangent)).normalize()
+      side.crossVectors(tangent, out).normalize()
+      // Full at the root, swelling a touch, then tapering to a point.
+      const taper = Math.min(1, 0.85 + t * 1.2) * (1 - t) ** 0.55
+      const w = width * taper + 0.002
+      const h = thickness * taper + 0.0015
+      for (let j = 0; j <= sides; j += 1) {
+        const a = (j / sides) * Math.PI * 2
+        this.positions.push(
+          p.x + side.x * Math.cos(a) * w + out.x * Math.sin(a) * h,
+          p.y + side.y * Math.cos(a) * w + out.y * Math.sin(a) * h,
+          p.z + side.z * Math.cos(a) * w + out.z * Math.sin(a) * h
+        )
+        this.uvs.push(j / sides, t)
+      }
+    }
+    for (let i = 0; i < rings; i += 1) {
+      for (let j = 0; j < sides; j += 1) {
+        const a = base + i * (sides + 1) + j
+        const b = a + sides + 1
+        this.indices.push(a, b, a + 1, b, b + 1, a + 1)
+      }
+    }
+  }
+
+  build(): THREE.BufferGeometry {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3))
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(this.uvs, 2))
+    geometry.setIndex(this.indices)
+    geometry.computeVertexNormals()
+    return geometry
+  }
+}
+
+type Probe = ReturnType<typeof prober>
+
+/**
+ * His hair: thick and black, worn forward as a soft fringe that reaches the brows,
+ * piecey and a little messy, the sides kept short. Locks are laid over the rogue's own
+ * (blackened) hair, fitted to its surface by probing it: a row of fringe locks falling
+ * over the forehead, textured locks over the top brushing forward into it, short ones
+ * lying flat down the sides and the back.
+ */
+function buildLecterHair(probe: Probe): THREE.Mesh {
+  let state = 17
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  const radial = (theta: number, phi: number, lift: number): THREE.Vector3 => {
+    const dir = new THREE.Vector3(Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta))
+    const fallback = new THREE.Vector3(dir.x * HAIR_RADII.x, dir.y * HAIR_RADII.y, dir.z * HAIR_RADII.z).add(HAIR_CENTRE)
+    const hit = probe(dir.clone().multiplyScalar(1.5).add(HAIR_CENTRE), dir.clone().negate()) ?? fallback
+    return hit.addScaledVector(dir, lift)
+  }
+  let lastZ = 0.45
+  const front = (x: number, y: number, lift: number): THREE.Vector3 => {
+    const hit = probe(new THREE.Vector3(x, y, 1.5), new THREE.Vector3(0, 0, -1))
+    if (hit) lastZ = hit.z
+    return new THREE.Vector3(x, y, lastZ + lift)
+  }
+  const locks = new Locks()
+
+  // The fringe: thirteen locks across the forehead, ends at brow height, uneven.
+  const fringe = 13
+  for (let i = 0; i < fringe; i += 1) {
+    const across = -1 + (2 * i) / (fringe - 1)
+    const x = across * 0.35 + (noise() - 0.5) * 0.02
+    const sweep = (noise() - 0.5) * 0.05 + 0.015
+    const tip = 1.742 + noise() * 0.032 + 0.012 * Math.abs(across) ** 2
+    const root = radial(across * 0.75, 0.62, -0.02)
+    const path = [root]
+    for (const [t, y] of [
+      [0.35, 2.0],
+      [0.6, 1.92],
+      [0.8, 1.84],
+    ] as const) {
+      path.push(front(x * (0.82 + 0.18 * t) + sweep * t, y, 0.016 + 0.006 * t))
+    }
+    path.push(front(x + sweep + (noise() - 0.5) * 0.015, tip, 0.03))
+    locks.add(path, 0.05 + noise() * 0.012, 0.02)
+  }
+  // The top: brushed forward from the crown, the ends lifting a little, piecey.
+  for (let i = 0; i < 14; i += 1) {
+    const theta = -1.15 + (i / 13) * 2.3 + (noise() - 0.5) * 0.12
+    const start = 0.15 + noise() * 0.2
+    const path: THREE.Vector3[] = []
+    for (let k = 0; k <= 4; k += 1) {
+      const t = k / 4
+      path.push(radial(theta * (0.75 + 0.25 * t), start + (0.92 - start) * t, -0.01 + 0.035 * t + 0.02 * t * t))
+    }
+    locks.add(path, 0.06 + noise() * 0.015, 0.024)
+  }
+  // The sides: short, lying flat, combed down and a little back toward the ears.
+  for (const sign of [-1, 1]) {
+    for (let i = 0; i < 4; i += 1) {
+      const theta = sign * (1.2 + i * 0.22 + noise() * 0.06)
+      const path: THREE.Vector3[] = []
+      for (let k = 0; k <= 3; k += 1) {
+        const t = k / 3
+        path.push(radial(theta + sign * 0.12 * t, 0.55 + 0.95 * t, 0.004 + 0.012 * t))
+      }
+      locks.add(path, 0.055 + noise() * 0.01, 0.018)
+    }
+  }
+  // The back: down from the crown toward the nape.
+  for (let i = 0; i < 8; i += 1) {
+    const theta = Math.PI + (-1 + (2 * i) / 7) * 0.95 + (noise() - 0.5) * 0.1
+    const path: THREE.Vector3[] = []
+    for (let k = 0; k <= 4; k += 1) {
+      const t = k / 4
+      path.push(radial(theta, 0.3 + 1.6 * t, 0.002 + 0.014 * t))
+    }
+    locks.add(path, 0.065 + noise() * 0.012, 0.02)
+  }
+
+  const material = litMaterial({ map: hairStrands('#18171b', 'rgba(118,118,132,0.5)', 'rgba(4,4,6,0.65)', 41) })
+  material.roughness = 0.55
+  const mesh = new THREE.Mesh(locks.build(), material)
+  mesh.name = 'persona:fringe'
+  mesh.castShadow = true
+  return mesh
+}
+
+/** The clear lenses: faintly cool glass with a soft diagonal glint. */
+function lensTexture(): THREE.CanvasTexture {
+  const { canvas: element, ctx } = canvas(64, 64)
+  ctx.fillStyle = 'rgba(226,238,250,0.13)'
+  ctx.fillRect(0, 0, 64, 64)
+  ctx.strokeStyle = 'rgba(255,255,255,0.42)'
+  ctx.lineCap = 'round'
+  ctx.lineWidth = 7
+  ctx.beginPath()
+  ctx.moveTo(14, 18)
+  ctx.lineTo(30, 4)
+  ctx.stroke()
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(22, 30)
+  ctx.lineTo(44, 10)
+  ctx.stroke()
+  return textureOf(element)
+}
+
+/**
+ * Clear glasses in thin silver frames: soft rectangles with rounded corners, a fine
+ * bridge over the nose and temples running back over the hair to the ears. Fitted to
+ * the face by probing it, so the lenses clear the eyes and the temples clear the head.
+ */
+function buildGlasses(probe: Probe): THREE.Group {
+  const group = new THREE.Group()
+  group.name = 'persona:glasses'
+  const silver = new THREE.MeshStandardMaterial({ color: 0xd6dae0, metalness: 0.5, roughness: 0.28 })
+  silver.emissive = new THREE.Color(0xa9adb4)
+  silver.emissiveIntensity = 0.3
+  const glass = new THREE.MeshStandardMaterial({
+    map: lensTexture(),
+    transparent: true,
+    depthWrite: false,
+    roughness: 0.05,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  })
+
+  const lens = { y: 1.602, x: 0.205, hw: 0.1, hh: 0.07, corner: 0.034 }
+  const faceZ = (x: number, y: number): number =>
+    probe(new THREE.Vector3(x, y, 1.5), new THREE.Vector3(0, 0, -1))?.z ?? 0.44
+  // A gentle wrap, and never closer than 3 cm to the face behind.
+  const lensZ = (x: number, y: number): number =>
+    Math.max(0.478 - 2.6 * Math.max(0, Math.abs(x) - 0.17) ** 2, faceZ(x, y) + 0.03)
+
+  for (const side of [-1, 1]) {
+    const cx = side * lens.x
+    const outline: THREE.Vector3[] = []
+    const count = 48
+    for (let i = 0; i < count; i += 1) {
+      // A rounded rectangle traced by angle (superellipse), top a little flatter.
+      const a = (i / count) * Math.PI * 2
+      const c = Math.cos(a)
+      const s = Math.sin(a)
+      const px = Math.sign(c) * Math.abs(c) ** 0.42 * lens.hw
+      const py = Math.sign(s) * Math.abs(s) ** (s > 0 ? 0.36 : 0.5) * lens.hh
+      outline.push(new THREE.Vector3(cx + px, lens.y + py, 0))
+    }
+    for (const point of outline) point.z = lensZ(point.x, point.y)
+    const rim = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(outline, true), 72, 0.0085, 6, true), silver)
+    rim.castShadow = true
+    group.add(rim)
+
+    const positions: number[] = [cx, lens.y, lensZ(cx, lens.y)]
+    const uvs: number[] = [0.5, 0.5]
+    for (const point of outline) {
+      positions.push(point.x, point.y, point.z)
+      uvs.push(0.5 + (point.x - cx) / (2 * lens.hw), 0.5 + (point.y - lens.y) / (2 * lens.hh))
+    }
+    const indices: number[] = []
+    for (let i = 0; i < count; i += 1) indices.push(0, 1 + i, 1 + ((i + 1) % count))
+    const pane = new THREE.BufferGeometry()
+    pane.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    pane.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+    pane.setIndex(indices)
+    pane.computeVertexNormals()
+    const paneMesh = new THREE.Mesh(pane, glass)
+    paneMesh.renderOrder = 2
+    group.add(paneMesh)
+
+    // Temple: from the outer top corner, back along the side of the head.
+    const y = lens.y + lens.hh * 0.62
+    const corner = new THREE.Vector3(side * (lens.x + lens.hw - 0.004), y, lensZ(side * (lens.x + lens.hw), y))
+    const path = [corner]
+    for (const z of [corner.z - 0.05, 0.32, 0.22, 0.12, 0.03, -0.04]) {
+      const hit = probe(new THREE.Vector3(side * 1.5, y, z), new THREE.Vector3(-side, 0, 0))
+      const x = hit ? hit.x + side * 0.02 : side * 0.5
+      path.push(new THREE.Vector3(side * Math.max(Math.abs(x), Math.abs(path[path.length - 1].x)), y - 0.004 * path.length, z))
+    }
+    const temple = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path), 24, 0.008, 6, false), silver)
+    temple.castShadow = true
+    group.add(temple)
+    const hinge = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.026, 0.03), silver)
+    hinge.position.copy(corner).add(new THREE.Vector3(0, 0, -0.012))
+    group.add(hinge)
+  }
+  // The bridge, arched a little over the nose.
+  const bridgeY = lens.y + lens.hh * 0.55
+  const inner = lens.x - lens.hw + 0.004
+  const bridge = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-inner, bridgeY, lensZ(-inner, bridgeY)),
+    new THREE.Vector3(0, bridgeY + 0.012, Math.max(0.49, faceZ(0, bridgeY + 0.012) + 0.03)),
+    new THREE.Vector3(inner, bridgeY, lensZ(inner, bridgeY)),
+  ])
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(bridge, 16, 0.0075, 6, false), silver))
+  return group
+}
+
+/**
+ * The polo's collar and button placket. The collar points lie on the chest under the
+ * chin; the placket runs down from them with two buttons. Fitted to the torso by
+ * probing it.
+ */
+function buildPoloCollar(probe: Probe): THREE.Group {
+  const group = new THREE.Group()
+  group.name = 'persona:polo-collar'
+  const cloth = litMaterial({ color: 0x1e1f24 })
+  cloth.side = THREE.DoubleSide
+  const button = litMaterial({ color: 0x3a3c43 })
+  let lastZ = 0.2
+  const front = (x: number, y: number): number => {
+    const hit = probe(new THREE.Vector3(x, y, 1.5), new THREE.Vector3(0, 0, -1))
+    if (hit) lastZ = hit.z
+    return lastZ
+  }
+  // A patch of cloth over a quad of the chest, lifted off it; `roll` raises the edges.
+  const patch = (corners: [number, number][], lift: number, roll: number): THREE.Mesh => {
+    const [a, b, c, d] = corners
+    const n = 8
+    const positions: number[] = []
+    const indices: number[] = []
+    for (let j = 0; j <= n; j += 1) {
+      for (let i = 0; i <= n; i += 1) {
+        const s = i / n
+        const t = j / n
+        const x = (a[0] * (1 - s) + b[0] * s) * (1 - t) + (d[0] * (1 - s) + c[0] * s) * t
+        const y = (a[1] * (1 - s) + b[1] * s) * (1 - t) + (d[1] * (1 - s) + c[1] * s) * t
+        const edge = Math.max(Math.abs(s - 0.5), Math.abs(t - 0.5)) * 2
+        positions.push(x, y, front(x, y) + lift + roll * edge * edge)
+      }
+    }
+    for (let j = 0; j < n; j += 1) {
+      for (let i = 0; i < n; i += 1) {
+        const k = j * (n + 1) + i
+        indices.push(k, k + n + 1, k + 1, k + 1, k + n + 1, k + n + 2)
+      }
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geometry.setIndex(indices)
+    geometry.computeVertexNormals()
+    const mesh = new THREE.Mesh(geometry, cloth)
+    mesh.castShadow = true
+    return mesh
+  }
+  for (const side of [-1, 1]) {
+    group.add(
+      patch(
+        [
+          [side * 0.03, 1.245],
+          [side * 0.205, 1.238],
+          [side * 0.168, 1.122],
+          [side * 0.062, 1.072],
+        ],
+        0.012,
+        0.008
+      )
+    )
+  }
+  group.add(
+    patch(
+      [
+        [-0.033, 1.09],
+        [0.033, 1.09],
+        [0.033, 0.955],
+        [-0.033, 0.955],
+      ],
+      0.005,
+      0.002
+    )
+  )
+  for (const y of [1.045, 0.99]) {
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.006, 14), button)
+    knob.rotation.x = Math.PI / 2
+    knob.position.set(0, y, front(0, y) + 0.011)
+    group.add(knob)
+  }
+  return group
+}
+
+function dressLecter(root: THREE.Object3D): void {
+  const head = findMesh(root, '_head')
+  const torso = findMesh(root, '_body')
+  const palette = paletteTexture()
+  const probe = head ? dressLecterHead(head) : null
+  if (head && probe) {
+    const space = bindSpaceOf(head, 'head')
+    space?.add(buildLecterHair(probe))
+    space?.add(buildGlasses(probe))
+  }
+  dress(torso, palette, poloBody)
+  dress(findMesh(root, '_armleft'), palette, poloArm)
+  dress(findMesh(root, '_armright'), palette, poloArm)
+  dress(findMesh(root, '_legleft'), palette, chinoLeg)
+  dress(findMesh(root, '_legright'), palette, chinoLeg)
+  sculpt(torso, flatWaist)
+  sculpt(findMesh(root, '_armleft'), bareForearm)
+  sculpt(findMesh(root, '_armright'), bareForearm)
+  if (torso) bindSpaceOf(torso, 'chest')?.add(buildPoloCollar(prober(torso.geometry)))
+}
+
+/* ------------------------------------------------------------------ *
  * Entry point
  * ------------------------------------------------------------------ */
 
@@ -2328,6 +3102,10 @@ export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
   }
   if (id === 'teddyz') {
     dressTeddyz(root)
+    return
+  }
+  if (id === 'lecter') {
+    dressLecter(root)
     return
   }
   const head = findMesh(root, '_head')

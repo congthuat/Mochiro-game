@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
 import * as THREE from 'three'
 import { CHARACTERS, CHARACTER_IDS } from '../src/runner/config'
-import { PERSONA_BACK } from '../src/runner/persona'
+import { PERSONA_BACK, PERSONA_LEGS } from '../src/runner/persona'
 
 const HEIGHT = 1.74
 const WEAPON = /(knife|crossbow|sword|staff|axe|shield)/i
@@ -201,6 +201,8 @@ interface Report {
   capeHue: number | null
   back: Rgb | null
   backHex: string
+  /** A persona's trousers, the other thing the camera behind reads. */
+  legs: Rgb | null
 }
 
 /** The surfaces the camera behind the runner actually reads. */
@@ -275,7 +277,7 @@ for (const id of CHARACTER_IDS) {
     return bitmap
   }
 
-  const report: Report = { id, name: spec.name, shown: [], crossing: [], cape: false, capeHue: null, back: null, backHex: '—' }
+  const report: Report = { id, name: spec.name, shown: [], crossing: [], cape: false, capeHue: null, back: null, backHex: '—', legs: null }
   const backColours: Rgb[] = []
   const capeColours: Rgb[] = []
 
@@ -339,6 +341,8 @@ for (const id of CHARACTER_IDS) {
     const colour = PERSONA_BACK[spec.persona]
     report.back = [(colour >> 16) & 255, (colour >> 8) & 255, colour & 255]
     report.backHex = `#${colour.toString(16).padStart(6, '0')}`
+    const legs = PERSONA_LEGS[spec.persona]
+    report.legs = [(legs >> 16) & 255, (legs >> 8) & 255, legs & 255]
   }
   if (capeColours.length) {
     const capeTally = new Map<string, { count: number; rgb: Rgb }>()
@@ -372,7 +376,7 @@ const byId = (id: string): Report => reports.find((report) => report.id === id)!
 const assassin = byId('nyx')
 const archer = byId('rin')
 
-check('the assassin carries only the two knives', assassin.shown.length === 2 && assassin.shown.every((n) => /knife/i.test(n)), assassin.shown.join(', ') || 'nothing')
+check('Lecter carries none of the rig\'s weapons', assassin.shown.length === 0, assassin.shown.join(', ') || 'nothing')
 check('the assassin carries no crossbow', !assassin.shown.some((n) => /crossbow/i.test(n)), assassin.shown.filter((n) => /crossbow/i.test(n)).join(', ') || 'none')
 check('the archer carries the arbalest and nothing else', archer.shown.length === 1 && /^2H_Crossbow$/i.test(archer.shown[0]), archer.shown.join(', ') || 'none')
 check('the archer carries no light crossbow', !archer.shown.some((n) => /^1H_/i.test(n)), archer.shown.filter((n) => /^1H_/i.test(n)).join(', ') || 'none')
@@ -430,11 +434,14 @@ for (let i = 0; i < reports.length; i += 1) {
       capeGap = Math.abs(a.capeHue - b.capeHue)
       if (capeGap > 180) capeGap = 360 - capeGap
     }
-    const distinct = distance >= 60 || capeGap >= 40
+    // Two people in dark tops still read apart when one wears light trousers.
+    const legsGap =
+      a.legs && b.legs ? Math.round(Math.hypot(a.legs[0] - b.legs[0], a.legs[1] - b.legs[1], a.legs[2] - b.legs[2])) : 0
+    const distinct = distance >= 60 || capeGap >= 40 || legsGap >= 60
     check(
       `${a.name} vs ${b.name} read differently from behind`,
       distinct,
-      `${a.backHex} vs ${b.backHex} — colour distance ${distance}${capeGap ? `, cape gap ${Math.round(capeGap)}°` : ''}`
+      `${a.backHex} vs ${b.backHex} — colour distance ${distance}${capeGap ? `, cape gap ${Math.round(capeGap)}°` : ''}${legsGap ? `, trousers ${legsGap}` : ''}`
     )
   }
 }

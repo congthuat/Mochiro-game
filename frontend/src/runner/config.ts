@@ -460,28 +460,28 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
   nyx: {
     id: 'nyx',
     perk: { id: 'quickLane', value: 1.35 },
-    // The rogue rig ships teal; the Night Blade wears violet.
-    recolor: { from: [65, 190], to: 276, sat: 0.78, light: 0.82 },
     name: 'Lecter',
     tagline: 'Night Blade',
+    // Lecter as himself (see persona.ts): a thick black fringe down to his brows, clear
+    // glasses in thin silver frames, a black polo, stone chinos and white sneakers. The
+    // rogue keeps his build and his moves; the cape, knives, bomb and crossbows stay home.
+    persona: 'lecter',
     model: rogueModel,
-    // Two knives and nothing else: the rogue rig also ships a one- and a
-    // two-handed crossbow, which made the assassin read as a second archer.
-    hideNodes: ['Crossbow', 'Cape'],
+    hideNodes: ['Crossbow', 'Cape', 'Knife', 'Throwable'],
     modelHeight: 1.74,
     modelFacing: Math.PI,
-    skin: 0xd9b48f,
-    hair: 0x2b2440,
-    hairStyle: 'ponytail',
-    outfit: 0x4b3a7a,
-    outfitDark: 0x2f2450,
-    shirt: 0xcfc6ee,
-    bottom: 0x2f2450,
-    shoe: 0x3a2f5e,
-    sole: 0xb9aee0,
-    accent: 0x9d7bff,
-    glove: 0x241c3d,
-    eye: 0xb07bff,
+    skin: 0xf1bf9c,
+    hair: 0x18171b,
+    hairStyle: 'spiky',
+    outfit: 0x17181c,
+    outfitDark: 0x0f1012,
+    shirt: 0x17181c,
+    bottom: 0xc9b89c,
+    shoe: 0xf2f1ee,
+    sole: 0xbfc0c4,
+    accent: 0xc9ced6,
+    glove: 0xf1bf9c,
+    eye: 0x2a1a12,
   },
   rin: {
     id: 'rin',
