@@ -2458,7 +2458,7 @@ function prober(geometry: THREE.BufferGeometry): (origin: THREE.Vector3, directi
 
 const LECTER_SKIN_SHIFT = [1.0, 1.07, 1.12] as const
 /** His hair: a deep copper brown, a shade darker and redder than the rogue's auburn. */
-const COPPER = { dark: [52, 22, 13], light: [128, 60, 34] } as const
+const COPPER = { dark: [60, 20, 12], light: [146, 60, 36] } as const
 /**
  * The faded back and sides, painted on a strip of the head's texture below the face patch.
  * Columns run from the front (centre) to the back by angle, the same on both sides, so no
@@ -2479,7 +2479,7 @@ type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'ear' | 'other'
  * earrings go, and the jaw is drawn in to a soft oval. Returns a probe of the finished
  * head surface, for fitting the hair and the glasses to it.
  */
-function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | null {
+function dressLecterHead(head: THREE.SkinnedMesh): { probe: ReturnType<typeof prober>; earring: THREE.Vector3 | null } | null {
   const material = head.material as THREE.MeshStandardMaterial
   if (!material.map) return null
   const copy = editableCopy(material.map)
@@ -2543,6 +2543,9 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
   const chin = [0, 0, 0, 0]
   const faceTriangles: number[] = []
   const fadeTriangles: number[] = []
+  // The rig's two earrings come off; he wears one small dark hoop, in his left ear.
+  const earring = new THREE.Vector3()
+  let earringCorners = 0
   for (let i = 0; i + 2 < position.count; i += 3) {
     const kind = kinds[piece[i / 3]]
     let x = 0
@@ -2559,8 +2562,21 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
       u += uv.getX(i + k) / 3
       v += uv.getY(i + k) / 3
     }
-    if (kind === 'earring' || kind === 'ear') {
-      // Ears tucked in against the closer crop (the earrings ride along with them).
+    if (kind === 'earring') {
+      for (let k = 0; k < 3; k += 1) {
+        // Where his own hoop goes: the left one's place, tucked in with the ear.
+        if (x > 0) {
+          earring.x += position.getX(i + k) - 0.05
+          earring.y += position.getY(i + k)
+          earring.z += position.getZ(i + k)
+          earringCorners += 1
+        }
+        position.setXYZ(i + k, x - Math.sign(x) * 0.12, y, z)
+      }
+      continue
+    }
+    if (kind === 'ear') {
+      // Ears tucked in against the closer crop.
       for (let k = 0; k < 3; k += 1) position.setX(i + k, position.getX(i + k) - Math.sign(x) * 0.05)
       continue
     }
@@ -2620,7 +2636,7 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
   material.map = texture
   material.emissiveMap = texture
   material.needsUpdate = true
-  return prober(geometry)
+  return { probe: prober(geometry), earring: earringCorners ? earring.divideScalar(earringCorners) : null }
 }
 
 /**
@@ -2629,7 +2645,7 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
  * the neck. A pure function of position, so seams between pieces stay closed.
  */
 function shortCrop(p: THREE.Vector3): void {
-  if (p.y > 1.86) p.y = 1.86 + (p.y - 1.86) * 0.62
+  if (p.y > 1.84) p.y = 1.84 + (p.y - 1.84) * 0.4
   // A close crop like Tim's: the crown narrower, the back of the head drawn in tight.
   p.x *= 1 - 0.1 * smooth(1.74, 2.0, p.y)
   p.x *= 1 - 0.13 * smooth(0.15, -0.25, p.z) * smooth(1.25, 1.45, p.y)
@@ -2640,22 +2656,22 @@ function shortCrop(p: THREE.Vector3): void {
 }
 
 /**
- * The short back and sides: clipper-short copper hair over the back of the head and the
- * temples, darkening to his hair colour where the curls begin, with a short fade to skin
- * at the nape and under the ears. Rows run with height (fadeV),
+ * The undercut: the back and sides clippered right down, so they read as skin with a
+ * faint copper shadow of stubble, up to a crisp line under the overhanging top, and
+ * fading to clean skin at the nape and under the ears. Rows run with height (fadeV),
  * columns around the head (fadeU).
  */
 function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
   const width = ctx.canvas.width
   const mix = (a: readonly number[], b: readonly number[], t: number) => a.map((v, k) => v + (b[k] - v) * t)
   const shadow = mix(skin, [140, 108, 96], 0.3)
-  // Clipper-short hair: his copper brown with a little scalp showing through.
-  const buzz = mix(mix(COPPER.dark, COPPER.light, 0.4), skin, 0.18)
-  const hair = mix(COPPER.dark, COPPER.light, 0.15)
+  // Clippered to a shadow: skin with a little of his copper through it.
+  const buzz = mix(skin, COPPER.dark, 0.24)
+  const hair = mix(COPPER.dark, COPPER.light, 0.2)
   // How far round toward the back a column is.
   const backness = (px: number) => smooth(0.45, 0.9, Math.abs(px - FADE.centre) / FADE.spread)
-  // Where the clippered hair gives way to skin: a crisp line low at the nape and round
-  // under the ears, like Tim's short back and sides.
+  // Where the shadow of stubble gives way to clean skin: low at the nape and round
+  // under the ears.
   const start = (px: number) => 1.5 - 0.08 * backness(px)
   const top = Math.floor(fadeV(FADE.ceiling))
   const bottom = Math.min(ctx.canvas.height, Math.ceil(fadeV(1.1)))
@@ -2665,7 +2681,8 @@ function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
     for (let row = top; row < bottom; row += 1) {
       const y = FADE.ceiling - (row - FADE.top) / FADE.scale
       const short = mix(shadow, buzz, smooth(lo - 0.04, lo + 0.08, y))
-      const colour = mix(short, hair, smooth(1.8, 1.95, y))
+      // Under the top's overhang, the line of the undercut.
+      const colour = mix(short, hair, smooth(1.88, 1.91, y))
       const at = ((row - top) * width + px) * 4
       image.data[at] = colour[0]
       image.data[at + 1] = colour[1]
@@ -2685,14 +2702,14 @@ function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
     const x = FADE.centre + noise() * FADE.spread
     const lo = start(x)
     if (noise() > 0.1 + 0.9 * smooth(lo - 0.06, lo + 0.1, y)) continue
-    ctx.fillStyle = `rgba(${COPPER.dark.join(',')},${(0.25 + noise() * 0.35).toFixed(2)})`
+    ctx.fillStyle = `rgba(${COPPER.dark.join(',')},${(0.12 + noise() * 0.22).toFixed(2)})`
     ctx.fillRect(x, fadeV(y), 2, 2)
   }
 }
 
 /**
- * Lecter as in the photo: soft dark-brown brows, dark almond eyes, a small straight
- * nose and a calm closed mouth in soft pink.
+ * Lecter as in the portrait: soft dark-brown brows, big warm brown eyes, a small
+ * straight nose, rosy cheeks and a wide smile showing his top teeth.
  */
 function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: string): void {
   const u = faceU
@@ -2714,7 +2731,7 @@ function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: str
     ctx.fillRect(u(x) - radius * s, v(y) - radius * s, radius * 2 * s, radius * 2 * s)
   }
   // A faint warmth on the cheeks; shade under the nose and the lower lip.
-  for (const side of [-1, 1]) glow(side * 0.29, 1.46, 0.11, '236,150,140', 0.2)
+  for (const side of [-1, 1]) glow(side * 0.28, 1.465, 0.11, '236,140,130', 0.3)
   glow(0, 1.452, 0.05, '176,108,88', 0.3)
   for (const side of [-1, 1]) glow(side * 0.033, 1.452, 0.014, '150,84,70', 0.45)
   glow(0, 1.318, 0.05, '190,120,100', 0.18)
@@ -2741,8 +2758,8 @@ function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: str
     const lid = () => {
       ctx.beginPath()
       ctx.moveTo(u(inner), v(1.598))
-      ctx.quadraticCurveTo(u(mid - side * 0.01), v(1.652), u(outer), v(1.61))
-      ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.566), u(inner), v(1.598))
+      ctx.quadraticCurveTo(u(mid - side * 0.01), v(1.664), u(outer), v(1.61))
+      ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.556), u(inner), v(1.598))
       ctx.closePath()
     }
     ctx.save()
@@ -2753,12 +2770,12 @@ function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: str
     const cx = u(mid - side * 0.004)
     const cy = v(1.604)
     const iris = ctx.createRadialGradient(cx, cy - 0.012 * s, 0, cx, cy, 0.036 * s)
-    iris.addColorStop(0, '#4a2f22')
-    iris.addColorStop(0.75, '#2d1c14')
-    iris.addColorStop(1, '#150d09')
+    iris.addColorStop(0, '#7a4a2c')
+    iris.addColorStop(0.7, '#4a2b1a')
+    iris.addColorStop(1, '#1d110a')
     ctx.fillStyle = iris
     ctx.beginPath()
-    ctx.arc(cx, cy, 0.035 * s, 0, Math.PI * 2)
+    ctx.arc(cx, cy, 0.04 * s, 0, Math.PI * 2)
     ctx.fill()
     ctx.fillStyle = '#0a0706'
     ctx.beginPath()
@@ -2779,7 +2796,7 @@ function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: str
     ctx.lineWidth = 0.011 * s
     ctx.beginPath()
     ctx.moveTo(u(inner), v(1.598))
-    ctx.quadraticCurveTo(u(mid - side * 0.01), v(1.652), u(outer), v(1.61))
+    ctx.quadraticCurveTo(u(mid - side * 0.01), v(1.664), u(outer), v(1.61))
     ctx.stroke()
     ctx.lineWidth = 0.009 * s
     ctx.beginPath()
@@ -2808,43 +2825,64 @@ function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: str
     ctx.stroke()
   }
 
-  // Lips: closed and calm, soft pink, the corners level.
+  // A wide, warm smile showing his top teeth: the corners lifted, a full pink lower lip.
   const my = 1.372
-  ctx.fillStyle = '#d89a95'
+  const hw = 0.1
+  const mouth = () => {
+    ctx.beginPath()
+    ctx.moveTo(u(-hw), v(my + 0.014))
+    ctx.quadraticCurveTo(u(0), v(my - 0.004), u(hw), v(my + 0.014))
+    ctx.quadraticCurveTo(u(0), v(my - 0.078), u(-hw), v(my + 0.014))
+    ctx.closePath()
+  }
+  // The lower lip, just under the opening.
+  ctx.fillStyle = '#d88e86'
   ctx.beginPath()
-  ctx.moveTo(u(-0.074), v(my + 0.009))
-  ctx.quadraticCurveTo(u(0), v(my + 0.001), u(0.074), v(my + 0.009))
-  ctx.quadraticCurveTo(u(0.03), v(my - 0.045), u(0), v(my - 0.044))
-  ctx.quadraticCurveTo(u(-0.03), v(my - 0.045), u(-0.074), v(my + 0.009))
+  ctx.moveTo(u(-hw * 0.82), v(my))
+  ctx.quadraticCurveTo(u(0), v(my - 0.098), u(hw * 0.82), v(my))
+  ctx.quadraticCurveTo(u(0), v(my - 0.06), u(-hw * 0.82), v(my))
   ctx.closePath()
   ctx.fill()
-  ctx.fillStyle = '#c9837f'
+  ctx.save()
+  mouth()
+  ctx.fillStyle = '#5a2421'
+  ctx.fill()
+  ctx.clip()
+  // Top teeth across the upper part, a hint of tongue at the bottom.
+  ctx.fillStyle = '#fbf7f1'
   ctx.beginPath()
-  ctx.moveTo(u(-0.074), v(my + 0.009))
-  ctx.quadraticCurveTo(u(-0.04), v(my + 0.024), u(-0.014), v(my + 0.023))
-  ctx.lineTo(u(0), v(my + 0.017))
-  ctx.lineTo(u(0.014), v(my + 0.023))
-  ctx.quadraticCurveTo(u(0.04), v(my + 0.024), u(0.074), v(my + 0.009))
-  ctx.quadraticCurveTo(u(0), v(my + 0.001), u(-0.074), v(my + 0.009))
+  ctx.moveTo(u(-hw), v(my + 0.014))
+  ctx.quadraticCurveTo(u(0), v(my - 0.004), u(hw), v(my + 0.014))
+  ctx.quadraticCurveTo(u(0), v(my - 0.05), u(-hw), v(my + 0.014))
   ctx.closePath()
   ctx.fill()
-  ctx.strokeStyle = '#94534f'
-  ctx.lineWidth = 0.006 * s
+  ctx.strokeStyle = 'rgba(190,175,165,0.7)'
+  ctx.lineWidth = 0.003 * s
+  for (const x of [-0.06, -0.03, 0, 0.03, 0.06]) {
+    ctx.beginPath()
+    ctx.moveTo(u(x), v(my + 0.01))
+    ctx.lineTo(u(x), v(my - 0.022 + Math.abs(x) * 0.2))
+    ctx.stroke()
+  }
+  ctx.fillStyle = 'rgba(200,96,98,0.75)'
+  ctx.beginPath()
+  ctx.ellipse(u(0), v(my - 0.04), 0.045 * s, 0.012 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+  // The upper lip's line, and the lifted corners.
+  ctx.strokeStyle = '#a65c55'
   ctx.lineCap = 'round'
-  ctx.beginPath()
-  ctx.moveTo(u(-0.076), v(my + 0.011))
-  ctx.quadraticCurveTo(u(0), v(my + 0.001), u(0.076), v(my + 0.011))
+  ctx.lineWidth = 0.006 * s
+  mouth()
   ctx.stroke()
-  ctx.fillStyle = 'rgba(150,88,78,0.4)'
+  ctx.strokeStyle = 'rgba(160,90,78,0.5)'
+  ctx.lineWidth = 0.005 * s
   for (const side of [-1, 1]) {
     ctx.beginPath()
-    ctx.arc(u(side * 0.078), v(my + 0.008), 0.004 * s, 0, Math.PI * 2)
-    ctx.fill()
+    ctx.moveTo(u(side * (hw - 0.004)), v(my + 0.012))
+    ctx.quadraticCurveTo(u(side * (hw + 0.016)), v(my + 0.018), u(side * (hw + 0.02)), v(my + 0.034))
+    ctx.stroke()
   }
-  ctx.fillStyle = 'rgba(255,238,232,0.55)'
-  ctx.beginPath()
-  ctx.ellipse(u(0.012), v(my - 0.026), 0.022 * s, 0.006 * s, 0, 0, Math.PI * 2)
-  ctx.fill()
 }
 
 /* Hair, glasses, collar --------------------------------------------- */
@@ -2906,11 +2944,11 @@ class Locks {
 type Probe = ReturnType<typeof prober>
 
 /**
- * His hair: a short crop of tight copper-brown curls on top, pushed up and back off the
- * forehead and leaning a little to his left, a couple of small curls at the front of the
- * hairline; the back and sides are faded short (see dressLecterHead and shortCrop). Each curl is a short
- * tapered lock rising off the scalp and rolling over, its root fitted to the rogue's
- * own hair by probing it; light and dark curls alternate to give the mass some depth.
+ * His hair, as in the portrait: a full, textured top of thick auburn waves, swept up off
+ * the forehead into a tousled quiff that leans toward his right, over an undercut (the
+ * back and sides clippered right down: see dressLecterHead, paintFade and shortCrop).
+ * Each wave is a chunky tapered lock rising off the scalp and arcing over, its root fitted
+ * to the rogue's own hair by probing it; light and dark locks alternate for depth.
  */
 function buildLecterHair(probe: Probe): THREE.Group {
   let state = 23
@@ -2930,53 +2968,52 @@ function buildLecterHair(probe: Probe): THREE.Group {
   const along = new THREE.Vector3()
   const across = new THREE.Vector3()
 
-  /** A curl rooted at (theta, phi): out of the scalp along `heading`, over and back under. */
-  const curl = (theta: number, phi: number, heading: THREE.Vector3, height: number, length: number, width: number): void => {
-    const root = radial(theta, phi, -0.012)
+  /**
+   * A wave rooted at (theta, phi): up out of the scalp by `height`, then along `heading`
+   * for `length`, rolling over at the tip, with a little sideways S in it.
+   */
+  const wave = (theta: number, phi: number, heading: THREE.Vector3, height: number, length: number, width: number): void => {
+    const root = radial(theta, phi, -0.015)
     up.subVectors(root, HAIR_CENTRE).normalize()
     along.copy(heading).addScaledVector(up, -heading.dot(up))
     if (along.lengthSq() < 1e-6) along.set(0, 0, 1).addScaledVector(up, -up.z)
-    along.normalize().applyAxisAngle(up, (noise() - 0.5) * 0.9)
-    across.crossVectors(up, along).multiplyScalar((noise() - 0.5) * 0.4 * length)
+    along.normalize().applyAxisAngle(up, (noise() - 0.5) * 0.5)
+    across.crossVectors(up, along).multiplyScalar((noise() - 0.5) * 0.5 * length)
     const at = (rise: number, run: number, side: number) =>
       root.clone().addScaledVector(up, rise * height).addScaledVector(along, run * length).addScaledVector(across, side)
-    const path = [at(0, 0, 0), at(0.7, 0.2, 0.2), at(1, 0.6, 0.6), at(0.8, 0.95, 0.9), at(0.4, 0.85, 1)]
-    ;(noise() < 0.38 ? light : dark).add(path, width, width * 0.6, 8, 5)
+    const path = [at(0, 0, 0), at(0.6, 0.18, 0.15), at(0.95, 0.5, 0.5), at(1, 0.78, 0.2), at(0.78, 1, -0.2)]
+    ;(noise() < 0.4 ? light : dark).add(path, width, width * 0.62, 10, 6)
   }
 
-  // The top: an even scatter of curls (a Fibonacci spiral over the cap) down to the line
-  // where the fade starts: low at the front hairline, higher over the ears and the back.
-  const reach = (theta: number) => 1.4 - 0.2 * smooth(0.5, 1.5, Math.abs(theta)) - 0.32 * smooth(1.7, 3.0, Math.abs(theta))
-  const count = 340
+  // Where the top ends and the undercut begins: low at the front hairline, high over the
+  // ears and round the back.
+  const reach = (theta: number) => 1.4 - 0.16 * smooth(0.5, 1.4, Math.abs(theta)) - 0.12 * smooth(1.8, 3.0, Math.abs(theta))
+  const count = 230
   const golden = Math.PI * (3 - Math.sqrt(5))
   for (let i = 0; i < count; i += 1) {
-    const phi = Math.acos(1 - ((i + 0.5) / count) * (1 - Math.cos(1.42)))
+    const phi = Math.acos(1 - ((i + 0.5) / count) * (1 - Math.cos(1.38)))
     const theta = Math.atan2(Math.sin(i * golden), Math.cos(i * golden))
     if (phi > reach(theta)) continue
-    const front = Math.max(0, Math.cos(theta)) * smooth(0.35, 1.1, phi)
-    // Swept up and back off the forehead, leaning to his left; tumbled on top.
-    const heading = new THREE.Vector3(0.35, 0.8, -0.5).multiplyScalar(front).add(
-      new THREE.Vector3(noise() - 0.5, 0.3, -0.4).multiplyScalar(1 - front)
-    )
-    // Most volume at the front of the crown.
-    const lift = 1 + 0.3 * Math.max(0, Math.cos(theta)) * (1 - smooth(0.9, 1.35, phi))
-    curl(theta, phi, heading, (0.022 + noise() * 0.014) * lift, 0.055 + noise() * 0.025, 0.036 + noise() * 0.01)
+    // Everything sweeps forward and up toward the front of the crown and over to his
+    // right; the front stands tallest, the back lies flatter.
+    const front = Math.max(0, Math.cos(theta))
+    const heading = new THREE.Vector3(-0.4, 0.9, 0.35).multiplyScalar(front).add(new THREE.Vector3(-0.25, 0.4, 1).multiplyScalar(1 - front))
+    const height = (0.026 + 0.04 * front * front) * (0.85 + noise() * 0.3)
+    const length = (0.1 + 0.03 * front) * (0.85 + noise() * 0.35)
+    wave(theta, phi, heading, height, length, 0.05 + noise() * 0.015)
   }
-  // Loose curls falling onto the forehead, mostly on his right.
-  for (const [x, drop] of [
-    [-0.2, 0.03],
-    [-0.11, 0.04],
-    [-0.02, 0.025],
-  ] as const) {
+  // The quiff: a few bigger waves along the front hairline, standing up off the brow and
+  // tumbling over toward his right.
+  for (let x = -0.24; x <= 0.24; x += 0.08) {
     const theta = Math.asin(x / 0.47)
-    curl(theta, 1.32, new THREE.Vector3(0.15, -1, 0.35), 0.02, drop + 0.025, 0.036)
+    wave(theta, 1.29 - 0.06 * Math.abs(x), new THREE.Vector3(-0.55, 1, 0.15), 0.075 + noise() * 0.015, 0.12 + noise() * 0.03, 0.062)
   }
 
   const group = new THREE.Group()
-  group.name = 'persona:curls'
+  group.name = 'persona:waves'
   for (const [locks, base, glint, shade, seed] of [
-    [light, '#7a3a21', 'rgba(196,112,66,0.55)', 'rgba(60,24,12,0.5)', 41],
-    [dark, '#552716', 'rgba(150,80,46,0.5)', 'rgba(30,12,6,0.6)', 43],
+    [light, '#8a3d27', 'rgba(214,122,84,0.55)', 'rgba(62,20,10,0.5)', 41],
+    [dark, '#5e2318', 'rgba(168,78,50,0.5)', 'rgba(30,8,4,0.6)', 43],
   ] as const) {
     const material = litMaterial({ map: hairStrands(base, glint, shade, seed) })
     material.roughness = 0.6
@@ -2985,6 +3022,18 @@ function buildLecterHair(probe: Probe): THREE.Group {
     group.add(mesh)
   }
   return group
+}
+
+/** His one earring: a small dark steel hoop through the left lobe. */
+function buildHoop(at: THREE.Vector3): THREE.Mesh {
+  const steel = new THREE.MeshStandardMaterial({ color: 0x2a2b30, metalness: 0.7, roughness: 0.3 })
+  steel.emissive = new THREE.Color(0x15161a)
+  const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.024, 0.0065, 8, 24), steel)
+  hoop.name = 'persona:earring'
+  hoop.position.copy(at)
+  // Hanging flat against the side of the head.
+  hoop.rotation.y = Math.PI / 2
+  return hoop
 }
 
 /** The clear lenses: faintly cool glass with a soft diagonal glint. */
@@ -3411,11 +3460,12 @@ function dressLecter(root: THREE.Object3D): void {
   const head = findMesh(root, '_head')
   const torso = findMesh(root, '_body')
   const palette = paletteTexture()
-  const probe = head ? dressLecterHead(head) : null
-  if (head && probe) {
+  const dressed = head ? dressLecterHead(head) : null
+  if (head && dressed) {
     const space = bindSpaceOf(head, 'head')
-    space?.add(buildLecterHair(probe))
-    space?.add(buildGlasses(probe))
+    space?.add(buildLecterHair(dressed.probe))
+    space?.add(buildGlasses(dressed.probe))
+    if (dressed.earring) space?.add(buildHoop(dressed.earring))
   }
   dress(findMesh(root, '_armleft'), palette, shirtArm)
   dress(findMesh(root, '_armright'), palette, shirtArm)
