@@ -6,7 +6,6 @@ import type { RecolorSpec } from './recolor'
 import barbarianModel from '../assets/models/barbarian.glb?url'
 import knightModel from '../assets/models/knight.glb?url'
 import mageModel from '../assets/models/mage.glb?url'
-import rogueModel from '../assets/models/rogue.glb?url'
 import rogueHoodedModel from '../assets/models/rogue_hooded.glb?url'
 
 /** Three-lane track. Lane 0 = left, 1 = centre, 2 = right. */
@@ -462,17 +461,17 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     perk: { id: 'quickLane', value: 1.35 },
     name: 'Lecter',
     tagline: 'Night Blade',
-    // Lecter as himself (see persona.ts): copper-brown curls with the sides faded, large
-    // clear glasses, and a Chelsea home kit (royal blue shirt with USDC on the front and
-    // JEREMIAH 7 on the back, blue shorts, white socks) with white sneakers. The rogue
-    // keeps his build and his moves; the cape, knives, bomb and crossbows stay home.
+    // Lecter as himself (see persona.ts): red-brown swept-up hair with the sides faded, thin
+    // gold glasses, and a Chelsea home kit (royal blue shirt with USDC on the front and
+    // JEREMIAH 7 on the back, blue shorts, white socks) with white sneakers. The barbarian
+    // keeps his build and his moves; the horns, fur and axes stay home.
     persona: 'lecter',
-    model: rogueModel,
-    hideNodes: ['Crossbow', 'Cape', 'Knife', 'Throwable'],
+    hideNodes: ['Cape', 'Hat', 'Axe', 'Shield', 'Mug'],
+    model: barbarianModel,
     modelHeight: 1.74,
     modelFacing: Math.PI,
     skin: 0xf1bf9c,
-    hair: 0x5e2c1a,
+    hair: 0x7a2a1c,
     hairStyle: 'spiky',
     outfit: 0x2350c4,
     outfitDark: 0x1b3fa0,
