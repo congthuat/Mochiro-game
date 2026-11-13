@@ -13,7 +13,7 @@ const { Router } = require('express')
 const crypto = require('node:crypto')
 const { SiweMessage } = require('siwe')
 const { verifyMessage, getAddress, isAddress } = require('ethers')
-const { dbQuery } = require('@surf-ai/sdk/db')
+const { dbQuery } = require('../db/client')
 
 const ARC_CHAIN_ID = 5042002
 const SESSION_DAYS = 30

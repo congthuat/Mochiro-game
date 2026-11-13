@@ -10,8 +10,8 @@ absolute URLs are Arc Testnet's, which are meant to be absolute.
 | Piece | Where it runs | What it needs |
 |---|---|---|
 | Frontend | static files | `BASE_PATH` (empty string for a root domain) |
-| Backend | Node 20+ | `BACKEND_PORT`, `SURF_API_KEY` |
-| Database | provisioned by the SDK | nothing — the schema syncs on boot |
+| Backend | Node 20+ | `BACKEND_PORT`; `SURF_API_KEY` only for the Arc logo lookup |
+| Database | Neon Postgres (Vercel Storage) | `DATABASE_URL`, added by the Neon integration |
 
 Set `BASE_PATH` to `/` (or leave it unset) for `mochiro.xyz`. The preview deployment uses a
 long subpath; a custom domain at the root must not inherit it.
@@ -281,3 +281,12 @@ done
 cd frontend && bun install && bun run build     # → frontend/dist
 cd backend  && bun install                      # → node backend/server.js
 ```
+
+## Database
+
+Production reads and writes its own Neon Postgres through `DATABASE_URL` (see
+`backend/db/client.js`). Without `DATABASE_URL` the backend falls back to the Surf SDK
+database, which is what the Studio sandbox uses. The SDK does not sync `schema.js` into
+Neon: when a column or table is added, run the matching `ALTER TABLE ... ADD COLUMN IF NOT
+EXISTS` / `CREATE TABLE IF NOT EXISTS` against Neon before deploying the code that uses it.
+`GET /api/status` reports which database answered (`backend: "neon"`) and whether it is up.

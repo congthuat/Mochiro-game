@@ -14,7 +14,7 @@
 // for that same wallet, so nobody can rename or post as somebody else.
 const { Router } = require('express')
 const crypto = require('node:crypto')
-const { dbQuery } = require('@surf-ai/sdk/db')
+const { dbQuery } = require('../db/client')
 
 const router = Router()
 router.use((_req, res, next) => {

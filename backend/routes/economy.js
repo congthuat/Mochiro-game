@@ -15,7 +15,7 @@
 //   POST /api/economy/invite/claim { client_id }           (welcome bonus, both sides paid)
 //   GET  /api/economy/invite/:code                         (who sent this link)
 const { Router } = require('express')
-const { dbQuery } = require('@surf-ai/sdk/db')
+const { dbQuery } = require('../db/client')
 
 const router = Router()
 router.use((_req, res, next) => {

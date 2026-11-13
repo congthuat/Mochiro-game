@@ -10,8 +10,8 @@
 //     be passed explicitly: the function runs with a different working directory.
 //
 // `start()` is deliberately not called. It is what runs the schema sync, and a serverless
-// invocation is the wrong place to do that — the tables already exist in the database the
-// SDK talks to.
+// invocation is the wrong place to do that — the tables already exist in Neon, which the
+// routes reach through backend/db/client.js when DATABASE_URL is set.
 const path = require('node:path')
 const { createServer } = require('@surf-ai/sdk/server')
 
