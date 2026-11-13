@@ -1,4 +1,7 @@
 import './index.css'
+import { mountStudioBadge } from './studio-badge'
+
+mountStudioBadge()
 
 // ---------------------------------------------------------------------------
 // Cold-start guard: verify React is real BEFORE rendering.

@@ -52,6 +52,7 @@ export default defineConfig(() => {
         '@tanstack/query-core',
       ],
     },
+    assetsInclude: ['**/*.glb'],
     base,
   }
 })
