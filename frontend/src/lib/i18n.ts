@@ -372,7 +372,6 @@ const DICT: Record<string, Entry> = {
   'auth.wallet': { en: 'Connect a wallet', vi: 'Kết nối ví' },
   'auth.connecting': { en: 'Waiting for your wallet…', vi: 'Đang chờ ví của bạn…' },
   'auth.signing': { en: 'Check your wallet and sign the message', vi: 'Mở ví và ký thông báo xác nhận' },
-  'auth.skip': { en: 'Play as guest', vi: 'Chơi không đăng nhập' },
   'auth.createTitle': { en: 'Create your Arc wallet', vi: 'Tạo ví Arc của bạn' },
   'auth.createNote': {
     en: 'Your Google account has no wallet yet. One is generated on this device — the key never leaves it.',

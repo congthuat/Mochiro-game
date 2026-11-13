@@ -82,12 +82,10 @@ function LangSwitch() {
 
 export function AuthGate({
   onSignedIn,
-  onGuest,
   onDismiss,
   inviteFrom,
 }: {
   onSignedIn: (account: AuthAccount) => void
-  onGuest: () => void
   /** Who sent the invite link this visitor arrived through, if anyone. */
   inviteFrom?: { name: string; welcome: number } | null
   /**
@@ -480,10 +478,6 @@ export function AuthGate({
             )}
 
             {error ? <div className="ar-auth-error">{error}</div> : null}
-
-            <button className="ar-guest" onClick={onGuest}>
-              {t('auth.skip')}
-            </button>
           </>
         )}
 

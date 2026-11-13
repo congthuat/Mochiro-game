@@ -131,6 +131,20 @@ function storeBest(value: number): void {
 
 type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install'
 
+/**
+ * Dev-server only: the browser checks in `scripts/` drive the menu and the run without a
+ * real wallet or Google account, so they set `arcrush.guest = 1`. A production build
+ * drops this branch entirely — players always meet the sign-in gate.
+ */
+function devBypass(): boolean {
+  if (!import.meta.env.DEV) return false
+  try {
+    return window.localStorage.getItem('arcrush.guest') === '1'
+  } catch {
+    return false
+  }
+}
+
 export default function RushApp() {
   const containerRef = useRef<HTMLDivElement>(null)
   const runnerRef = useRef<Runner | null>(null)
@@ -162,16 +176,10 @@ export default function RushApp() {
   const [hitCount, setHitCount] = useState(0)
   const [hintSeen, setHintSeen] = useState(false)
   const [fatal, setFatal] = useState<string | null>(null)
-  // Sign-in gate: the player chooses wallet / Google / guest once per browser.
+  // Sign-in gate: playing needs an account (wallet or Google). There is no guest mode —
+  // every run is tied to a player, so the board, the bank and the shop are one ledger.
   const [account, setAccount] = useState<AuthAccount | null>(() => readSession()?.account ?? null)
-  const [gated, setGated] = useState<boolean>(() => {
-    if (readSession()) return false
-    try {
-      return window.localStorage.getItem('arcrush.guest') !== '1'
-    } catch {
-      return true
-    }
-  })
+  const [gated, setGated] = useState<boolean>(() => !readSession() && !devBypass())
   const [isTouch] = useState<boolean>(
     () =>
       typeof window !== 'undefined' &&
@@ -671,16 +679,8 @@ export default function RushApp() {
     setAccount(next)
     setGated(false)
     try {
-      window.localStorage.setItem('arcrush.guest', '0')
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
-  const handleGuest = useCallback(() => {
-    setGated(false)
-    try {
-      window.localStorage.setItem('arcrush.guest', '1')
+      // Left over from the old guest mode; it no longer means anything.
+      window.localStorage.removeItem('arcrush.guest')
     } catch {
       /* ignore */
     }
@@ -753,7 +753,7 @@ export default function RushApp() {
     return (
       <div className="ar-root relative h-screen w-full overflow-hidden bg-[#04050f]">
         <div ref={containerRef} className="absolute inset-0" />
-        <AuthGate onSignedIn={handleSignedIn} onGuest={handleGuest} inviteFrom={account ? null : inviteFrom} />
+        <AuthGate onSignedIn={handleSignedIn} inviteFrom={account ? null : inviteFrom} />
       </div>
     )
   }
@@ -882,7 +882,6 @@ export default function RushApp() {
             handleSignedIn(next)
             setPanel('none')
           }}
-          onGuest={() => setPanel('none')}
           onDismiss={() => setPanel('none')}
           inviteFrom={inviteFrom}
         />

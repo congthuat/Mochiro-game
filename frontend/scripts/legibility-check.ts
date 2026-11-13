@@ -186,7 +186,6 @@ const TARGETS: Target[] = [
   { selector: '.ar-pick-safety', background: PANEL },
   { selector: '.ar-pick-tips-summary', background: PANEL },
   { selector: '.ar-pick-tips-list', background: PANEL },
-  { selector: '.ar-guest', background: PANEL },
   { selector: '.ar-signin', background: PANEL },
   { selector: '.ar-name-fixed', background: PANEL },
   { selector: '.ar-name-error', background: PANEL },

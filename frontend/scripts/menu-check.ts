@@ -30,11 +30,9 @@ console.log('   has google button:', /google/i.test(gateText) ? 'yes' : 'no')
 console.log('   has wallet button:', /ví|wallet/i.test(gateText) ? 'yes' : 'no')
 console.log('   has language switch:', /Tiếng Việt/.test(gateText) ? 'yes' : 'no')
 
-// 2 — guest → menu
-await page.evaluate(() => {
-  const btn = Array.from(document.querySelectorAll('button')).find((b) => /khách|guest/i.test(b.textContent ?? ''))
-  ;(btn as HTMLButtonElement | undefined)?.click()
-})
+// 2 — menu, through the dev-only bypass (there is no guest button any more)
+await page.evaluate(() => localStorage.setItem('arcrush.guest', '1'))
+await page.reload({ waitUntil: 'networkidle2' })
 await page.waitForFunction(() => /bắt đầu chạy|start sprint/i.test(document.body.innerText), { timeout: 120000 })
 await sleep(6000)
 await page.screenshot({ path: '.browser-check/menu-stage.png' })

@@ -150,16 +150,20 @@ check('signing out returns to the gate', backToGate)
 const cleared = await page.evaluate(() => localStorage.getItem('arcrush.session'))
 check('signing out clears the stored session', cleared === null)
 
-// Guest path still works
-await page.evaluate(() => {
-  const button = Array.from(document.querySelectorAll('button')).find((b) => /khách|guest/i.test(b.textContent ?? ''))
-  ;(button as HTMLButtonElement | undefined)?.click()
-})
+// There is no guest mode: the gate offers sign-in only.
+const guestButton = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('button')).some((b) => /khách|guest|không đăng nhập/i.test(b.textContent ?? ''))
+)
+check('the gate has no "play as guest" way past it', !guestButton)
+
+// The checks below drive the game without an account, through the dev-only bypass.
+await page.evaluate(() => localStorage.setItem('arcrush.guest', '1'))
+await page.reload({ waitUntil: 'networkidle2' })
 const guestMenu = await page
   .waitForFunction(() => /start sprint|bắt đầu chạy/i.test(document.body.innerText), { timeout: 90000 })
   .then(() => true)
   .catch(() => false)
-check('guests can still play', guestMenu)
+check('the dev bypass reaches the menu', guestMenu)
 
 // Every hero loads in the game
 const seam = (name: string, ...args: unknown[]) =>
