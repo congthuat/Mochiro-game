@@ -2456,7 +2456,7 @@ const FADE = { top: 700, scale: 380, ceiling: 1.95, centre: 512, spread: 500 } a
 const fadeU = (x: number, z: number): number => FADE.centre + (Math.abs(Math.atan2(x, z)) / Math.PI) * FADE.spread
 const fadeV = (y: number): number => FADE.top + (FADE.ceiling - y) * FADE.scale
 
-type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'other'
+type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'ear' | 'other'
 
 /**
  * Lecter's head. The rogue's hair is already short and close to the skull, so it keeps
@@ -2523,6 +2523,7 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
     if (centre.z > 0.3 && centre.y > 1.56 && centre.y < 1.65 && ax > 0.14 && ax < 0.27) return 'eye'
     if (centre.z > 0.3 && ax < 0.03) return 'nose'
     if (ax > 0.42 && centre.y < 1.5 && size.y < 0.15) return 'earring'
+    if (ax > 0.4 && centre.y > 1.36 && centre.y < 1.7) return 'ear'
     return 'other'
   })
 
@@ -2546,8 +2547,9 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
       u += uv.getX(i + k) / 3
       v += uv.getY(i + k) / 3
     }
-    if (kind === 'earring') {
-      for (let k = 0; k < 3; k += 1) position.setXYZ(i + k, x * 0.9, y, z)
+    if (kind === 'earring' || kind === 'ear') {
+      // Ears tucked in against the closer crop (the earrings ride along with them).
+      for (let k = 0; k < 3; k += 1) position.setX(i + k, position.getX(i + k) - Math.sign(x) * 0.05)
       continue
     }
     if (kind === 'brow') {
@@ -2616,34 +2618,42 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
  */
 function shortCrop(p: THREE.Vector3): void {
   if (p.y > 1.86) p.y = 1.86 + (p.y - 1.86) * 0.62
-  if (p.z < -0.1) p.z *= 1 - 0.12 * smooth(-0.1, -0.45, p.z)
-  const nape = smooth(1.58, 1.2, p.y) * smooth(-0.05, -0.3, p.z)
-  p.z *= 1 - 0.28 * nape
-  p.x *= 1 - 0.14 * nape
+  // A close crop like Tim's: the crown narrower, the back of the head drawn in tight.
+  p.x *= 1 - 0.1 * smooth(1.74, 2.0, p.y)
+  p.x *= 1 - 0.13 * smooth(0.15, -0.25, p.z) * smooth(1.25, 1.45, p.y)
+  if (p.z < -0.1) p.z *= 1 - 0.2 * smooth(-0.1, -0.45, p.z)
+  const nape = smooth(1.62, 1.2, p.y) * smooth(-0.05, -0.3, p.z)
+  p.z *= 1 - 0.3 * nape
+  p.x *= 1 - 0.16 * nape
 }
 
 /**
- * A skin fade: skin shadowed with stubble low on the head, darkening through the
- * temples to his hair colour where the curls begin; cut higher at the nape. Rows run with height (fadeV),
+ * The short back and sides: clipper-short copper hair over the back of the head and the
+ * temples, darkening to his hair colour where the curls begin, with a short fade to skin
+ * at the nape and under the ears. Rows run with height (fadeV),
  * columns around the head (fadeU).
  */
 function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
   const width = ctx.canvas.width
   const mix = (a: readonly number[], b: readonly number[], t: number) => a.map((v, k) => v + (b[k] - v) * t)
   const shadow = mix(skin, [140, 108, 96], 0.3)
+  // Clipper-short hair: his copper brown with a little scalp showing through.
+  const buzz = mix(mix(COPPER.dark, COPPER.light, 0.4), skin, 0.18)
   const hair = mix(COPPER.dark, COPPER.light, 0.15)
-  // How far round toward the back a column is: the nape is cut higher than the temples.
+  // How far round toward the back a column is.
   const backness = (px: number) => smooth(0.45, 0.9, Math.abs(px - FADE.centre) / FADE.spread)
-  const start = (px: number) => 1.5 + 0.2 * backness(px)
+  // Where the clippered hair gives way to skin: a crisp line low at the nape and round
+  // under the ears, like Tim's short back and sides.
+  const start = (px: number) => 1.5 - 0.08 * backness(px)
   const top = Math.floor(fadeV(FADE.ceiling))
   const bottom = Math.min(ctx.canvas.height, Math.ceil(fadeV(1.1)))
   const image = ctx.getImageData(0, top, width, bottom - top)
   for (let px = 0; px < width; px += 1) {
     const lo = start(px)
-    const hi = 1.92 + 0.03 * backness(px)
     for (let row = top; row < bottom; row += 1) {
       const y = FADE.ceiling - (row - FADE.top) / FADE.scale
-      const colour = mix(shadow, hair, smooth(lo, hi, y) ** 1.3)
+      const short = mix(shadow, buzz, smooth(lo - 0.04, lo + 0.08, y))
+      const colour = mix(short, hair, smooth(1.8, 1.95, y))
       const at = ((row - top) * width + px) * 4
       image.data[at] = colour[0]
       image.data[at + 1] = colour[1]
@@ -2658,11 +2668,11 @@ function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
     state = (state * 16807) % 2147483647
     return state / 2147483647
   }
-  for (let i = 0; i < 9000; i += 1) {
-    const y = 1.35 + noise() * 0.5
-    const x = noise() * width
+  for (let i = 0; i < 16000; i += 1) {
+    const y = 1.35 + noise() * 0.55
+    const x = FADE.centre + noise() * FADE.spread
     const lo = start(x)
-    if (noise() > 0.2 + 0.8 * smooth(lo - 0.1, lo + 0.2, y)) continue
+    if (noise() > 0.1 + 0.9 * smooth(lo - 0.06, lo + 0.1, y)) continue
     ctx.fillStyle = `rgba(${COPPER.dark.join(',')},${(0.25 + noise() * 0.35).toFixed(2)})`
     ctx.fillRect(x, fadeV(y), 2, 2)
   }
@@ -2924,7 +2934,7 @@ function buildLecterHair(probe: Probe): THREE.Group {
 
   // The top: an even scatter of curls (a Fibonacci spiral over the cap) down to the line
   // where the fade starts: low at the front hairline, higher over the ears and the back.
-  const reach = (theta: number) => 1.4 - 0.2 * smooth(0.5, 1.5, Math.abs(theta)) - 0.06 * smooth(2.0, 3.0, Math.abs(theta))
+  const reach = (theta: number) => 1.4 - 0.2 * smooth(0.5, 1.5, Math.abs(theta)) - 0.32 * smooth(1.7, 3.0, Math.abs(theta))
   const count = 340
   const golden = Math.PI * (3 - Math.sqrt(5))
   for (let i = 0; i < count; i += 1) {
