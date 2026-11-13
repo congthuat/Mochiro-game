@@ -118,27 +118,32 @@ const hex = (value: number): string => `#${value.toString(16).padStart(6, '0')}`
  * ------------------------------------------------------------------ */
 
 /**
- * The Arc mark as on the cap: a tall arch with a crossbar, the same mark the game's coins
- * carry, drawn as strokes so it stays crisp at any size.
+ * The Arc mark, traced from the official logo (the one /api/arc/logo serves) and
+ * simplified to 38 points — it covers the original with 96% overlap. A thick arch whose
+ * left leg runs straight to the ground, and whose right leg is joined low down by a bar
+ * reaching in from the middle, the foot of the leg sweeping off to the right.
+ * Coordinates are in thousandths of the mark's box; the box is 0.96 wide per unit tall.
  */
+const ARC_OUTLINE = [
+  0, 1000, 12, 815, 47, 596, 91, 438, 150, 287, 213, 177, 303, 75, 394, 19, 465, 0, 535, 0, 571, 8, 661, 49, 752, 132,
+  831, 249, 890, 381, 949, 581, 988, 815, 1000, 992, 984, 992, 925, 955, 858, 925, 720, 883, 654, 872, 409, 868, 433,
+  698, 783, 694, 736, 498, 681, 358, 598, 230, 559, 196, 520, 177, 469, 181, 409, 223, 339, 321, 287, 430, 248, 551, 217,
+  687, 193, 853, 185, 992,
+]
+const ARC_ASPECT = 0.96
+
 function drawArcMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, width: number, height: number, ink: string): void {
-  const half = width / 2
-  const line = width * 0.2
-  const top = cy - height / 2 + line / 2
-  const bottom = cy + height / 2
   ctx.save()
-  ctx.strokeStyle = ink
-  ctx.lineWidth = line
-  ctx.lineCap = 'butt'
-  ctx.lineJoin = 'round'
+  ctx.fillStyle = ink
   ctx.beginPath()
-  ctx.moveTo(cx - half + line / 2, bottom)
-  ctx.bezierCurveTo(cx - half + line / 2, top - height * 0.08, cx + half - line / 2, top - height * 0.08, cx + half - line / 2, bottom)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(cx - half * 0.5, cy + height * 0.16)
-  ctx.lineTo(cx + half * 0.5, cy + height * 0.16)
-  ctx.stroke()
+  for (let i = 0; i < ARC_OUTLINE.length; i += 2) {
+    const x = cx + (ARC_OUTLINE[i] / 1000 - 0.5) * width
+    const y = cy + (ARC_OUTLINE[i + 1] / 1000 - 0.5) * height
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.closePath()
+  ctx.fill()
   ctx.restore()
 }
 
@@ -291,7 +296,7 @@ function frontPrint(): THREE.CanvasTexture {
 function backPrint(): THREE.CanvasTexture {
   const size = 256
   const { canvas: element, ctx } = canvas(size, size)
-  drawArcMark(ctx, size / 2, size / 2, size * 0.62, size * 0.74, '#ffffff')
+  drawArcMark(ctx, size / 2, size / 2, size * 0.7 * ARC_ASPECT, size * 0.7, '#ffffff')
   return textureOf(element)
 }
 
@@ -302,8 +307,10 @@ function capTexture(thetaLength: number): THREE.CanvasTexture {
   const { canvas: element, ctx } = canvas(width, height)
   ctx.fillStyle = hex(CAP)
   ctx.fillRect(0, 0, width, height)
-  // Six panel seams.
-  ctx.strokeStyle = '#0b0c0e'
+  const pxPerRad = height / thetaLength
+  // Six panel seams and the stitching above the sweatband, a shade lighter than the
+  // cloth so the panels still read on black.
+  ctx.strokeStyle = '#2e3037'
   ctx.lineWidth = 3
   for (let i = 0; i < 6; i += 1) {
     const x = ((i + 0.5) / 6) * width
@@ -312,14 +319,20 @@ function capTexture(thetaLength: number): THREE.CanvasTexture {
     ctx.lineTo(x, height)
     ctx.stroke()
   }
+  ctx.setLineDash([10, 8])
+  ctx.beginPath()
+  ctx.moveTo(0, height - 0.08 * pxPerRad)
+  ctx.lineTo(width, height - 0.08 * pxPerRad)
+  ctx.stroke()
+  ctx.setLineDash([])
   // SphereGeometry puts +z (the face) at u = 0.25 and spreads theta over the full
-  // canvas height. Horizontal pixels are stretched ~1.75× compared with vertical ones at
-  // this latitude, so the mark is drawn narrow to come out the right shape.
-  const front = width * 0.25
-  const pxPerRad = height / thetaLength
-  const centreTheta = 1.0
-  const markHeight = 0.5 * pxPerRad
-  drawArcMark(ctx, front, centreTheta * pxPerRad, markHeight * 0.58, markHeight, '#ffffff')
+  // canvas height. A radian of longitude is shorter than one of latitude by sin(theta),
+  // so the mark is widened by that much to come out the logo's own shape.
+  const centreTheta = 1.04
+  const markRad = 0.72
+  const pxPerRadU = width / (Math.PI * 2)
+  const markWidth = ((markRad * ARC_ASPECT) / Math.sin(centreTheta)) * pxPerRadU
+  drawArcMark(ctx, width * 0.25, centreTheta * pxPerRad, markWidth, markRad * pxPerRad, '#f4f5f7')
   return textureOf(element)
 }
 
@@ -449,29 +462,164 @@ function dressHead(head: THREE.SkinnedMesh): void {
   material.needsUpdate = true
   if (!ctx || !image) return
 
+  const geometry = head.geometry.index ? head.geometry.toNonIndexed() : head.geometry.clone()
+  const position = geometry.getAttribute('position')
+  const normal = geometry.getAttribute('normal')
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uv || !normal) return
+
   const patch = 24
   ctx.fillStyle = hex(HAIR)
   // Both corners, so the patch is found whichever way up the texture is sampled.
   ctx.fillRect(image.width - patch, image.height - patch, patch, patch)
   ctx.fillRect(image.width - patch, 0, patch, patch)
-  map.needsUpdate = true
-  const u = 1 - patch / 2 / image.width
-  const v = 1 - patch / 2 / image.height
+  const hairU = 1 - patch / 2 / image.width
+  const hairV = 1 - patch / 2 / image.height
 
-  const geometry = head.geometry.index ? head.geometry.toNonIndexed() : head.geometry.clone()
-  const position = geometry.getAttribute('position')
-  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
-  if (!uv) return
+  // The face is painted onto its own patch of the texture, front-projected: the skin
+  // colour is read off the cheek so the patch meets the rest of the head without a seam.
+  let cheek = -1
+  let best = Infinity
+  for (let i = 0; i < position.count; i += 1) {
+    const d = Math.hypot(position.getX(i) - 0.32, position.getY(i) - 1.46, position.getZ(i) - 0.4)
+    if (d < best) [best, cheek] = [d, i]
+  }
+  const [sr, sg, sb] = ctx.getImageData(
+    Math.min(image.width - 1, Math.floor(uv.getX(cheek) * image.width)),
+    Math.min(image.height - 1, Math.floor(uv.getY(cheek) * image.height)),
+    1,
+    1
+  ).data
+  paintFace(ctx, `rgb(${sr},${sg},${sb})`)
+  map.needsUpdate = true
+
   for (let i = 0; i + 2 < position.count; i += 3) {
-    const y = (position.getY(i) + position.getY(i + 1) + position.getY(i + 2)) / 3
-    const z = (position.getZ(i) + position.getZ(i + 1) + position.getZ(i + 2)) / 3
-    // Back of the skull from the nape up, and the sides from just above the eyes.
+    let x = 0
+    let y = 0
+    let z = 0
+    let nz = 0
+    for (let k = 0; k < 3; k += 1) {
+      x += position.getX(i + k) / 3
+      y += position.getY(i + k) / 3
+      z += position.getZ(i + k) / 3
+      nz += normal.getZ(i + k) / 3
+    }
+    const eye = Math.abs(x) > 0.1 && Math.abs(x) < 0.28 && y > 1.52 && y < 1.7 && z > 0.36
+    const face = (nz > 0.3 && z > 0.2 && y > FACE.bottom && y < FACE.top && Math.abs(x) < FACE.half) || eye
+    if (face) {
+      for (let k = 0; k < 3; k += 1) {
+        uv.setXY(i + k, faceU(position.getX(i + k)) / image.width, faceV(position.getY(i + k)) / image.height)
+      }
+      continue
+    }
+    // Back of the skull from the nape up, and the sides from just above the eyes: the
+    // rig has no hair of its own under a helmet, so it would read as bald under the cap.
     const hair = (z < -0.05 && y > 1.38) || (z < 0.18 && y > 1.58)
-    if (!hair) continue
-    for (let k = 0; k < 3; k += 1) uv.setXY(i + k, u, v)
+    if (hair) for (let k = 0; k < 3; k += 1) uv.setXY(i + k, hairU, hairV)
   }
   uv.needsUpdate = true
   head.geometry = geometry
+}
+
+/**
+ * Where the face patch lives in the head texture: a free block of the 1024² atlas (the
+ * rig's own UVs stay inside x 11–336, y 18–202), at 480 px per bind-space unit.
+ */
+const FACE = { left: 400, top: 320, scale: 480, half: 0.6, bottom: 1.18, ceiling: 1.92 } as const
+const faceU = (x: number): number => FACE.left + (x + FACE.half) * FACE.scale
+const faceV = (y: number): number => FACE.top + (FACE.ceiling - y) * FACE.scale
+
+/**
+ * Sam as in the photos: laughing so hard his eyes have closed to arcs, a wide open grin
+ * full of teeth, and a thin moustache that runs down round the mouth into a goatee.
+ * Drawn in bind-space units (y up, +x his left) through faceU/faceV.
+ */
+function paintFace(ctx: CanvasRenderingContext2D, skin: string): void {
+  const unit = FACE.scale
+  const at = (x: number, y: number): [number, number] => [faceU(x), faceV(y)]
+  ctx.save()
+  ctx.fillStyle = skin
+  ctx.fillRect(faceU(-FACE.half) - 8, faceV(FACE.ceiling) - 8, FACE.half * 2 * unit + 16, (FACE.ceiling - FACE.bottom) * unit + 16)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+
+  // Laugh lines from the nose down to the corners of the grin.
+  ctx.strokeStyle = 'rgba(40, 22, 14, 0.45)'
+  ctx.lineWidth = 0.014 * unit
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(...at(side * 0.13, 1.5))
+    ctx.quadraticCurveTo(...at(side * 0.2, 1.47), ...at(side * 0.19, 1.405))
+    ctx.stroke()
+  }
+
+  const top = 1.432
+  const half = 0.15
+  const depth = 0.075
+  const beard = hex(BEARD)
+  // Goatee: from under the grin down over the chin, joined to the moustache by two
+  // strokes that run round the corners of the mouth.
+  ctx.fillStyle = beard
+  ctx.beginPath()
+  ctx.moveTo(...at(-half + 0.005, top - 0.03))
+  ctx.bezierCurveTo(...at(-0.13, 1.31), ...at(-0.06, 1.265), ...at(0, 1.265))
+  ctx.bezierCurveTo(...at(0.06, 1.265), ...at(0.13, 1.31), ...at(half - 0.005, top - 0.03))
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = beard
+  ctx.lineWidth = 0.024 * unit
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(...at(side * (half + 0.004), top + 0.012))
+    ctx.quadraticCurveTo(...at(side * (half + 0.012), top - 0.04), ...at(side * (half - 0.02), top - depth - 0.01))
+    ctx.stroke()
+  }
+
+  // The grin: a wide D, corners turned up, the top row of teeth showing.
+  const grin = (): void => {
+    ctx.beginPath()
+    ctx.moveTo(...at(-half, top + 0.006))
+    ctx.quadraticCurveTo(...at(0, top - 0.012), ...at(half, top + 0.006))
+    ctx.bezierCurveTo(...at(half * 0.8, top - depth * 1.25), ...at(-half * 0.8, top - depth * 1.25), ...at(-half, top + 0.006))
+    ctx.closePath()
+  }
+  ctx.fillStyle = '#3a1311'
+  grin()
+  ctx.fill()
+  ctx.save()
+  grin()
+  ctx.clip()
+  ctx.fillStyle = '#f3efe7'
+  ctx.beginPath()
+  ctx.moveTo(...at(-half, top + 0.01))
+  ctx.quadraticCurveTo(...at(0, top - 0.008), ...at(half, top + 0.01))
+  ctx.lineTo(...at(half, top - 0.02))
+  ctx.quadraticCurveTo(...at(0, top - 0.042), ...at(-half, top - 0.02))
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = '#a2443b'
+  ctx.beginPath()
+  ctx.ellipse(...at(0, top - depth * 0.92), 0.07 * unit, 0.022 * unit, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+
+  // Moustache along the top lip.
+  ctx.strokeStyle = beard
+  ctx.lineWidth = 0.022 * unit
+  ctx.beginPath()
+  ctx.moveTo(...at(-half - 0.004, top + 0.014))
+  ctx.quadraticCurveTo(...at(0, top + 0.002), ...at(half + 0.004, top + 0.014))
+  ctx.stroke()
+
+  // Eyes screwed shut with laughing: two arches.
+  ctx.strokeStyle = '#1a110d'
+  ctx.lineWidth = 0.026 * unit
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.ellipse(...at(side * 0.19, 1.582), 0.06 * unit, 0.045 * unit, 0, Math.PI * 1.08, Math.PI * 1.92)
+    ctx.stroke()
+  }
+  ctx.restore()
 }
 
 /* ------------------------------------------------------------------ *
@@ -599,90 +747,111 @@ function addPrint(torso: THREE.SkinnedMesh, spec: PrintSpec): void {
 // band line with 3% to spare.
 const CAP_CENTRE = new THREE.Vector3(0, 1.82, 0.02)
 const CAP_RADII = new THREE.Vector3(0.6, 0.62, 0.62)
-const CAP_BAND = 1.86
+/** The band sits just above the brows — the eyes top out at y 1.67. */
+const CAP_BAND = 1.79
 const CAP_THETA = Math.acos((CAP_BAND - CAP_CENTRE.y) / CAP_RADII.y)
+/** How much higher the front panel stands than a plain dome: a structured cap. */
+const CAP_FRONT_RISE = 0.14
+
+const BRIM = {
+  /** Half the arc of the band the brim is sewn to, in radians either side of the face. */
+  span: 1.22,
+  /** How far it sticks out at the middle. */
+  reach: 0.44,
+  thickness: 0.03,
+  /** Slope down and away from the band, and the extra bend at the sides (pre-curved). */
+  tilt: 0.12,
+  curve: 0.24,
+}
+
+function buildBrim(): THREE.Mesh {
+  const columns = 40
+  const rows = 8
+  const ring = Math.sin(CAP_THETA) * 0.985
+  const rx = CAP_RADII.x * ring
+  const rz = CAP_RADII.z * ring
+  const point = (i: number, j: number, lift: number): THREE.Vector3 => {
+    const side = (i / columns) * 2 - 1
+    const phi = side * BRIM.span
+    // Out from the band, but swept forward: a brim shades the eyes, not the ears.
+    const normal = new THREE.Vector2(Math.sin(phi) / rx, Math.cos(phi) / rz).normalize().multiplyScalar(0.4)
+    normal.y += 0.6
+    normal.normalize()
+    const reach = BRIM.reach * Math.pow(Math.cos((side * Math.PI) / 2), 0.85)
+    const out = reach * (j / rows)
+    return new THREE.Vector3(
+      CAP_CENTRE.x + rx * Math.sin(phi) + normal.x * out,
+      CAP_BAND - out * (BRIM.tilt + BRIM.curve * side * side) + lift,
+      CAP_CENTRE.z + rz * Math.cos(phi) + normal.y * out
+    )
+  }
+  const positions: number[] = []
+  const indices: number[] = []
+  const groups: [number, number][] = []
+  const grid = (lift: number, flip: boolean): void => {
+    const base = positions.length / 3
+    const start = indices.length
+    for (let i = 0; i <= columns; i += 1) for (let j = 0; j <= rows; j += 1) positions.push(...point(i, j, lift).toArray())
+    const at = (i: number, j: number): number => base + i * (rows + 1) + j
+    for (let i = 0; i < columns; i += 1) {
+      for (let j = 0; j < rows; j += 1) {
+        const [a, b, c, d] = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)]
+        if (flip) indices.push(a, b, c, b, d, c)
+        else indices.push(a, c, b, b, c, d)
+      }
+    }
+    groups.push([start, indices.length - start])
+  }
+  grid(0, false) // top, facing up
+  grid(-BRIM.thickness, true) // underside, facing down
+  // The rim joining the two along the outer edge.
+  const base = positions.length / 3
+  const start = indices.length
+  for (let i = 0; i <= columns; i += 1) {
+    positions.push(...point(i, rows, 0).toArray(), ...point(i, rows, -BRIM.thickness).toArray())
+  }
+  for (let i = 0; i < columns; i += 1) {
+    const top = base + i * 2
+    indices.push(top, top + 1, top + 2, top + 2, top + 1, top + 3)
+  }
+  groups.push([start, indices.length - start])
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  groups.forEach(([from, count], material) => geometry.addGroup(from, count, material))
+  geometry.computeVertexNormals()
+  const top = litMaterial({ color: CAP })
+  // The underside a shade lighter, so the brim reads as its own plane from below.
+  const under = litMaterial({ color: 0x2f3138 })
+  const brim = new THREE.Mesh(geometry, [top, under, top])
+  for (const material of [top, under]) material.side = THREE.DoubleSide
+  brim.name = 'persona:cap-brim'
+  return brim
+}
 
 function buildCap(): THREE.Group {
   const group = new THREE.Group()
   group.name = 'persona:cap'
-  const crown = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 48, 18, 0, Math.PI * 2, 0, CAP_THETA),
-    litMaterial({ map: capTexture(CAP_THETA) })
-  )
+  const geometry = new THREE.SphereGeometry(1, 56, 24, 0, Math.PI * 2, 0, CAP_THETA)
+  const position = geometry.getAttribute('position')
+  for (let i = 0; i < position.count; i += 1) {
+    const y = position.getY(i)
+    const z = position.getZ(i)
+    if (y > 0 && z > 0) position.setY(i, y * (1 + CAP_FRONT_RISE * z))
+  }
+  const crown = new THREE.Mesh(geometry, litMaterial({ map: capTexture(CAP_THETA) }))
   ;(crown.material as THREE.Material).side = THREE.DoubleSide
+  crown.name = 'persona:cap-crown'
   crown.scale.copy(CAP_RADII)
   crown.position.copy(CAP_CENTRE)
   group.add(crown)
+  group.add(buildBrim())
 
-  // The brim: half an ellipse in the xz plane, sticking out over the face.
-  const shape = new THREE.Shape()
-  const brimHalf = 0.5
-  const brimReach = 0.62
-  shape.absellipse(0, 0, brimHalf, brimReach, 0, Math.PI, false, 0)
-  shape.lineTo(brimHalf, 0)
-  const brimGeometry = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.03,
-    bevelEnabled: true,
-    bevelThickness: 0.012,
-    bevelSize: 0.012,
-    bevelSegments: 2,
-    curveSegments: 28,
-  })
-  const brim = new THREE.Mesh(brimGeometry, litMaterial({ color: CAP }))
-  // Shape +y is the reach: lay it flat so +y points at the face (+z), tipped down a touch.
-  brim.rotation.set(Math.PI / 2 + 0.16, 0, Math.PI, 'YXZ')
-  brim.position.set(0, CAP_BAND + 0.02, 0.3)
-  group.add(brim)
-
-  const button = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), litMaterial({ color: CAP }))
+  const button = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), litMaterial({ color: CAP }))
+  button.scale.y = 0.6
   button.position.set(CAP_CENTRE.x, CAP_CENTRE.y + CAP_RADII.y, CAP_CENTRE.z)
   group.add(button)
-  return group
-}
-
-function buildBeard(): THREE.Group {
-  const group = new THREE.Group()
-  group.name = 'persona:beard'
-  const material = litMaterial({ color: BEARD })
-  material.emissiveIntensity = 0.1
-  // Moustache under the nose (nose tip: y 1.46–1.51, z 0.53; face plane ~0.41 below it).
-  const moustache = new THREE.Mesh(new THREE.CapsuleGeometry(0.021, 0.15, 4, 10), material)
-  moustache.rotation.z = Math.PI / 2
-  moustache.position.set(0, 1.44, 0.42)
-  group.add(moustache)
-  // Chin tuft and the two strokes that join it to the moustache around the mouth.
-  const chin = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), material)
-  chin.scale.set(0.085, 0.042, 0.035)
-  chin.position.set(0, 1.35, 0.432)
-  group.add(chin)
-  for (const side of [-1, 1]) {
-    const stroke = new THREE.Mesh(new THREE.CapsuleGeometry(0.015, 0.07, 4, 8), material)
-    stroke.position.set(side * 0.088, 1.395, 0.43)
-    stroke.rotation.z = side * 0.2
-    group.add(stroke)
-  }
-  // The grin — he is laughing in the photo. The rig's face has no mouth of its own:
-  // a flat-topped half moon of teeth, set in a dark mouth, between moustache and chin.
-  const grin = (halfWidth: number, depth: number): THREE.ShapeGeometry => {
-    const shape = new THREE.Shape()
-    shape.moveTo(-halfWidth, 0)
-    shape.lineTo(halfWidth, 0)
-    shape.absellipse(0, 0, halfWidth, depth, 0, -Math.PI, true, 0)
-    return new THREE.ShapeGeometry(shape, 16)
-  }
-  // The face slopes back ~45° from the chin (z 0.44 at y 1.39) to under the nose
-  // (z 0.39 at y 1.435), so the mouth lies on that slope rather than standing upright.
-  const smile = new THREE.Group()
-  smile.position.set(0, 1.425, 0.41)
-  smile.rotation.x = -0.78
-  const mouth = new THREE.Mesh(grin(0.072, 0.04), litMaterial({ color: 0x2a0f0c }))
-  smile.add(mouth)
-  const teethMaterial = litMaterial({ color: 0xe9e4da })
-  teethMaterial.emissiveIntensity = 0.3
-  const teeth = new THREE.Mesh(grin(0.06, 0.022), teethMaterial)
-  teeth.position.set(0, -0.004, 0.003)
-  smile.add(teeth)
-  group.add(smile)
   return group
 }
 
@@ -741,7 +910,6 @@ export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
     const space = bindSpaceOf(anchor, 'head')
     if (space) {
       space.add(buildCap())
-      space.add(buildBeard())
     }
   }
   addCoin(root)
