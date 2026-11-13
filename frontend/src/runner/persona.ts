@@ -2555,9 +2555,11 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
       continue
     }
     if (kind !== 'main') continue
-    // Hair below the curls, except the front of the hairline, is faded short.
-    if (isHair(u, v) && y < 1.88 && !(z > 0.28 && Math.abs(x) < 0.3)) {
-      fadeTriangles.push(i)
+    if (isHair(u, v) && y < 1.88) {
+      // The rogue's fringe becomes forehead: his hair is swept up off a high, open brow.
+      if (z > 0.28 && Math.abs(x) < 0.36 && y < 1.83) faceTriangles.push(i)
+      // Below the curls the hair is faded short.
+      else if (!(z > 0.28 && Math.abs(x) < 0.3)) fadeTriangles.push(i)
       continue
     }
     const colour = texel(u, v)
@@ -2596,10 +2598,24 @@ function dressLecterHead(head: THREE.SkinnedMesh): ReturnType<typeof prober> | n
   position.needsUpdate = true
   head.geometry = geometry
   sculpt(head, ovalJaw)
+  sculpt(head, shortCrop)
   material.map = texture
   material.emissiveMap = texture
   material.needsUpdate = true
   return prober(geometry)
+}
+
+/**
+ * Cuts the rogue's long hair down to a short crop: the tall crown is pressed down toward
+ * the skull, the back is drawn in, and the hair that hung over the nape is tapered into
+ * the neck. A pure function of position, so seams between pieces stay closed.
+ */
+function shortCrop(p: THREE.Vector3): void {
+  if (p.y > 1.86) p.y = 1.86 + (p.y - 1.86) * 0.62
+  if (p.z < -0.1) p.z *= 1 - 0.12 * smooth(-0.1, -0.45, p.z)
+  const nape = smooth(1.58, 1.2, p.y) * smooth(-0.05, -0.3, p.z)
+  p.z *= 1 - 0.28 * nape
+  p.x *= 1 - 0.14 * nape
 }
 
 /**
@@ -2611,10 +2627,10 @@ function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
   const width = ctx.canvas.width
   const rgb = (c: number[]) => `rgb(${c.map((v) => Math.round(v)).join(',')})`
   const mix = (a: readonly number[], b: readonly number[], t: number) => a.map((v, k) => v + (b[k] - v) * t)
-  const shadow = mix(skin, [128, 96, 84], 0.38)
-  const hair = mix(COPPER.dark, COPPER.light, 0.2)
+  const shadow = mix(skin, [140, 108, 96], 0.3)
+  const hair = mix(COPPER.dark, COPPER.light, 0.15)
   for (let y = FADE.ceiling; y > 1.1; y -= 0.5 / FADE.scale) {
-    const t = smooth(1.36, 1.68, y) ** 0.9
+    const t = smooth(1.5, 1.92, y) ** 1.3
     ctx.fillStyle = rgb(mix(shadow, hair, t))
     ctx.fillRect(0, fadeV(y), width, 2)
   }
@@ -2625,8 +2641,8 @@ function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
     return state / 2147483647
   }
   for (let i = 0; i < 9000; i += 1) {
-    const y = 1.3 + noise() * 0.55
-    if (noise() > smooth(1.3, 1.6, y)) continue
+    const y = 1.35 + noise() * 0.5
+    if (noise() > 0.25 + 0.75 * smooth(1.4, 1.7, y)) continue
     ctx.fillStyle = `rgba(${COPPER.dark.join(',')},${(0.25 + noise() * 0.35).toFixed(2)})`
     ctx.fillRect(noise() * width, fadeV(y), 2, 2)
   }
@@ -2848,9 +2864,9 @@ class Locks {
 type Probe = ReturnType<typeof prober>
 
 /**
- * His hair: thick copper-brown curls piled on top, pushed up and back off the forehead
- * and leaning a little to his left, a few loose curls falling onto the forehead on his
- * right; the back and sides are faded (see dressLecterHead). Each curl is a short
+ * His hair: a short crop of tight copper-brown curls on top, pushed up and back off the
+ * forehead and leaning a little to his left, a couple of small curls at the front of the
+ * hairline; the back and sides are faded short (see dressLecterHead and shortCrop). Each curl is a short
  * tapered lock rising off the scalp and rolling over, its root fitted to the rogue's
  * own hair by probing it; light and dark curls alternate to give the mass some depth.
  */
@@ -2889,7 +2905,7 @@ function buildLecterHair(probe: Probe): THREE.Group {
   // The top: an even scatter of curls (a Fibonacci spiral over the cap) down to the line
   // where the fade starts: low at the front hairline, higher over the ears and the back.
   const reach = (theta: number) => 1.4 - 0.2 * smooth(0.5, 1.5, Math.abs(theta)) - 0.06 * smooth(2.0, 3.0, Math.abs(theta))
-  const count = 260
+  const count = 340
   const golden = Math.PI * (3 - Math.sqrt(5))
   for (let i = 0; i < count; i += 1) {
     const phi = Math.acos(1 - ((i + 0.5) / count) * (1 - Math.cos(1.42)))
@@ -2901,20 +2917,17 @@ function buildLecterHair(probe: Probe): THREE.Group {
       new THREE.Vector3(noise() - 0.5, 0.3, -0.4).multiplyScalar(1 - front)
     )
     // Most volume at the front of the crown.
-    const lift = 1 + 0.6 * Math.max(0, Math.cos(theta)) * (1 - smooth(0.9, 1.35, phi))
-    curl(theta, phi, heading, (0.045 + noise() * 0.03) * lift, 0.09 + noise() * 0.04, 0.045 + noise() * 0.015)
+    const lift = 1 + 0.3 * Math.max(0, Math.cos(theta)) * (1 - smooth(0.9, 1.35, phi))
+    curl(theta, phi, heading, (0.022 + noise() * 0.014) * lift, 0.055 + noise() * 0.025, 0.036 + noise() * 0.01)
   }
   // Loose curls falling onto the forehead, mostly on his right.
   for (const [x, drop] of [
-    [-0.27, 0.06],
-    [-0.19, 0.075],
-    [-0.11, 0.065],
-    [-0.03, 0.05],
-    [0.07, 0.04],
-    [0.2, 0.035],
+    [-0.2, 0.03],
+    [-0.11, 0.04],
+    [-0.02, 0.025],
   ] as const) {
     const theta = Math.asin(x / 0.47)
-    curl(theta, 1.3, new THREE.Vector3(0.15, -1, 0.35), 0.035, drop + 0.04, 0.045)
+    curl(theta, 1.32, new THREE.Vector3(0.15, -1, 0.35), 0.02, drop + 0.025, 0.036)
   }
 
   const group = new THREE.Group()
