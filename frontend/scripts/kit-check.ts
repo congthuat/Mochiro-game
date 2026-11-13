@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
 import * as THREE from 'three'
 import { CHARACTERS, CHARACTER_IDS } from '../src/runner/config'
+import { PERSONA_BACK } from '../src/runner/persona'
 
 const HEIGHT = 1.74
 const WEAPON = /(knife|crossbow|sword|staff|axe|shield)/i
@@ -332,6 +333,13 @@ for (const id of CHARACTER_IDS) {
     report.back = top.rgb
     report.backHex = `#${top.rgb.map((v) => v.toString(16).padStart(2, '0')).join('')}`
   }
+  // A persona is dressed at load time (persona.ts), not through the atlas: its back is
+  // the garment it is given, whatever the rig's texture says.
+  if (spec.persona) {
+    const colour = PERSONA_BACK[spec.persona]
+    report.back = [(colour >> 16) & 255, (colour >> 8) & 255, colour & 255]
+    report.backHex = `#${colour.toString(16).padStart(6, '0')}`
+  }
   if (capeColours.length) {
     const capeTally = new Map<string, { count: number; rgb: Rgb }>()
     for (const rgb of capeColours) {
@@ -389,12 +397,13 @@ check(
   !swordsman.shown.some((n) => /^1H_/i.test(n)),
   swordsman.shown.filter((n) => /^1H_/i.test(n)).join(', ') || 'none'
 )
+// Sam is dressed as himself (persona.ts): the rig's blades and shields all go, and the
+// round shield's grip holds a USDC coin instead.
+check('Sam carries none of the rig\'s weapons', shieldKnight.shown.length === 0, shieldKnight.shown.join(', ') || 'none')
 check(
-  'the shield knight keeps exactly one blade and one shield',
-  shieldKnight.shown.length === 2 &&
-    shieldKnight.shown.some((n) => /^1H_Sword$/i.test(n)) &&
-    shieldKnight.shown.some((n) => /^Round_Shield$/i.test(n)),
-  shieldKnight.shown.join(', ') || 'none'
+  'Sam still has the shield grip the USDC coin rides on',
+  /Round_Shield/.test(readFileSync(new URL('../src/assets/models/knight.glb', import.meta.url)).toString('latin1')),
+  'Round_Shield node present in the knight rig'
 )
 for (const report of reports) {
   check(`${report.name}: nothing crosses the head from behind`, report.crossing.length === 0, report.crossing.join(', ') || 'clear')
@@ -402,7 +411,7 @@ for (const report of reports) {
 
 console.log('\nBacks must not look alike')
 const caped = reports.filter((report) => report.cape)
-check('only two heroes wear a cape', caped.length === 2, caped.map((r) => r.name).join(' + ') || 'none')
+check('at most two heroes wear a cape', caped.length <= 2, caped.map((r) => r.name).join(' + ') || 'none')
 if (caped.length === 2) {
   let gap = Math.abs((caped[0].capeHue ?? 0) - (caped[1].capeHue ?? 0))
   if (gap > 180) gap = 360 - gap

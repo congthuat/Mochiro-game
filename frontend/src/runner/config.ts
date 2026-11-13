@@ -1,6 +1,7 @@
 // Mochiro tuning: run speeds, physics, scoring, spawn cadence, quality presets.
 import type { ObstacleKind, PowerKind, Quality, ResolvedQuality, Settings } from './types'
 import type { GearSpec } from './gear'
+import type { PersonaId } from './persona'
 import type { RecolorSpec } from './recolor'
 import barbarianModel from '../assets/models/barbarian.glb?url'
 import knightModel from '../assets/models/knight.glb?url'
@@ -334,6 +335,8 @@ export interface CharacterSpec {
   gear?: GearSpec
   /** Meshes baked into the rig that this class should not be carrying. */
   hideNodes?: string[]
+  /** Dresses the rig as a real person instead of a fantasy class (see persona.ts). */
+  persona?: PersonaId
   skin: number
   hair: number
   hairStyle: 'spiky' | 'ponytail'
@@ -377,29 +380,29 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     id: 'kai',
     perk: { id: 'shieldStart', value: 1 },
     name: 'Sam',
-    tagline: 'Armoured Ace',
-    // Every rig in this pack ships the same teal cape, which made all six heroes
-    // read alike from behind. Sam keeps his, and the whole suit goes blue plate with
-    // it — steel grey plus a teal cape reads as "another grey back" from the camera.
-    recolor: { from: [150, 260], to: 218, sat: 1.1, light: 1.05, grey: true },
-    // The knight rig ships four shields and two swords. Sam is the shield knight:
-    // the round shield and the one-handed blade stay, the spare kit goes.
-    hideNodes: ['1H_Sword_Offhand', '2H_Sword', 'Badge_Shield', 'Rectangle_Shield', 'Spike_Shield'],
+    tagline: 'USDC Shield',
+    // Sam is a real person, so he is dressed from a photo of him rather than as a
+    // fantasy class: Arc cap, black "YOU CAN'T VIBE CODE USDC." tee, black jeans,
+    // steel watch, goatee (persona.ts). He keeps the knight's skeleton and moves.
+    // The rig's plate, helmet, cape and blades all go; the round shield is swapped
+    // for a USDC coin, which is what his shield perk now looks like.
+    persona: 'sam',
+    hideNodes: ['1H_Sword', '2H_Sword', 'Shield', 'Knight_Helmet', 'Knight_Cape'],
     model: knightModel,
     modelHeight: 1.74,
     modelFacing: Math.PI,
-    skin: 0xffe4ca,
-    hair: 0x4666e0,
+    skin: 0x80543a,
+    hair: 0x1a1410,
     hairStyle: 'spiky',
-    outfit: 0x2b6fd8,
-    outfitDark: 0x1b57ab,
-    shirt: 0xffffff,
-    bottom: 0x2b3140,
-    shoe: 0x2f6fe0,
-    sole: 0xf4f8ff,
-    accent: 0xffd447,
-    glove: 0x232a38,
-    eye: 0x3aa0e8,
+    outfit: 0x1f2127,
+    outfitDark: 0x111216,
+    shirt: 0x1f2127,
+    bottom: 0x2a2f3a,
+    shoe: 0x1a1b1f,
+    sole: 0xeef0f3,
+    accent: 0x2775ca,
+    glove: 0x80543a,
+    eye: 0x2a1c14,
   },
   mika: {
     id: 'mika',

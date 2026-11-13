@@ -237,7 +237,7 @@ try {
   check('sprint starts', start.phase === 'playing', `${start.quality} quality · ${start.fps} fps · brand ${start.brand}`)
   check('rigged character model is driving the runner', start.avatar === 'rigged', `avatar ${start.avatar}`)
   // Sam's ability is a shield before the first obstacle — check it on a live run.
-  check('the knight opens the sprint with a shield', start.shield === 1, `shield ${start.shield}`)
+  check('Sam opens the sprint with a shield', start.shield === 1, `shield ${start.shield}`)
 
   // Lane switching
   await page.keyboard.press('ArrowLeft')

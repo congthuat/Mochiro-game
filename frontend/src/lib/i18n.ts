@@ -38,7 +38,7 @@ const DICT: Record<string, Entry> = {
   // ----------------------------------------------------------------- menu --
 
   // ----------------------------------------------------------- characters --
-  'char.kai.tag': { en: 'Armoured Ace', vi: 'Kỵ sĩ thép' },
+  'char.kai.tag': { en: 'USDC Shield', vi: 'Khiên USDC' },
   'char.mika.tag': { en: 'Sorceress', vi: 'Pháp sư' },
   'char.bjorn.tag': { en: 'Bruiser', vi: 'Chiến binh' },
   'char.nyx.tag': { en: 'Night blade', vi: 'Sát thủ đêm' },

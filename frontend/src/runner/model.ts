@@ -7,6 +7,7 @@
 // movement blends instead of popping.
 import * as THREE from 'three'
 import { attachGear, type GearSpec } from './gear'
+import { applyPersona, type PersonaId } from './persona'
 import { recolorTexture, type RecolorSpec } from './recolor'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
@@ -69,6 +70,8 @@ export interface ModelAvatarOptions {
    * rogues ship with a knife in hand, which is wrong for an archer.
    */
   hideNodes?: string[]
+  /** Dresses the rig as a real person (see persona.ts) instead of its fantasy class. */
+  persona?: PersonaId
 }
 
 const RUN_FADE = 0.22
@@ -127,6 +130,7 @@ export class ModelAvatar {
   private recolor?: RecolorSpec
   private gear?: GearSpec
   private hideNodes: string[] = []
+  private persona?: PersonaId
   private maskState = new Map<THREE.Object3D, boolean>()
   private lean = 0
   private yaw = 0
@@ -150,6 +154,7 @@ export class ModelAvatar {
     this.recolor = options.recolor
     this.gear = options.gear
     this.hideNodes = options.hideNodes ?? []
+    this.persona = options.persona
     this.root.add(this.container)
     this.root.add(this.fx.group)
     this.ready = this.load(options.url)
@@ -207,6 +212,7 @@ export class ModelAvatar {
       for (const name of this.hideNodes) {
         for (const node of findByName(scene, name)) node.visible = false
       }
+      if (this.persona) applyPersona(scene, this.persona)
       if (this.gear) {
         attachGear(scene, this.gear, { height: this.height })
       }

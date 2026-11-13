@@ -248,6 +248,7 @@ export class CharacterStage {
         recolor: spec.recolor,
         gear: spec.gear,
         hideNodes: spec.hideNodes,
+        persona: spec.persona,
       })
       root.add(avatar.root)
 
