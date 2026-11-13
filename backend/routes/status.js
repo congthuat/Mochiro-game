@@ -23,7 +23,12 @@ router.get('/', async (_req, res) => {
     const text = String(err?.message || err)
     const status = Number(/API error (\d{3})/.exec(text)?.[1]) || null
     const reason = /"message"\s*:\s*"([^"]{1,120})"/.exec(text)?.[1] || 'query failed'
-    res.status(503).json({ db: 'error', gatewayStatus: status, reason, ms: Date.now() - started })
+    const code = /"code"\s*:\s*"([^"]{1,60})"/.exec(text)?.[1] || null
+    // The kind of key, never the key: Studio session keys and personal API keys are
+    // different things to the gateway, and only one of them can open a project database.
+    const key = String(process.env.SURF_API_KEY)
+    const keyKind = key.startsWith('sk_ses') ? 'studio-session' : key.startsWith('sk-') ? 'personal-api' : 'other'
+    res.status(503).json({ db: 'error', gatewayStatus: status, code, reason, keyKind, ms: Date.now() - started })
   }
 })
 
