@@ -26,6 +26,7 @@
 //   - The shield becomes a USDC coin: same hand, same place, so the shield perk still
 //     reads as what it is.
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { recolorTexture } from './recolor'
 
 export type PersonaId = 'sam' | 'bobbilee' | 'teddyz'
@@ -44,6 +45,8 @@ const CAP = 0x18191d
 const BEARD = 0x1b1411
 const HAIR = 0x17110e
 // Bobbilee, from a photo of her on stage: ivory high-neck fleece, hair pulled back.
+/** Bobbilee's backpack: caramel canvas, so the white puppy in it reads from behind. */
+const BACKPACK = 0xb5824f
 const SWEATER = 0xdfd8cc
 const RIB = 0xccc3b4
 const TROUSER = 0x33353c
@@ -58,7 +61,7 @@ const USDC_BLUE = '#2775ca'
 const PRINT_BLUE = '#2f6fe0'
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: SWEATER, teddyz: WHITE_TEE }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE }
 
 /** Order matters: a colour's index is its palette cell. */
 const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN] as const
@@ -471,6 +474,71 @@ const leg: Classifier = (_x, y) => {
  * close-cropped dark hair painted into a corner of this head's private texture copy —
  * a corner the head's own UVs never touch (they live in x 11–336, y 18–202).
  */
+/**
+ * The rig's head is a rounded box: as wide at the jaw as at the cheekbones, and tall
+ * under the cap. Sam's face in the photo is an oval, so the lower face is drawn in to
+ * an egg in front view (and its front corners rounded off in plan), and the crown is
+ * lowered so the cap sits on a skull rather than a tower. Moved vertices get smooth
+ * normals of their new shape.
+ */
+function reshapeSamHead(geometry: THREE.BufferGeometry): void {
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute
+  const soft = (value: number, limit: number): number => {
+    const knee = 0.82 * limit
+    if (value <= knee) return value
+    return knee + (limit - knee) * Math.tanh((value - knee) / (limit - knee))
+  }
+  const moved = new Set<number>()
+  for (let i = 0; i < position.count; i += 1) {
+    let x = position.getX(i)
+    let y = position.getY(i)
+    const z = position.getZ(i)
+    const before = [x, y]
+    if (y < 1.62) {
+      // Front view: an egg narrowing to the chin.
+      const t = Math.min(1, (1.62 - y) / 0.4)
+      let limit = 0.53 * Math.sqrt(Math.max(0.04, 1 - t * t))
+      // Plan view: the front corners of the jaw rounded off.
+      if (z > 0.05) limit *= Math.sqrt(Math.max(0.3, 1 - ((z - 0.05) / 0.62) ** 2)) * 0.12 + 0.88
+      x = Math.sign(x) * soft(Math.abs(x), limit)
+    }
+    if (y > 1.86) y = 1.86 + (y - 1.86) * 0.8
+    if (x !== before[0] || y !== before[1]) {
+      position.setXY(i, x, y)
+      moved.add(i - (i % 3))
+    }
+  }
+  const sums = new Map<string, THREE.Vector3>()
+  const key = (i: number) =>
+    `${position.getX(i).toFixed(4)},${position.getY(i).toFixed(4)},${position.getZ(i).toFixed(4)}`
+  const a = new THREE.Vector3()
+  const b = new THREE.Vector3()
+  const c = new THREE.Vector3()
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    a.fromBufferAttribute(position, i)
+    b.fromBufferAttribute(position, i + 1)
+    c.fromBufferAttribute(position, i + 2)
+    const face = new THREE.Vector3().subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b))
+    for (let k = 0; k < 3; k += 1) {
+      const id = key(i + k)
+      sums.set(id, (sums.get(id) ?? new THREE.Vector3()).add(face))
+    }
+  }
+  for (const i of moved) {
+    for (let k = 0; k < 3; k += 1) {
+      const n = sums.get(key(i + k))
+      if (n && n.lengthSq() > 0) {
+        n.normalize()
+        normal.setXYZ(i + k, n.x, n.y, n.z)
+      }
+    }
+  }
+  position.needsUpdate = true
+  normal.needsUpdate = true
+  geometry.computeBoundingSphere()
+}
+
 function dressHead(head: THREE.SkinnedMesh): void {
   const material = head.material as THREE.MeshStandardMaterial
   if (!material.map) return
@@ -487,6 +555,8 @@ function dressHead(head: THREE.SkinnedMesh): void {
   const normal = geometry.getAttribute('normal')
   const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
   if (!uv || !normal) return
+
+  reshapeSamHead(geometry)
 
   const patch = 24
   ctx.fillStyle = hex(HAIR)
@@ -631,12 +701,91 @@ function paintFace(ctx: CanvasRenderingContext2D, skin: string): void {
   ctx.quadraticCurveTo(...at(0, top + 0.002), ...at(half + 0.004, top + 0.014))
   ctx.stroke()
 
-  // Eyes screwed shut with laughing: two arches.
-  ctx.strokeStyle = '#1a110d'
-  ctx.lineWidth = 0.026 * unit
-  for (const side of [-1, 1]) {
+  // Eyes open and smiling, as in the photo: an almond of white narrowed from below by
+  // the lifted cheek, a big dark-brown iris with a black pupil and a catch-light, a heavy
+  // upper lash line, and the smile creases under and beside each eye.
+  const eyeY = 1.592
+  const eyeW = 0.066
+  const eyeH = 0.04
+  const almond = (side: number): void => {
+    const cx = side * 0.19
     ctx.beginPath()
-    ctx.ellipse(...at(side * 0.19, 1.582), 0.06 * unit, 0.045 * unit, 0, Math.PI * 1.08, Math.PI * 1.92)
+    ctx.moveTo(...at(cx - eyeW, eyeY - 0.004))
+    ctx.bezierCurveTo(...at(cx - eyeW * 0.55, eyeY + eyeH * 1.25), ...at(cx + eyeW * 0.55, eyeY + eyeH * 1.25), ...at(cx + eyeW, eyeY - 0.002))
+    // The lower lid rises with the grin: a flatter, upward-curving bottom edge.
+    ctx.bezierCurveTo(...at(cx + eyeW * 0.5, eyeY - eyeH * 0.55), ...at(cx - eyeW * 0.5, eyeY - eyeH * 0.55), ...at(cx - eyeW, eyeY - 0.004))
+    ctx.closePath()
+  }
+  for (const side of [-1, 1]) {
+    const cx = side * 0.19
+    // A soft shadow round the socket so the eye sits in the face.
+    ctx.fillStyle = 'rgba(35, 18, 10, 0.28)'
+    ctx.beginPath()
+    ctx.ellipse(...at(cx, eyeY + 0.006), (eyeW + 0.02) * unit, (eyeH + 0.024) * unit, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#efe8dc'
+    almond(side)
+    ctx.fill()
+    ctx.save()
+    almond(side)
+    ctx.clip()
+    // Looking straight ahead, a touch inward.
+    const ix = cx - side * 0.006
+    ctx.fillStyle = '#3b2216'
+    ctx.beginPath()
+    ctx.arc(...at(ix, eyeY + 0.004), 0.034 * unit, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#24130b'
+    ctx.beginPath()
+    ctx.arc(...at(ix, eyeY + 0.004), 0.026 * unit, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#070403'
+    ctx.beginPath()
+    ctx.arc(...at(ix, eyeY + 0.004), 0.014 * unit, 0, Math.PI * 2)
+    ctx.fill()
+    // The upper lid's shadow across the top of the iris.
+    ctx.fillStyle = 'rgba(20, 10, 6, 0.35)'
+    ctx.fillRect(faceU(cx - eyeW), faceV(eyeY + eyeH * 1.3), eyeW * 2 * unit, 0.014 * unit)
+    ctx.restore()
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(...at(ix + 0.012, eyeY + 0.016), 0.009 * unit, 0, Math.PI * 2)
+    ctx.fill()
+    // Heavy upper lash line, flicked out at the corner.
+    ctx.strokeStyle = '#140b07'
+    ctx.lineWidth = 0.014 * unit
+    ctx.beginPath()
+    ctx.moveTo(...at(cx - side * eyeW * 1.02, eyeY - 0.004))
+    ctx.bezierCurveTo(
+      ...at(cx - side * eyeW * 0.55, eyeY + eyeH * 1.28),
+      ...at(cx + side * eyeW * 0.55, eyeY + eyeH * 1.28),
+      ...at(cx + side * (eyeW + 0.012), eyeY + 0.006)
+    )
+    ctx.stroke()
+    // Lower lid and the smile crease beneath it, pushed up by the cheek.
+    ctx.strokeStyle = 'rgba(30, 15, 9, 0.6)'
+    ctx.lineWidth = 0.007 * unit
+    ctx.beginPath()
+    ctx.moveTo(...at(cx - eyeW * 0.9, eyeY - 0.006))
+    ctx.bezierCurveTo(...at(cx - eyeW * 0.5, eyeY - eyeH * 0.5), ...at(cx + eyeW * 0.5, eyeY - eyeH * 0.5), ...at(cx + eyeW * 0.9, eyeY - 0.004))
+    ctx.stroke()
+    ctx.strokeStyle = 'rgba(30, 15, 9, 0.42)'
+    ctx.lineWidth = 0.008 * unit
+    ctx.beginPath()
+    ctx.moveTo(...at(cx - eyeW * 0.7, eyeY - eyeH * 1.1))
+    ctx.quadraticCurveTo(...at(cx, eyeY - eyeH * 1.75), ...at(cx + eyeW * 0.8, eyeY - eyeH * 1.0))
+    ctx.stroke()
+    // Crow's feet at the outer corner.
+    ctx.beginPath()
+    ctx.moveTo(...at(cx + side * (eyeW + 0.016), eyeY + 0.002))
+    ctx.lineTo(...at(cx + side * (eyeW + 0.04), eyeY - 0.012))
+    ctx.stroke()
+    // Brow: thick, dark, a gentle arch, lifted with the smile.
+    ctx.strokeStyle = '#140b07'
+    ctx.lineWidth = 0.026 * unit
+    ctx.beginPath()
+    ctx.moveTo(...at(side * 0.1, eyeY + 0.075))
+    ctx.quadraticCurveTo(...at(side * 0.19, eyeY + 0.11), ...at(side * 0.285, eyeY + 0.078))
     ctx.stroke()
   }
   ctx.restore()
@@ -763,46 +912,94 @@ function addPrint(torso: THREE.SkinnedMesh, spec: PrintSpec): void {
  * Cap, beard, coin
  * ------------------------------------------------------------------ */
 
-// Smallest ellipsoid (searched on the mesh) that holds every head vertex above the
-// band line with 3% to spare.
-const CAP_CENTRE = new THREE.Vector3(0, 1.82, 0.02)
-const CAP_RADII = new THREE.Vector3(0.6, 0.62, 0.62)
 /** The band sits just above the brows — the eyes top out at y 1.67. */
 const CAP_BAND = 1.79
-const CAP_THETA = Math.acos((CAP_BAND - CAP_CENTRE.y) / CAP_RADII.y)
-/** How much higher the front panel stands than a plain dome: a structured cap. */
-const CAP_FRONT_RISE = 0.14
+const CAP_CENTRE = new THREE.Vector3(0, CAP_BAND, 0.02)
+/** How far the crown stands off the skull: a cap that fits, not a helmet. */
+const CAP_EASE = 0.03
+/** How much higher the front panel stands than the skull: a structured cap. */
+const CAP_FRONT_RISE = 0.07
+
+/**
+ * The crown's radius in every direction from the band centre, shrink-wrapped onto the
+ * skull: for each direction, the farthest head vertex within a wide cone, so the
+ * crown follows the head's own shape with a little ease instead of being one big
+ * ellipsoid wide enough for the tallest point.
+ */
+type CapShape = (dx: number, dy: number, dz: number) => number
+
+function capShape(head: THREE.SkinnedMesh | null): CapShape {
+  const fallback: CapShape = (dx, dy, dz) => 1 / Math.hypot(dx / 0.52, dy / 0.46, dz / 0.52)
+  const position = head?.geometry.getAttribute('position')
+  if (!position) return fallback
+  const points: THREE.Vector3[] = []
+  for (let i = 0; i < position.count; i += 1) {
+    const y = position.getY(i)
+    if (y < CAP_BAND - 0.03) continue
+    points.push(new THREE.Vector3(position.getX(i), y, position.getZ(i)).sub(CAP_CENTRE))
+  }
+  if (points.length < 20) return fallback
+  const cone = Math.cos(0.32)
+  const unit = points.map((p) => p.clone().normalize())
+  const length = points.map((p) => p.length())
+  const cache = new Map<string, number>()
+  return (dx, dy, dz) => {
+    const key = `${dx.toFixed(3)},${dy.toFixed(3)},${dz.toFixed(3)}`
+    const hit = cache.get(key)
+    if (hit !== undefined) return hit
+    const norm = Math.hypot(dx, dy, dz) || 1
+    let reach = 0
+    let weight = 0
+    let sum = 0
+    for (let i = 0; i < points.length; i += 1) {
+      const cos = (unit[i].x * dx + unit[i].y * dy + unit[i].z * dz) / norm
+      if (cos < cone) continue
+      reach = Math.max(reach, length[i] * cos)
+      const w = (cos - cone) ** 2
+      weight += w
+      sum += w * length[i]
+    }
+    // Mostly the farthest point (so nothing pokes through), a little of the average
+    // (so the crown is smooth rather than faceted by the skull's own polygons).
+    const radius = (weight ? Math.max(reach, 0.75 * reach + 0.25 * (sum / weight)) : 0.5) + CAP_EASE
+    cache.set(key, radius)
+    return radius
+  }
+}
 
 const BRIM = {
   /** Half the arc of the band the brim is sewn to, in radians either side of the face. */
   span: 1.22,
   /** How far it sticks out at the middle. */
-  reach: 0.44,
+  reach: 0.42,
   thickness: 0.03,
   /** Slope down and away from the band, and the extra bend at the sides (pre-curved). */
   tilt: 0.12,
   curve: 0.24,
 }
 
-function buildBrim(): THREE.Mesh {
+function buildBrim(shape: CapShape): THREE.Mesh {
   const columns = 40
   const rows = 8
-  const ring = Math.sin(CAP_THETA) * 0.985
-  const rx = CAP_RADII.x * ring
-  const rz = CAP_RADII.z * ring
+  const ring = (phi: number): number => shape(Math.sin(phi), 0, Math.cos(phi)) * 0.985
   const point = (i: number, j: number, lift: number): THREE.Vector3 => {
     const side = (i / columns) * 2 - 1
     const phi = side * BRIM.span
-    // Out from the band, but swept forward: a brim shades the eyes, not the ears.
-    const normal = new THREE.Vector2(Math.sin(phi) / rx, Math.cos(phi) / rz).normalize().multiplyScalar(0.4)
+    const r = ring(phi)
+    // Out from the band (the ring's own normal, from its neighbours), but swept forward:
+    // a brim shades the eyes, not the ears.
+    const step = 0.02
+    const a = new THREE.Vector2(Math.sin(phi - step) * ring(phi - step), Math.cos(phi - step) * ring(phi - step))
+    const b = new THREE.Vector2(Math.sin(phi + step) * ring(phi + step), Math.cos(phi + step) * ring(phi + step))
+    const normal = new THREE.Vector2(b.y - a.y, -(b.x - a.x)).normalize().multiplyScalar(0.4)
     normal.y += 0.6
     normal.normalize()
     const reach = BRIM.reach * Math.pow(Math.cos((side * Math.PI) / 2), 0.85)
     const out = reach * (j / rows)
     return new THREE.Vector3(
-      CAP_CENTRE.x + rx * Math.sin(phi) + normal.x * out,
+      CAP_CENTRE.x + r * Math.sin(phi) + normal.x * out,
       CAP_BAND - out * (BRIM.tilt + BRIM.curve * side * side) + lift,
-      CAP_CENTRE.z + rz * Math.cos(phi) + normal.y * out
+      CAP_CENTRE.z + r * Math.cos(phi) + normal.y * out
     )
   }
   const positions: number[] = []
@@ -850,27 +1047,31 @@ function buildBrim(): THREE.Mesh {
   return brim
 }
 
-function buildCap(): THREE.Group {
+function buildCap(head: THREE.SkinnedMesh | null): THREE.Group {
   const group = new THREE.Group()
   group.name = 'persona:cap'
-  const geometry = new THREE.SphereGeometry(1, 56, 24, 0, Math.PI * 2, 0, CAP_THETA)
+  const shape = capShape(head)
+  const theta = Math.PI / 2
+  const geometry = new THREE.SphereGeometry(1, 56, 24, 0, Math.PI * 2, 0, theta)
   const position = geometry.getAttribute('position')
+  const direction = new THREE.Vector3()
   for (let i = 0; i < position.count; i += 1) {
-    const y = position.getY(i)
-    const z = position.getZ(i)
-    if (y > 0 && z > 0) position.setY(i, y * (1 + CAP_FRONT_RISE * z))
+    direction.fromBufferAttribute(position, i)
+    const r = shape(direction.x, direction.y, direction.z)
+    const rise = direction.y > 0 && direction.z > 0 ? CAP_FRONT_RISE * direction.z * Math.sin(Math.PI * direction.y) : 0
+    position.setXYZ(i, direction.x * r, direction.y * r + rise, direction.z * r)
   }
-  const crown = new THREE.Mesh(geometry, litMaterial({ map: capTexture(CAP_THETA) }))
+  geometry.computeVertexNormals()
+  const crown = new THREE.Mesh(geometry, litMaterial({ map: capTexture(theta) }))
   ;(crown.material as THREE.Material).side = THREE.DoubleSide
   crown.name = 'persona:cap-crown'
-  crown.scale.copy(CAP_RADII)
   crown.position.copy(CAP_CENTRE)
   group.add(crown)
-  group.add(buildBrim())
+  group.add(buildBrim(shape))
 
-  const button = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), litMaterial({ color: CAP }))
+  const button = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), litMaterial({ color: CAP }))
   button.scale.y = 0.6
-  button.position.set(CAP_CENTRE.x, CAP_CENTRE.y + CAP_RADII.y, CAP_CENTRE.z)
+  button.position.set(CAP_CENTRE.x, CAP_CENTRE.y + shape(0, 1, 0) - 0.005, CAP_CENTRE.z)
   group.add(button)
   return group
 }
@@ -1176,41 +1377,185 @@ function paintBobbileeFace(ctx: CanvasRenderingContext2D, top: string, bottom: s
   ctx.fill()
 }
 
-const MIC_TILT = -Math.PI / 2
+/* Backpack with a puppy ------------------------------------------------ */
 
-/** The staff becomes a handheld microphone: same hand, same grip. */
-function addMicrophone(root: THREE.Object3D): void {
-  let wand: THREE.Object3D | null = null
-  root.traverse((object) => {
-    if (!wand && object.name.replace(/[\[\].:/]/g, '').toLowerCase() === '1h_wand') wand = object
-  })
-  const anchor = wand as THREE.Object3D | null
-  if (!anchor?.parent) return
-  const mic = new THREE.Group()
-  mic.name = 'persona:mic'
-  const body = litMaterial({ color: 0x1c1d21 })
-  const ring = litMaterial({ color: 0xc4c8cf })
-  const grille = litMaterial({ color: 0x55585f })
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.034, 0.36, 18), body)
-  handle.position.y = 0.04
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.05, 0.06, 18), ring)
-  collar.position.y = 0.245
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.085, 20, 14), grille)
-  head.position.y = 0.31
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.087, 0.087, 0.022, 20), ring)
-  band.position.y = 0.31
-  // The wand's grip points the prop straight ahead; a microphone is held upright.
-  const grip = new THREE.Group()
-  grip.rotation.z = MIC_TILT
-  for (const part of [handle, collar, head, band]) {
-    part.castShadow = true
-    grip.add(part)
+const BACKPACK_DARK = 0x8f6038
+const LEATHER = 0x4e3322
+const BUCKLE = 0xd8d2c4
+const PUPPY = 0xfbf9f5
+const PUPPY_SHADE = 0xece5da
+
+/**
+ * Measured on the mage rig (bind pose): her back is at z −0.33 from y 0.6 to 0.8, and
+ * the ponytail hangs down the middle to y 1.05 (x ±0.15, z −0.43 to −0.75). So the pack
+ * sits low between the shoulder blades, below the ponytail. It is a pet-carrier pack:
+ * the puppy looks out of a round window on its outer face — straight at the camera that
+ * follows her, framed by the dark inside of the bag so the white fur reads.
+ */
+const PACK = { width: 0.46, height: 0.44, depth: 0.2, y: 0.775, front: -0.355 }
+const PACK_WINDOW = { y: PACK.y + 0.01, radius: 0.118 }
+const PUPPY_AT = new THREE.Vector3(0, PACK_WINDOW.y + 0.005, PACK.front - PACK.depth - 0.035)
+
+function ellipsoid(radius: [number, number, number], material: THREE.Material, detail = 18): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, detail, Math.round(detail * 0.7)), material)
+  mesh.scale.set(...radius)
+  mesh.castShadow = true
+  return mesh
+}
+
+function buildPuppy(): THREE.Group {
+  const puppy = new THREE.Group()
+  puppy.name = 'persona:puppy'
+  const fur = litMaterial({ color: PUPPY })
+  const shade = litMaterial({ color: PUPPY_SHADE })
+  const black = litMaterial({ color: 0x111012 })
+  const pink = litMaterial({ color: 0xec8f9a })
+  const shine = litMaterial({ color: 0xffffff })
+
+  // A round puppy head, a little wider than tall, with a fluffy tuft on top.
+  puppy.add(ellipsoid([0.088, 0.08, 0.082], fur, 24))
+  for (const [x, y, z, r] of [
+    [0, 0.072, 0.01, 0.034],
+    [-0.028, 0.066, -0.01, 0.026],
+    [0.03, 0.064, 0.0, 0.027],
+    [0.008, 0.068, -0.03, 0.024],
+  ]) {
+    const tuft = ellipsoid([r, r * 0.85, r], fur, 12)
+    tuft.position.set(x, y, z)
+    puppy.add(tuft)
   }
-  mic.add(grip)
-  mic.position.copy(anchor.position)
-  mic.quaternion.copy(anchor.quaternion)
-  mic.scale.copy(anchor.scale)
-  anchor.parent.add(mic)
+  // Cheeks and muzzle: the muzzle points back (−z), a touch below the eyes.
+  const muzzle = ellipsoid([0.046, 0.034, 0.04], fur, 18)
+  muzzle.position.set(0, -0.026, -0.064)
+  puppy.add(muzzle)
+  const nose = ellipsoid([0.017, 0.012, 0.012], black, 12)
+  nose.position.set(0, -0.012, -0.102)
+  puppy.add(nose)
+  const tongue = ellipsoid([0.014, 0.008, 0.012], pink, 10)
+  tongue.position.set(0.004, -0.058, -0.088)
+  tongue.rotation.x = -0.4
+  puppy.add(tongue)
+  for (const side of [-1, 1]) {
+    // Round black eyes with a catch-light.
+    const eye = ellipsoid([0.0145, 0.016, 0.01], black, 12)
+    eye.position.set(side * 0.036, 0.016, -0.075)
+    puppy.add(eye)
+    const glint = ellipsoid([0.0045, 0.0045, 0.003], shine, 8)
+    glint.position.set(side * 0.036 + 0.005, 0.022, -0.084)
+    puppy.add(glint)
+    // Floppy ears, hanging down the sides of the head.
+    const ear = ellipsoid([0.024, 0.058, 0.036], shade, 14)
+    ear.position.set(side * 0.084, -0.012, 0.004)
+    ear.rotation.z = side * 0.32
+    ear.rotation.x = 0.12
+    puppy.add(ear)
+    // Front paws hooked over the rim of the pack.
+    const paw = ellipsoid([0.026, 0.02, 0.03], fur, 12)
+    paw.position.set(side * 0.052, -0.098, -0.04)
+    puppy.add(paw)
+    for (const toe of [-1, 0, 1]) {
+      const line = ellipsoid([0.0016, 0.007, 0.002], shade, 6)
+      line.position.set(side * 0.052 + toe * 0.009, -0.1, -0.069)
+      puppy.add(line)
+    }
+  }
+  // A little red collar just inside the window.
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.01, 8, 24), litMaterial({ color: 0xd8423c }))
+  collar.position.set(0, -0.06, 0.035)
+  collar.rotation.x = 0.5
+  puppy.add(collar)
+  const tag = ellipsoid([0.011, 0.011, 0.004], litMaterial({ color: 0xf2c94c }), 10)
+  tag.position.set(0, -0.098, 0.002)
+  puppy.add(tag)
+  // Head cocked a little, as puppies do.
+  puppy.rotation.z = -0.16
+  puppy.rotation.y = 0.18
+  return puppy
+}
+
+function strap(points: [number, number, number][], material: THREE.Material): THREE.Mesh {
+  const curve = new THREE.CatmullRomCurve3(points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
+  const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.016, 6, false), material)
+  mesh.castShadow = true
+  return mesh
+}
+
+function buildBackpack(): THREE.Group {
+  const pack = new THREE.Group()
+  pack.name = 'persona:backpack'
+  const canvasColour = litMaterial({ color: BACKPACK })
+  const dark = litMaterial({ color: BACKPACK_DARK })
+  const leather = litMaterial({ color: LEATHER })
+  const metal = litMaterial({ color: BUCKLE })
+  const z = PACK.front - PACK.depth / 2
+
+  const body = new THREE.Mesh(new RoundedBoxGeometry(PACK.width, PACK.height, PACK.depth, 4, 0.06), canvasColour)
+  body.position.set(0, PACK.y, z)
+  body.castShadow = true
+  pack.add(body)
+
+  const face = PACK.front - PACK.depth
+  // The window: a dark opening ringed by a padded leather rim, the puppy in it.
+  const inside = new THREE.Mesh(new THREE.CircleGeometry(PACK_WINDOW.radius, 32), litMaterial({ color: 0x24170f }))
+  inside.position.set(0, PACK_WINDOW.y, face - 0.004)
+  inside.rotation.y = Math.PI
+  pack.add(inside)
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(PACK_WINDOW.radius, 0.022, 10, 36), leather)
+  rim.position.set(0, PACK_WINDOW.y, face - 0.006)
+  rim.castShadow = true
+  pack.add(rim)
+  // Stitched piping round the rim.
+  const piping = new THREE.Mesh(new THREE.TorusGeometry(PACK_WINDOW.radius + 0.034, 0.006, 6, 40), dark)
+  piping.position.set(0, PACK_WINDOW.y, face - 0.002)
+  pack.add(piping)
+
+  // The lid over the top, its strap buckled down onto the face above the window.
+  const lid = new THREE.Mesh(new RoundedBoxGeometry(PACK.width + 0.02, 0.06, PACK.depth + 0.03, 3, 0.026), dark)
+  lid.position.set(0, PACK.y + PACK.height / 2 - 0.005, z - 0.012)
+  lid.castShadow = true
+  pack.add(lid)
+  for (const x of [-0.15, 0.15]) {
+    const buckleStrap = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.1, 0.01), leather)
+    buckleStrap.position.set(x, PACK.y + PACK.height / 2 - 0.06, face - 0.016)
+    pack.add(buckleStrap)
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.032, 0.012), metal)
+    buckle.position.set(x, PACK.y + PACK.height / 2 - 0.1, face - 0.02)
+    pack.add(buckle)
+  }
+  // A small zip pocket under the window.
+  const pocket = new THREE.Mesh(new RoundedBoxGeometry(0.26, 0.07, 0.04, 3, 0.016), dark)
+  pocket.position.set(0, PACK.y - PACK.height / 2 + 0.06, face - 0.01)
+  pack.add(pocket)
+  const pull = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.03, 0.008), metal)
+  pull.position.set(0.08, PACK.y - PACK.height / 2 + 0.07, face - 0.034)
+  pack.add(pull)
+
+  // Shoulder straps: up the back from the pack's top corners, over the shoulders.
+  for (const side of [-1, 1]) {
+    const x = side * 0.15
+    pack.add(
+      strap(
+        [
+          [side * 0.16, PACK.y + 0.12, PACK.front + 0.01],
+          [x, 1.08, -0.3],
+          [x, 1.24, -0.39],
+          [x, 1.31, -0.24],
+          [x, 1.32, -0.02],
+          [x, 1.27, 0.18],
+        ],
+        leather
+      )
+    )
+  }
+  // A grab loop on top.
+  const loop = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.008, 6, 16, Math.PI), leather)
+  loop.position.set(0, PACK.y + PACK.height / 2 + 0.03, PACK.front - 0.04)
+  pack.add(loop)
+
+  const puppy = buildPuppy()
+  puppy.position.copy(PUPPY_AT)
+  pack.add(puppy)
+  return pack
 }
 
 function dressBobbilee(root: THREE.Object3D): void {
@@ -1222,7 +1567,8 @@ function dressBobbilee(root: THREE.Object3D): void {
   dress(findMesh(root, '_armright'), palette, sweaterArm)
   dress(findMesh(root, '_legleft'), palette, sneakerLeg)
   dress(findMesh(root, '_legright'), palette, sneakerLeg)
-  addMicrophone(root)
+  const torso = findMesh(root, '_body')
+  if (torso) bindSpaceOf(torso, 'chest')?.add(buildBackpack())
 }
 
 /* ------------------------------------------------------------------ *
@@ -1332,7 +1678,7 @@ function paintScalp(ctx: CanvasRenderingContext2D, skin: [number, number, number
       // 0 = bare skin, 1 = full hair; the fade climbs from a shadow to near-black.
       let cover = 0
       if (y >= top) cover = 1
-      else if (y >= line - 0.012) cover = 0.4 + 0.5 * smooth(line, top, y) + (noise() - 0.5) * 0.16
+      else if (y >= line - 0.012) cover = 0.26 + 0.6 * smooth(line, top, y) ** 1.6 + (noise() - 0.5) * 0.16
       else if (y >= line - 0.03) cover = 0.25 * smooth(line - 0.03, line - 0.012, y)
       const grain = cover >= 1 ? (noise() - 0.5) * 10 : 0
       const at = (py * w + px) * 4
@@ -1439,6 +1785,23 @@ function dressTeddyzHead(head: THREE.SkinnedMesh): void {
     ? [Math.round(tone[0] / tone[3]), Math.round(tone[1] / tone[3]), Math.round(tone[2] / tone[3])]
     : [225, 161, 121]
 
+  // His nose is straight and fine, not the barbarian's bulb (x ±0.137 at the tip): the
+  // tip is narrowed and pulled back a little, the bridge between the eyes kept.
+  for (const i of faceTriangles) {
+    let touched = false
+    for (let k = 0; k < 3; k += 1) {
+      p.fromBufferAttribute(position, i + k)
+      if (Math.abs(p.x) > 0.17 || p.y < 1.42 || p.y > 1.6 || p.z < 0.43) continue
+      const w = smooth(1.42, 1.46, p.y) * (1 - smooth(1.54, 1.6, p.y)) * (1 - smooth(0.13, 0.17, Math.abs(p.x)))
+      p.x *= 1 - 0.34 * w
+      // …and the ridge of it stands a little prouder, so it reads in profile.
+      p.z += 0.018 * w * (1 - smooth(0.02, 0.09, Math.abs(p.x)))
+      position.setXYZ(i + k, p.x, p.y, p.z)
+      touched = true
+    }
+    if (touched) jawTriangles.push(i)
+  }
+
   paintScalp(ctx, base)
   paintTeddyzFace(ctx, base)
   texture.needsUpdate = true
@@ -1459,7 +1822,7 @@ function dressTeddyzHead(head: THREE.SkinnedMesh): void {
   }
   uv.needsUpdate = true
 
-  // The pulled-in jaw gets smooth normals of its own new shape.
+  // The pulled-in jaw and the refined nose get smooth normals of their new shape.
   const sums = new Map<string, THREE.Vector3>()
   const key = (i: number) =>
     `${position.getX(i).toFixed(4)},${position.getY(i).toFixed(4)},${position.getZ(i).toFixed(4)}`
@@ -1527,11 +1890,53 @@ function paintTeddyzFace(ctx: CanvasRenderingContext2D, skin: [number, number, n
   under.addColorStop(1, rgb(0.84, 1))
   ctx.fillStyle = under
   ctx.fillRect(left, v(1.3), right - left, v(1.15) - v(1.3))
-  const nose = ctx.createRadialGradient(u(0), v(1.458), 0, u(0), v(1.458), 0.055 * s)
-  nose.addColorStop(0, rgb(0.78, 0.55))
-  nose.addColorStop(1, rgb(0.78, 0))
-  ctx.fillStyle = nose
-  ctx.fillRect(u(0) - 0.06 * s, v(1.458) - 0.06 * s, 0.12 * s, 0.12 * s)
+  // The nose: a straight, defined bridge (a soft light down the middle between two
+  // side shadows), a rounded tip with its own highlight, and the nostrils beneath.
+  for (const side of [-1, 1]) {
+    const flank = ctx.createLinearGradient(u(side * 0.02), 0, u(side * 0.075), 0)
+    flank.addColorStop(0, rgb(0.9, 0))
+    flank.addColorStop(1, rgb(0.76, 0.7))
+    ctx.fillStyle = flank
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.03), v(1.66))
+    ctx.lineTo(u(side * 0.075), v(1.62))
+    ctx.lineTo(u(side * 0.085), v(1.5))
+    ctx.lineTo(u(side * 0.035), v(1.5))
+    ctx.closePath()
+    ctx.fill()
+  }
+  const bridge = ctx.createLinearGradient(u(-0.025), 0, u(0.025), 0)
+  bridge.addColorStop(0, rgb(1.06, 0))
+  bridge.addColorStop(0.5, rgb(1.08, 0.7))
+  bridge.addColorStop(1, rgb(1.06, 0))
+  ctx.fillStyle = bridge
+  ctx.fillRect(u(-0.025), v(1.63), 0.05 * s, v(1.5) - v(1.63))
+  const tip = ctx.createRadialGradient(u(0.005), v(1.497), 0, u(0.005), v(1.497), 0.03 * s)
+  tip.addColorStop(0, rgb(1.1, 0.75))
+  tip.addColorStop(1, rgb(1.1, 0))
+  ctx.fillStyle = tip
+  ctx.fillRect(u(0) - 0.035 * s, v(1.497) - 0.035 * s, 0.07 * s, 0.07 * s)
+  // Shadow under the tip and round the wings of the nose.
+  const base = ctx.createRadialGradient(u(0), v(1.462), 0, u(0), v(1.462), 0.07 * s)
+  base.addColorStop(0, rgb(0.74, 0.6))
+  base.addColorStop(1, rgb(0.74, 0))
+  ctx.fillStyle = base
+  ctx.beginPath()
+  ctx.ellipse(u(0), v(1.462), 0.075 * s, 0.03 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = rgb(0.68, 0.7)
+  ctx.lineWidth = 0.007 * s
+  ctx.lineCap = 'round'
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.05), v(1.5))
+    ctx.quadraticCurveTo(u(side * 0.072), v(1.478), u(side * 0.05), v(1.462))
+    ctx.stroke()
+    ctx.fillStyle = 'rgba(70,36,28,0.75)'
+    ctx.beginPath()
+    ctx.ellipse(u(side * 0.026), v(1.466), 0.014 * s, 0.007 * s, side * 0.35, 0, Math.PI * 2)
+    ctx.fill()
+  }
 
   // Hairline: straight across, with a softened edge.
   const hair = ctx.createLinearGradient(0, v(1.865), 0, v(1.885))
@@ -1592,84 +1997,174 @@ function paintTeddyzFace(ctx: CanvasRenderingContext2D, skin: [number, number, n
     ctx.stroke()
   }
 
-  // Mouth: closed and relaxed; a defined upper lip line and a fuller lower lip.
-  const mouthY = 1.388
-  ctx.fillStyle = '#b8735f'
+  // Mouth as in the photo: closed, full and natural — a defined cupid's bow, a full
+  // rosy lower lip with a soft highlight, the corners tucked in with a little shadow.
+  const mouthY = 1.386
+  const half = 0.098
+  const philtrum = ctx.createLinearGradient(u(-0.02), 0, u(0.02), 0)
+  philtrum.addColorStop(0, rgb(0.86, 0.45))
+  philtrum.addColorStop(0.5, rgb(1, 0))
+  philtrum.addColorStop(1, rgb(0.86, 0.45))
+  ctx.fillStyle = philtrum
+  ctx.fillRect(u(-0.02), v(1.452), 0.04 * s, v(mouthY + 0.03) - v(1.452))
+  // Upper lip: the bow peaks either side of the middle.
+  ctx.fillStyle = '#b86a5f'
   ctx.beginPath()
-  ctx.moveTo(u(-0.085), v(mouthY))
-  ctx.quadraticCurveTo(u(-0.04), v(mouthY - 0.03), u(0), v(mouthY - 0.026))
-  ctx.quadraticCurveTo(u(0.04), v(mouthY - 0.03), u(0.085), v(mouthY))
+  ctx.moveTo(u(-half), v(mouthY + 0.002))
+  ctx.bezierCurveTo(u(-0.07), v(mouthY + 0.014), u(-0.04), v(mouthY + 0.032), u(-0.017), v(mouthY + 0.033))
+  ctx.quadraticCurveTo(u(0), v(mouthY + 0.026), u(0.017), v(mouthY + 0.033))
+  ctx.bezierCurveTo(u(0.04), v(mouthY + 0.032), u(0.07), v(mouthY + 0.014), u(half), v(mouthY + 0.002))
+  ctx.quadraticCurveTo(u(0), v(mouthY - 0.004), u(-half), v(mouthY + 0.002))
   ctx.closePath()
   ctx.fill()
-  ctx.fillStyle = '#a5614f'
+  // Lower lip: fuller, a shade pinker.
+  ctx.fillStyle = '#c47a6c'
   ctx.beginPath()
-  ctx.moveTo(u(-0.085), v(mouthY))
-  ctx.quadraticCurveTo(u(-0.04), v(mouthY + 0.016), u(0), v(mouthY + 0.012))
-  ctx.quadraticCurveTo(u(0.04), v(mouthY + 0.016), u(0.085), v(mouthY))
+  ctx.moveTo(u(-half + 0.006), v(mouthY))
+  ctx.quadraticCurveTo(u(0), v(mouthY - 0.006), u(half - 0.006), v(mouthY))
+  ctx.bezierCurveTo(u(0.07), v(mouthY - 0.03), u(0.035), v(mouthY - 0.042), u(0), v(mouthY - 0.042))
+  ctx.bezierCurveTo(u(-0.035), v(mouthY - 0.042), u(-0.07), v(mouthY - 0.03), u(-half + 0.006), v(mouthY))
   ctx.closePath()
   ctx.fill()
-  ctx.strokeStyle = '#5e2f26'
-  ctx.lineWidth = 0.007 * s
+  ctx.fillStyle = 'rgba(255,226,214,0.45)'
   ctx.beginPath()
-  ctx.moveTo(u(-0.088), v(mouthY + 0.002))
-  ctx.quadraticCurveTo(u(0), v(mouthY - 0.006), u(0.088), v(mouthY + 0.002))
+  ctx.ellipse(u(0.008), v(mouthY - 0.02), 0.032 * s, 0.009 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
+  // The line between the lips, darkest in the middle and at the corners.
+  ctx.strokeStyle = '#5a2b24'
+  ctx.lineWidth = 0.008 * s
+  ctx.beginPath()
+  ctx.moveTo(u(-half - 0.004), v(mouthY + 0.004))
+  ctx.quadraticCurveTo(u(-0.04), v(mouthY - 0.004), u(0), v(mouthY - 0.001))
+  ctx.quadraticCurveTo(u(0.04), v(mouthY - 0.004), u(half + 0.004), v(mouthY + 0.004))
   ctx.stroke()
-  const lip = ctx.createRadialGradient(u(0), v(mouthY - 0.05), 0, u(0), v(mouthY - 0.05), 0.05 * s)
-  lip.addColorStop(0, rgb(0.84, 0.5))
-  lip.addColorStop(1, rgb(0.84, 0))
+  for (const side of [-1, 1]) {
+    const corner = ctx.createRadialGradient(u(side * (half + 0.006)), v(mouthY + 0.002), 0, u(side * (half + 0.006)), v(mouthY + 0.002), 0.022 * s)
+    corner.addColorStop(0, 'rgba(90,45,36,0.5)')
+    corner.addColorStop(1, 'rgba(90,45,36,0)')
+    ctx.fillStyle = corner
+    ctx.fillRect(u(side * (half + 0.006)) - 0.025 * s, v(mouthY + 0.002) - 0.025 * s, 0.05 * s, 0.05 * s)
+  }
+  // Shadow under the lower lip, above the chin.
+  const lip = ctx.createRadialGradient(u(0), v(mouthY - 0.06), 0, u(0), v(mouthY - 0.06), 0.06 * s)
+  lip.addColorStop(0, rgb(0.82, 0.55))
+  lip.addColorStop(1, rgb(0.82, 0))
   ctx.fillStyle = lip
-  ctx.fillRect(u(0) - 0.06 * s, v(mouthY - 0.05) - 0.06 * s, 0.12 * s, 0.12 * s)
+  ctx.beginPath()
+  ctx.ellipse(u(0), v(mouthY - 0.062), 0.07 * s, 0.022 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
 }
 
-/** Short dark hair with volume on top, swept up and back off the forehead. */
-function buildQuiff(): THREE.Mesh {
-  const { canvas: element, ctx } = canvas(256, 128)
-  ctx.fillStyle = BLACK_HAIR
-  ctx.fillRect(0, 0, 256, 128)
-  let seed = 11
+/**
+ * His cut in the photo: very short faded sides (painted on the scalp), and on top a
+ * short, textured crop with real volume, pushed up and a little forward at the front.
+ * Built as a close-fitting shell for the mass of the top, with tapered clumps rising
+ * out of it — swept back over the crown, up and forward along the front — so it reads
+ * as hair from any angle rather than a smooth helmet.
+ */
+const QUIFF_CENTRE = new THREE.Vector3(0, 1.965, 0.005)
+const QUIFF_RADII = new THREE.Vector3(0.415, 0.23, 0.455)
+
+/** A point on the shell for a unit-sphere direction (y up, z forward). */
+function quiffPoint(px: number, py: number, pz: number): THREE.Vector3 {
+  const front = Math.max(0, pz)
+  const lift = 0.13 * front * front * smooth(-0.2, 0.7, py)
+  return new THREE.Vector3(
+    QUIFF_CENTRE.x + px * QUIFF_RADII.x * (1 - 0.07 * smooth(0, 1, py)),
+    QUIFF_CENTRE.y + py * QUIFF_RADII.y + lift,
+    QUIFF_CENTRE.z + pz * QUIFF_RADII.z + 0.06 * front * smooth(0, 0.6, py)
+  )
+}
+
+function hairStrands(base: string, light: string, dark: string, seed: number): THREE.CanvasTexture {
+  const { canvas: element, ctx } = canvas(128, 128)
+  ctx.fillStyle = base
+  ctx.fillRect(0, 0, 128, 128)
+  let state = seed
   const noise = () => {
-    seed = (seed * 16807) % 2147483647
-    return seed / 2147483647
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
   }
-  // Strands run from the crown (v = 0) down to the rim.
-  for (let i = 0; i < 260; i += 1) {
-    const x = noise() * 256
-    const light = noise() < 0.3
-    ctx.strokeStyle = light ? 'rgba(92,78,70,0.55)' : 'rgba(54,45,40,0.6)'
-    ctx.lineWidth = light ? 1 : 1.6
+  for (let i = 0; i < 140; i += 1) {
+    const x = noise() * 128
+    const isLight = noise() < 0.35
+    ctx.strokeStyle = isLight ? light : dark
+    ctx.lineWidth = isLight ? 1 : 1.8
     ctx.beginPath()
-    ctx.moveTo(x, noise() * 30)
-    ctx.lineTo(x + (noise() - 0.5) * 10, 60 + noise() * 68)
+    ctx.moveTo(x, 128)
+    ctx.quadraticCurveTo(x + (noise() - 0.5) * 8, 64, x + (noise() - 0.5) * 14, noise() * 20)
     ctx.stroke()
   }
   const map = textureOf(element)
   map.wrapS = THREE.RepeatWrapping
+  return map
+}
 
-  const geometry = new THREE.SphereGeometry(1, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.6)
+function buildQuiff(): THREE.Group {
+  const group = new THREE.Group()
+  group.name = 'persona:quiff'
+  const shellMap = hairStrands(BLACK_HAIR, 'rgba(84,70,62,0.5)', 'rgba(8,6,5,0.6)', 11)
+  const shellMaterial = litMaterial({ map: shellMap })
+  shellMaterial.roughness = 0.7
+  const clumpMaterial = litMaterial({ map: hairStrands('#211a17', 'rgba(96,80,70,0.55)', 'rgba(10,8,7,0.6)', 29) })
+  clumpMaterial.roughness = 0.6
+
+  const geometry = new THREE.SphereGeometry(1, 40, 16, 0, Math.PI * 2, 0, Math.PI * 0.6)
   const position = geometry.getAttribute('position') as THREE.BufferAttribute
-  const centre = new THREE.Vector3(0, 1.98, 0)
-  const radii = new THREE.Vector3(0.42, 0.24, 0.46)
   for (let i = 0; i < position.count; i += 1) {
-    const px = position.getX(i)
-    const py = position.getY(i)
-    const pz = position.getZ(i)
-    // The quiff: the front of the top lifts up and a little forward.
-    const front = Math.max(0, pz)
-    const lift = 0.15 * front * front * smooth(-0.2, 0.7, py)
-    position.setXYZ(
-      i,
-      centre.x + px * radii.x * (1 - 0.06 * smooth(0, 1, py)),
-      centre.y + py * radii.y + lift,
-      centre.z + pz * radii.z + 0.05 * front * smooth(0, 0.6, py),
-    )
+    const point = quiffPoint(position.getX(i), position.getY(i), position.getZ(i))
+    position.setXYZ(i, point.x, point.y, point.z)
   }
   geometry.computeVertexNormals()
-  const material = litMaterial({ map })
-  material.roughness = 0.62
-  const quiff = new THREE.Mesh(geometry, material)
-  quiff.name = 'persona:quiff'
-  quiff.castShadow = true
-  return quiff
+  const shell = new THREE.Mesh(geometry, shellMaterial)
+  shell.castShadow = true
+  group.add(shell)
+
+  // Clumps: tapered cones sunk into the shell, each leaning along the way the hair is
+  // styled — up and forward at the front edge, back over the crown.
+  let state = 5
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  const cone = new THREE.ConeGeometry(1, 1, 7, 1)
+  cone.translate(0, 0.5, 0)
+  const up = new THREE.Vector3(0, 1, 0)
+  const place = (theta: number, phi: number, length: number, radius: number, forward: number): void => {
+    // theta: angle round from straight ahead; phi: down from the top of the head.
+    const dir = new THREE.Vector3(Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta))
+    const root = quiffPoint(dir.x, dir.y, dir.z)
+    const step = 0.02
+    const normal = quiffPoint(dir.x * (1 + step), dir.y * (1 + step), dir.z * (1 + step)).sub(root).normalize()
+    // Sweep: at the front, up and forward; further back, along the head toward the crown.
+    const sweep = new THREE.Vector3(0, 0.75, forward).normalize()
+    const axis = normal.clone().multiplyScalar(0.55).add(sweep.multiplyScalar(0.45)).normalize()
+    const clump = new THREE.Mesh(cone, clumpMaterial)
+    clump.quaternion.setFromUnitVectors(up, axis)
+    clump.scale.set(radius, length, radius * 0.8)
+    clump.position.copy(root).addScaledVector(axis, -length * 0.45)
+    clump.castShadow = true
+    group.add(clump)
+  }
+  // The front edge: a row of tufts flicked up and forward over the forehead.
+  for (let i = 0; i < 9; i += 1) {
+    const theta = -0.75 + (i / 8) * 1.5 + (noise() - 0.5) * 0.08
+    place(theta, 1.05 + (noise() - 0.5) * 0.12, 0.15 + noise() * 0.05, 0.06 + noise() * 0.015, 0.75)
+  }
+  // The top: rings of clumps, leaning back toward the crown.
+  for (const [phi, count, lean, length] of [
+    [0.75, 13, 0.25, 0.14],
+    [0.5, 10, -0.15, 0.13],
+    [0.25, 6, -0.45, 0.11],
+  ] as const) {
+    for (let i = 0; i < count; i += 1) {
+      const theta = (i / count) * Math.PI * 2 + noise() * 0.3
+      // Shorter toward the back, where the top blends into the fade.
+      const back = smooth(1.6, 2.8, Math.abs(Math.atan2(Math.sin(theta), Math.cos(theta))))
+      place(theta, phi + (noise() - 0.5) * 0.1, length * (1 - 0.35 * back) + noise() * 0.03, 0.065 + noise() * 0.02, lean - 0.4 * back)
+    }
+  }
+  return group
 }
 
 /** The keys on his front belt loop: a steel ring, two keys and a black car fob. */
@@ -1701,6 +2196,97 @@ function buildKeys(): THREE.Group {
   return keys
 }
 
+/**
+ * Reshapes a dressed (non-indexed) mesh in bind space and gives the moved triangles
+ * smooth normals of their new shape (shared corners are matched by position).
+ */
+function sculpt(mesh: THREE.SkinnedMesh | null, shape: (p: THREE.Vector3) => void): void {
+  if (!mesh) return
+  const geometry = mesh.geometry
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined
+  if (!normal || geometry.index) return
+  const p = new THREE.Vector3()
+  const moved = new Set<number>()
+  for (let i = 0; i < position.count; i += 1) {
+    p.fromBufferAttribute(position, i)
+    const [x, y, z] = [p.x, p.y, p.z]
+    shape(p)
+    if (p.x !== x || p.y !== y || p.z !== z) {
+      position.setXYZ(i, p.x, p.y, p.z)
+      moved.add(i - (i % 3))
+    }
+  }
+  const sums = new Map<string, THREE.Vector3>()
+  const key = (i: number) =>
+    `${position.getX(i).toFixed(4)},${position.getY(i).toFixed(4)},${position.getZ(i).toFixed(4)}`
+  const a = new THREE.Vector3()
+  const b = new THREE.Vector3()
+  const c = new THREE.Vector3()
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    a.fromBufferAttribute(position, i)
+    b.fromBufferAttribute(position, i + 1)
+    c.fromBufferAttribute(position, i + 2)
+    const face = new THREE.Vector3().subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b))
+    for (let k = 0; k < 3; k += 1) {
+      const id = key(i + k)
+      sums.set(id, (sums.get(id) ?? new THREE.Vector3()).add(face))
+    }
+  }
+  for (const i of moved) {
+    for (let k = 0; k < 3; k += 1) {
+      const n = sums.get(key(i + k))
+      if (n && n.lengthSq() > 0) {
+        n.normalize()
+        normal.setXYZ(i + k, n.x, n.y, n.z)
+      }
+    }
+  }
+  position.needsUpdate = true
+  normal.needsUpdate = true
+  geometry.computeBoundingSphere()
+  geometry.computeBoundingBox()
+}
+
+/**
+ * A gym build, as in his photos. Arms (bind pose, out along x): the upper arm is a thin
+ * tube (x 0.35–0.52, y 1.0–1.21) between the shoulder block and the forearm — it is
+ * filled out into a round biceps and triceps, the deltoid capped, the forearm a touch
+ * thicker. Body: the barbarian's belly (x ±0.41 at the waist) is drawn in and the chest
+ * broadened with pecs under the tee, for the V of someone who trains.
+ */
+const ARM_AXIS_Y = 1.105
+
+function gymArm(p: THREE.Vector3): void {
+  const ax = Math.abs(p.x)
+  const upper = smooth(0.3, 0.37, ax) * (1 - smooth(0.5, 0.57, ax))
+  const fore = smooth(0.54, 0.6, ax) * (1 - smooth(0.72, 0.79, ax))
+  const delt = smooth(0.1, 0.18, ax) * (1 - smooth(0.3, 0.37, ax))
+  const peak = Math.exp(-(((ax - 0.43) / 0.065) ** 2))
+  const dy = p.y - ARM_AXIS_Y
+  let sy = 1 + 0.36 * upper + 0.06 * fore + 0.07 * delt
+  let sz = 1 + 0.42 * upper + 0.08 * fore + 0.1 * delt
+  // The biceps peaks on the front of the arm, the triceps fills the back.
+  if (p.z > 0) sz += 0.22 * peak
+  else sz += 0.08 * peak
+  if (dy > 0) sy += 0.08 * peak
+  p.y = ARM_AXIS_Y + dy * sy
+  p.z *= sz
+}
+
+function gymBody(p: THREE.Vector3): void {
+  const waist = smooth(0.6, 0.7, p.y) * (1 - smooth(0.86, 0.98, p.y))
+  const chest = smooth(0.95, 1.06, p.y) * (1 - smooth(1.26, 1.33, p.y))
+  p.x *= 1 - 0.13 * waist + 0.07 * chest
+  p.z *= 1 - (p.z > 0 ? 0.14 : 0.08) * waist + 0.03 * chest
+  if (p.z > 0) {
+    // Pecs: two broad plates either side of the sternum, their lower edge the fullest.
+    const ax = Math.abs(p.x)
+    const pec = Math.exp(-(((p.y - 1.13) / 0.075) ** 2)) * smooth(0.015, 0.07, ax) * (1 - smooth(0.22, 0.31, ax))
+    p.z += 0.05 * pec
+  }
+}
+
 function dressTeddyz(root: THREE.Object3D): void {
   const head = findMesh(root, '_head')
   const torso = findMesh(root, '_body')
@@ -1714,6 +2300,9 @@ function dressTeddyz(root: THREE.Object3D): void {
   dress(findMesh(root, '_armright'), palette, teeArm)
   dress(findMesh(root, '_legleft'), palette, teddyLeg)
   dress(findMesh(root, '_legright'), palette, teddyLeg)
+  sculpt(torso, gymBody)
+  sculpt(findMesh(root, '_armleft'), gymArm)
+  sculpt(findMesh(root, '_armright'), gymArm)
   if (torso) {
     // On his right hip (the rig's −x), just below the hem of the untucked tee.
     const keys = buildKeys()
@@ -1763,7 +2352,7 @@ export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
   if (anchor) {
     const space = bindSpaceOf(anchor, 'head')
     if (space) {
-      space.add(buildCap())
+      space.add(buildCap(head))
     }
   }
   addCoin(root)

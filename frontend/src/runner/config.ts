@@ -410,11 +410,13 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     name: 'Bobbilee',
     tagline: 'Keynote',
     // Bobbilee as herself, on stage (see persona.ts): hair pulled back, an ivory high-neck
-    // fleece, dark trousers, white sneakers, a microphone where the staff was.
+    // fleece, dark trousers, white sneakers, and a backpack with her white puppy in it.
     persona: 'bobbilee',
     hideNodes: ['Spellbook', '1H_Wand', '2H_Staff', 'Mage_Hat', 'Mage_Cape'],
     model: mageModel,
-    modelHeight: 1.74,
+    // The fit counts the (hidden) wizard hat, so the height is set for the hat: without
+    // it she stands about as tall as the others (~1.53 visible) instead of a head shorter.
+    modelHeight: 2.1,
     modelFacing: Math.PI,
     skin: 0xf1c4a4,
     hair: 0x6e4c34,
