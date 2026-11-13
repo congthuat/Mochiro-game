@@ -2447,9 +2447,13 @@ function prober(geometry: THREE.BufferGeometry): (origin: THREE.Vector3, directi
 const LECTER_SKIN_SHIFT = [1.0, 1.07, 1.12] as const
 /** His hair: a deep copper brown, a shade darker and redder than the rogue's auburn. */
 const COPPER = { dark: [52, 22, 13], light: [128, 60, 34] } as const
-/** The faded back and sides, painted on a strip of the head's texture below the face patch. */
+/**
+ * The faded back and sides, painted on a strip of the head's texture below the face patch.
+ * Columns run from the front (centre) to the back by angle, the same on both sides, so no
+ * triangle straddles a seam at the nape.
+ */
 const FADE = { top: 700, scale: 380, ceiling: 1.95, centre: 512, spread: 500 } as const
-const fadeU = (x: number, z: number): number => FADE.centre + (Math.atan2(x, z) / Math.PI) * FADE.spread
+const fadeU = (x: number, z: number): number => FADE.centre + (Math.abs(Math.atan2(x, z)) / Math.PI) * FADE.spread
 const fadeV = (y: number): number => FADE.top + (FADE.ceiling - y) * FADE.scale
 
 type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'other'
@@ -2620,20 +2624,34 @@ function shortCrop(p: THREE.Vector3): void {
 
 /**
  * A skin fade: skin shadowed with stubble low on the head, darkening through the
- * temples to his hair colour where the curls begin. Rows run with height (fadeV),
+ * temples to his hair colour where the curls begin; cut higher at the nape. Rows run with height (fadeV),
  * columns around the head (fadeU).
  */
 function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
   const width = ctx.canvas.width
-  const rgb = (c: number[]) => `rgb(${c.map((v) => Math.round(v)).join(',')})`
   const mix = (a: readonly number[], b: readonly number[], t: number) => a.map((v, k) => v + (b[k] - v) * t)
   const shadow = mix(skin, [140, 108, 96], 0.3)
   const hair = mix(COPPER.dark, COPPER.light, 0.15)
-  for (let y = FADE.ceiling; y > 1.1; y -= 0.5 / FADE.scale) {
-    const t = smooth(1.5, 1.92, y) ** 1.3
-    ctx.fillStyle = rgb(mix(shadow, hair, t))
-    ctx.fillRect(0, fadeV(y), width, 2)
+  // How far round toward the back a column is: the nape is cut higher than the temples.
+  const backness = (px: number) => smooth(0.45, 0.9, Math.abs(px - FADE.centre) / FADE.spread)
+  const start = (px: number) => 1.5 + 0.2 * backness(px)
+  const top = Math.floor(fadeV(FADE.ceiling))
+  const bottom = Math.min(ctx.canvas.height, Math.ceil(fadeV(1.1)))
+  const image = ctx.getImageData(0, top, width, bottom - top)
+  for (let px = 0; px < width; px += 1) {
+    const lo = start(px)
+    const hi = 1.92 + 0.03 * backness(px)
+    for (let row = top; row < bottom; row += 1) {
+      const y = FADE.ceiling - (row - FADE.top) / FADE.scale
+      const colour = mix(shadow, hair, smooth(lo, hi, y) ** 1.3)
+      const at = ((row - top) * width + px) * 4
+      image.data[at] = colour[0]
+      image.data[at + 1] = colour[1]
+      image.data[at + 2] = colour[2]
+      image.data[at + 3] = 255
+    }
   }
+  ctx.putImageData(image, 0, top)
   // Stubble: fine dark specks, thicker toward the top of the fade.
   let state = 29
   const noise = () => {
@@ -2642,9 +2660,11 @@ function paintFade(ctx: CanvasRenderingContext2D, skin: number[]): void {
   }
   for (let i = 0; i < 9000; i += 1) {
     const y = 1.35 + noise() * 0.5
-    if (noise() > 0.25 + 0.75 * smooth(1.4, 1.7, y)) continue
+    const x = noise() * width
+    const lo = start(x)
+    if (noise() > 0.2 + 0.8 * smooth(lo - 0.1, lo + 0.2, y)) continue
     ctx.fillStyle = `rgba(${COPPER.dark.join(',')},${(0.25 + noise() * 0.35).toFixed(2)})`
-    ctx.fillRect(noise() * width, fadeV(y), 2, 2)
+    ctx.fillRect(x, fadeV(y), 2, 2)
   }
 }
 
