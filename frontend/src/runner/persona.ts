@@ -28,7 +28,7 @@
 import * as THREE from 'three'
 import { recolorTexture } from './recolor'
 
-export type PersonaId = 'sam'
+export type PersonaId = 'sam' | 'bobbilee'
 
 /* ------------------------------------------------------------------ *
  * Palette
@@ -43,14 +43,21 @@ const SOLE = 0xeef0f3
 const CAP = 0x18191d
 const BEARD = 0x1b1411
 const HAIR = 0x17110e
+// Bobbilee, from a photo of her on stage: ivory high-neck fleece, hair pulled back.
+const SWEATER = 0xdfd8cc
+const RIB = 0xccc3b4
+const TROUSER = 0x33353c
+const SNEAKER = 0xf2f1ee
+const SNEAKER_SOLE = 0xbfc0c4
+const FAIR = 0xf1bf9c
 const USDC_BLUE = '#2775ca'
 const PRINT_BLUE = '#2f6fe0'
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: SWEATER }
 
 /** Order matters: a colour's index is its palette cell. */
-const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE] as const
+const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR] as const
 const enum Cell {
   Tee = 0,
   Jeans = 1,
@@ -58,6 +65,12 @@ const enum Cell {
   Steel = 3,
   Shoe = 4,
   Sole = 5,
+  Sweater = 6,
+  Rib = 7,
+  Trouser = 8,
+  Sneaker = 9,
+  SneakerSole = 10,
+  Fair = 11,
 }
 
 /** Skin re-hue for the painted head: the artist's peach becomes a warm deep brown. */
@@ -878,6 +891,334 @@ function addCoin(root: THREE.Object3D): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Bobbilee
+ * ------------------------------------------------------------------ */
+
+// Measured on the mage rig (bind pose, arms out along x): the sleeve runs to x 0.70,
+// the cuff to 0.80, the hand beyond; the robe's skirt starts under the belt at y 0.73
+// and its high back collar sits at y 1.2–1.3; the boots reach y 0.33.
+const SWEATER_CUFF: [number, number] = [0.7, 0.8]
+const SWEATER_HEM: [number, number] = [0.6, 0.66]
+const SWEATER_NECK = 1.17
+const SNEAKER_TOP = 0.13
+const SNEAKER_SOLE_TOP = 0.03
+
+const sweaterArm: Classifier = (x) => {
+  const reach = Math.abs(x)
+  if (reach < SWEATER_CUFF[0]) return Cell.Sweater
+  if (reach < SWEATER_CUFF[1]) return Cell.Rib
+  return Cell.Fair
+}
+
+const sweaterBody: Classifier = (_x, y) => {
+  if (y > SWEATER_NECK) return Cell.Rib
+  if (y > SWEATER_HEM[1]) return Cell.Sweater
+  if (y > SWEATER_HEM[0]) return Cell.Rib
+  return Cell.Trouser
+}
+
+const sneakerLeg: Classifier = (_x, y) => {
+  if (y < SNEAKER_SOLE_TOP) return Cell.SneakerSole
+  if (y < SNEAKER_TOP) return Cell.Sneaker
+  return Cell.Trouser
+}
+
+/** A private, writable copy of a glTF texture, sampled exactly like the original. */
+function editableCopy(source: THREE.Texture): { texture: THREE.CanvasTexture; ctx: CanvasRenderingContext2D } | null {
+  const image = source.image as (CanvasImageSource & { width?: number; height?: number }) | undefined
+  const width = image?.width ?? 0
+  const height = image?.height ?? 0
+  if (!image || !width || !height) return null
+  const element = document.createElement('canvas')
+  element.width = width
+  element.height = height
+  const ctx = element.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  try {
+    ctx.drawImage(image, 0, 0, width, height)
+  } catch {
+    return null
+  }
+  const texture = new THREE.CanvasTexture(element)
+  texture.colorSpace = source.colorSpace
+  texture.flipY = source.flipY
+  texture.wrapS = source.wrapS
+  texture.wrapT = source.wrapT
+  texture.magFilter = source.magFilter
+  texture.minFilter = source.minFilter
+  texture.anisotropy = source.anisotropy
+  texture.needsUpdate = true
+  return { texture, ctx }
+}
+
+// Her hair in the photo: a mid brown, pulled straight back off the forehead.
+const BROWN_HAIR = { dark: [62, 40, 27], light: [146, 104, 70] } as const
+const HAIR_TIE = [42, 42, 46] as const
+
+/**
+ * Bobbilee's head. The mage already wears her hair the right way — swept back off the
+ * forehead into a ponytail — so the hair keeps its sculpt and its painted shading and
+ * only turns from near-black to brown. The face is redrawn on a front-projected patch:
+ * straight dark brows, brown eyes, nude-rose lips.
+ */
+function dressBobbileeHead(head: THREE.SkinnedMesh): void {
+  const material = head.material as THREE.MeshStandardMaterial
+  if (!material.map) return
+  const copy = editableCopy(material.map)
+  if (!copy) return
+  const { texture, ctx } = copy
+  const { width, height } = ctx.canvas
+  const pixels = ctx.getImageData(0, 0, width, height)
+  const data = pixels.data
+  const texel = (u: number, v: number): [number, number, number] => {
+    const px = Math.min(width - 1, Math.max(0, Math.floor(u * width)))
+    const py = Math.min(height - 1, Math.max(0, Math.floor(v * height)))
+    const at = (py * width + px) * 4
+    return [data[at], data[at + 1], data[at + 2]]
+  }
+  const isEyeInk = ([r, g, b]: [number, number, number]) => b > r + 6 && Math.max(r, g, b) < 60
+  const isSkin = ([r, g, b]: [number, number, number]) => r > 200 && g > 140 && b > 100
+
+  const geometry = head.geometry.index ? head.geometry.toNonIndexed() : head.geometry.clone()
+  const position = geometry.getAttribute('position')
+  const normal = geometry.getAttribute('normal')
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uv || !normal) return
+
+  // Skin tone of the face, top and bottom, so the patch blends into the ears and neck.
+  const forehead = [0, 0, 0, 0]
+  const chin = [0, 0, 0, 0]
+  const faceTriangles: number[] = []
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    let x = 0
+    let y = 0
+    let z = 0
+    let nz = 0
+    let u = 0
+    let v = 0
+    for (let k = 0; k < 3; k += 1) {
+      x += position.getX(i + k) / 3
+      y += position.getY(i + k) / 3
+      z += position.getZ(i + k) / 3
+      nz += normal.getZ(i + k) / 3
+      u += uv.getX(i + k) / 3
+      v += uv.getY(i + k) / 3
+    }
+    const colour = texel(u, v)
+    // The rig's brows are raised blocks (y 1.69–1.77) in hair colour; they take the
+    // painted brows instead, so their shape is the one drawn below.
+    const brow = y > 1.675 && y < 1.778 && Math.abs(x) < 0.325 && z > 0.3 && Math.max(...colour) < 60
+    const inFace = nz > 0.3 && z > 0.2 && y > FACE.bottom && y < FACE.top && Math.abs(x) < FACE.half
+    const eye = isEyeInk(colour) && z > 0.2
+    if (brow || eye || (inFace && isSkin(colour))) {
+      faceTriangles.push(i)
+      if (isSkin(colour) && Math.abs(x) < 0.3) {
+        const into = y > 1.68 ? forehead : y < 1.36 ? chin : null
+        if (into) {
+          into[0] += colour[0]
+          into[1] += colour[1]
+          into[2] += colour[2]
+          into[3] += 1
+        }
+      }
+    }
+  }
+  const tone = (sum: number[], fallback: string) =>
+    sum[3] ? `rgb(${Math.round(sum[0] / sum[3])},${Math.round(sum[1] / sum[3])},${Math.round(sum[2] / sum[3])})` : fallback
+
+  // Hair: every near-black texel turns brown, keeping its own shade; the bluish band
+  // round the ponytail becomes a plain dark tie. Face texels are redrawn below anyway.
+  for (let at = 0; at < data.length; at += 4) {
+    const r = data[at]
+    const g = data[at + 1]
+    const b = data[at + 2]
+    const max = Math.max(r, g, b)
+    if (b > r + 30 && max < 130) {
+      data[at] = HAIR_TIE[0]
+      data[at + 1] = HAIR_TIE[1]
+      data[at + 2] = HAIR_TIE[2]
+    } else if (max < 90) {
+      const t = Math.min(1, Math.max(0, (max - 14) / 40))
+      for (let c = 0; c < 3; c += 1) data[at + c] = BROWN_HAIR.dark[c] + (BROWN_HAIR.light[c] - BROWN_HAIR.dark[c]) * t
+    }
+  }
+  ctx.putImageData(pixels, 0, 0)
+
+  paintBobbileeFace(ctx, tone(forehead, '#f6c6a2'), tone(chin, '#f2b48c'))
+  texture.needsUpdate = true
+
+  for (const i of faceTriangles) {
+    for (let k = 0; k < 3; k += 1) {
+      uv.setXY(i + k, faceU(position.getX(i + k)) / width, faceV(position.getY(i + k)) / height)
+    }
+  }
+  uv.needsUpdate = true
+  head.geometry = geometry
+  material.map = texture
+  material.emissiveMap = texture
+  material.needsUpdate = true
+}
+
+/**
+ * Bobbilee as in the photo: strong straight brows, warm brown eyes with a defined lash
+ * line, a soft flush, and a closed nude-rose mouth. Drawn in bind-space units (y up,
+ * +x her left) through faceU/faceV.
+ */
+function paintBobbileeFace(ctx: CanvasRenderingContext2D, top: string, bottom: string): void {
+  const u = faceU
+  const v = faceV
+  const s = FACE.scale
+  const left = u(-FACE.half)
+  const right = u(FACE.half)
+  const skin = ctx.createLinearGradient(0, v(1.75), 0, v(1.3))
+  skin.addColorStop(0, top)
+  skin.addColorStop(1, bottom)
+  ctx.fillStyle = skin
+  ctx.fillRect(left, v(FACE.ceiling + 0.05), right - left, v(FACE.bottom - 0.05) - v(FACE.ceiling + 0.05))
+
+  // A faint flush on the cheeks and a soft shadow under the nose.
+  for (const side of [-1, 1]) {
+    const blush = ctx.createRadialGradient(u(side * 0.27), v(1.47), 0, u(side * 0.27), v(1.47), 0.11 * s)
+    blush.addColorStop(0, 'rgba(232,128,120,0.32)')
+    blush.addColorStop(1, 'rgba(232,128,120,0)')
+    ctx.fillStyle = blush
+    ctx.fillRect(u(side * 0.27) - 0.12 * s, v(1.47) - 0.12 * s, 0.24 * s, 0.24 * s)
+  }
+  const nose = ctx.createRadialGradient(u(0), v(1.455), 0, u(0), v(1.455), 0.05 * s)
+  nose.addColorStop(0, 'rgba(176,104,80,0.32)')
+  nose.addColorStop(1, 'rgba(176,104,80,0)')
+  ctx.fillStyle = nose
+  ctx.fillRect(u(0) - 0.06 * s, v(1.455) - 0.06 * s, 0.12 * s, 0.12 * s)
+
+  // Brows: straight and full, a little thicker at the inner end.
+  ctx.fillStyle = '#3d2a1e'
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.09), v(1.69))
+    ctx.lineTo(u(side * 0.09), v(1.728))
+    ctx.lineTo(u(side * 0.24), v(1.735))
+    ctx.lineTo(u(side * 0.315), v(1.715))
+    ctx.lineTo(u(side * 0.3), v(1.698))
+    ctx.lineTo(u(side * 0.2), v(1.694))
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  // Eyes: brown iris filling most of the opening, dark pupil, a highlight, and an upper
+  // lash line that flicks out at the corner.
+  for (const side of [-1, 1]) {
+    const cx = u(side * 0.203)
+    const cy = v(1.616)
+    ctx.fillStyle = '#fbf6f1'
+    ctx.beginPath()
+    ctx.ellipse(cx, cy, 0.062 * s, 0.05 * s, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#5a3a26'
+    ctx.beginPath()
+    ctx.ellipse(cx + side * -0.004 * s, cy + 0.002 * s, 0.043 * s, 0.047 * s, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#1c120d'
+    ctx.beginPath()
+    ctx.ellipse(cx + side * -0.004 * s, cy + 0.004 * s, 0.022 * s, 0.025 * s, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(cx + side * 0.012 * s, cy - 0.016 * s, 0.011 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = '#20140f'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = 0.014 * s
+    ctx.beginPath()
+    ctx.ellipse(cx, cy + 0.006 * s, 0.064 * s, 0.056 * s, 0, Math.PI * 1.08, Math.PI * 1.92)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.262), v(1.632))
+    ctx.lineTo(u(side * 0.29), v(1.648))
+    ctx.stroke()
+    ctx.strokeStyle = 'rgba(120,70,50,0.45)'
+    ctx.lineWidth = 0.006 * s
+    ctx.beginPath()
+    ctx.ellipse(cx, cy - 0.002 * s, 0.06 * s, 0.05 * s, 0, Math.PI * 0.15, Math.PI * 0.85)
+    ctx.stroke()
+  }
+
+  // Lips: closed, full lower lip, nude rose.
+  const mouthY = 1.403
+  ctx.fillStyle = '#b86c66'
+  ctx.beginPath()
+  ctx.moveTo(u(-0.078), v(mouthY))
+  ctx.quadraticCurveTo(u(-0.04), v(mouthY + 0.024), u(0), v(mouthY + 0.014))
+  ctx.quadraticCurveTo(u(0.04), v(mouthY + 0.024), u(0.078), v(mouthY))
+  ctx.closePath()
+  ctx.fill()
+  ctx.fillStyle = '#cd847b'
+  ctx.beginPath()
+  ctx.moveTo(u(-0.078), v(mouthY))
+  ctx.quadraticCurveTo(u(0), v(mouthY - 0.042), u(0.078), v(mouthY))
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = '#7c3d38'
+  ctx.lineWidth = 0.007 * s
+  ctx.beginPath()
+  ctx.moveTo(u(-0.08), v(mouthY + 0.002))
+  ctx.quadraticCurveTo(u(0), v(mouthY - 0.004), u(0.08), v(mouthY + 0.002))
+  ctx.stroke()
+  ctx.fillStyle = 'rgba(255,236,226,0.5)'
+  ctx.beginPath()
+  ctx.ellipse(u(0.012), v(mouthY - 0.02), 0.02 * s, 0.006 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+const MIC_TILT = -Math.PI / 2
+
+/** The staff becomes a handheld microphone: same hand, same grip. */
+function addMicrophone(root: THREE.Object3D): void {
+  let wand: THREE.Object3D | null = null
+  root.traverse((object) => {
+    if (!wand && object.name.replace(/[\[\].:/]/g, '').toLowerCase() === '1h_wand') wand = object
+  })
+  const anchor = wand as THREE.Object3D | null
+  if (!anchor?.parent) return
+  const mic = new THREE.Group()
+  mic.name = 'persona:mic'
+  const body = litMaterial({ color: 0x1c1d21 })
+  const ring = litMaterial({ color: 0xc4c8cf })
+  const grille = litMaterial({ color: 0x55585f })
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.034, 0.36, 18), body)
+  handle.position.y = 0.04
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.05, 0.06, 18), ring)
+  collar.position.y = 0.245
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.085, 20, 14), grille)
+  head.position.y = 0.31
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.087, 0.087, 0.022, 20), ring)
+  band.position.y = 0.31
+  // The wand's grip points the prop straight ahead; a microphone is held upright.
+  const grip = new THREE.Group()
+  grip.rotation.z = MIC_TILT
+  for (const part of [handle, collar, head, band]) {
+    part.castShadow = true
+    grip.add(part)
+  }
+  mic.add(grip)
+  mic.position.copy(anchor.position)
+  mic.quaternion.copy(anchor.quaternion)
+  mic.scale.copy(anchor.scale)
+  anchor.parent.add(mic)
+}
+
+function dressBobbilee(root: THREE.Object3D): void {
+  const head = findMesh(root, '_head')
+  const palette = paletteTexture()
+  if (head) dressBobbileeHead(head)
+  dress(findMesh(root, '_body'), palette, sweaterBody)
+  dress(findMesh(root, '_armleft'), palette, sweaterArm)
+  dress(findMesh(root, '_armright'), palette, sweaterArm)
+  dress(findMesh(root, '_legleft'), palette, sneakerLeg)
+  dress(findMesh(root, '_legright'), palette, sneakerLeg)
+  addMicrophone(root)
+}
+
+/* ------------------------------------------------------------------ *
  * Entry point
  * ------------------------------------------------------------------ */
 
@@ -886,7 +1227,11 @@ function addCoin(root: THREE.Object3D): void {
  * hidden, so the shield it replaces is already out of sight.
  */
 export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
-  if (id !== 'sam' || typeof document === 'undefined') return
+  if (typeof document === 'undefined') return
+  if (id === 'bobbilee') {
+    dressBobbilee(root)
+    return
+  }
   const head = findMesh(root, '_head')
   const torso = findMesh(root, '_body')
   const palette = paletteTexture()
