@@ -462,9 +462,9 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     perk: { id: 'quickLane', value: 1.35 },
     name: 'Lecter',
     tagline: 'Night Blade',
-    // Lecter as himself (see persona.ts): copper-brown curls with the sides faded, large
-    // clear glasses, and a Chelsea home kit (royal blue shirt with USDC on the front and
-    // JEREMIAH 7 on the back, blue shorts, white socks) with white sneakers. The rogue
+    // Lecter as himself (see persona.ts): copper-brown curls with the sides faded, clear
+    // gold-rimmed glasses, a brown corduroy shirt with the sleeves rolled up, beige
+    // chinos and white sneakers. The rogue
     // keeps his build and his moves; the cape, knives, bomb and crossbows stay home.
     persona: 'lecter',
     model: rogueModel,
@@ -474,13 +474,13 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     skin: 0xf1bf9c,
     hair: 0x5e2c1a,
     hairStyle: 'spiky',
-    outfit: 0x2350c4,
-    outfitDark: 0x1b3fa0,
-    shirt: 0x2350c4,
-    bottom: 0x2350c4,
+    outfit: 0x6e4628,
+    outfitDark: 0x5a381f,
+    shirt: 0x6e4628,
+    bottom: 0xc9b592,
     shoe: 0xf2f1ee,
     sole: 0xbfc0c4,
-    accent: 0xf2c230,
+    accent: 0xdccaa0,
     glove: 0xf1bf9c,
     eye: 0x2a1a12,
   },

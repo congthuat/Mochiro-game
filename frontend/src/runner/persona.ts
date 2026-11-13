@@ -57,23 +57,24 @@ const FAIR = 0xf1bf9c
 const WHITE_TEE = 0xf8f9fb
 const BLACK_TROUSER = 0x1c1d22
 const TAN = 0xe1a078
-// Lecter: a Chelsea home shirt and shorts in royal blue with yellow trim, white socks,
+// Lecter: a brown corduroy shirt with the sleeves rolled to the wrist, beige chinos,
 // white sneakers, fair skin.
-const KIT = 0x2350c4
-const KIT_GOLD = 0xf2c230
+const CORD = 0x6e4628
+const CORD_ROLL = 0x5a381f
+const CHINO = 0xc9b592
 const USDC_BLUE = '#2775ca'
 const PRINT_BLUE = '#2f6fe0'
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: CORD }
 /**
  * …and what it sees below that: the trousers. Two people in black tops are still told
  * apart from behind by their legs (kit-check uses this when the tops are close).
  */
-export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT }
+export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: CHINO }
 
 /** Order matters: a colour's index is its palette cell. */
-const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, KIT, KIT_GOLD] as const
+const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, CORD, CORD_ROLL, CHINO] as const
 const enum Cell {
   Tee = 0,
   Jeans = 1,
@@ -90,8 +91,9 @@ const enum Cell {
   WhiteTee = 12,
   BlackTrouser = 13,
   Tan = 14,
-  Kit = 15,
-  KitGold = 16,
+  Cord = 15,
+  CordRoll = 16,
+  Chino = 17,
 }
 
 /** Skin re-hue for the painted head: the artist's peach becomes a warm deep brown. */
@@ -2329,10 +2331,10 @@ function dressTeddyz(root: THREE.Object3D): void {
 
 // Lecter, from photos of him: copper-brown hair, thick and curly on top and pushed up
 // off the forehead with a few curls falling onto it, the back and sides faded short
-// above the ears; large clear glasses in thin light frames; fair skin, dark brows, a
-// calm closed mouth. He runs in a Chelsea home shirt (royal blue, yellow trim, the USDC
-// sponsor across the chest and JEREMIAH 7 on the back) with matching blue shorts, white
-// socks and white sneakers. The rogue keeps its skeleton and every animation; its hood,
+// above the ears; large clear glasses in thin champagne-gold frames; fair skin, dark
+// brows. He runs in a brown corduroy shirt, untucked, with a pointed collar open over a
+// white tee, a button placket, a patch pocket over his heart and the sleeves rolled to
+// the wrist, with beige chinos and white sneakers. The rogue keeps its skeleton and every animation; its hood,
 // cape, knives and bomb stay home.
 //
 // Measured on the rogue rig (bind pose, arms out along x): the tunic's shoulder band
@@ -2342,23 +2344,33 @@ function dressTeddyz(root: THREE.Object3D): void {
 // reach y 0.15. The head: eyes y 1.54–1.67 (x ±0.14–0.27), brows are raised blocks at
 // y 1.68–1.77, the nose a separate block down to its tip at z 0.52, the face flat across
 // |x| < 0.22 and turning back hard beyond.
-// The leg's edge loops sit at y 0.373 just above the knee and 0.294 just below it, so
-// the shorts end at the one and the socks start at the other.
-const JERSEY_SLEEVE = 0.47
-const JERSEY_HEM = 0.585
-const SHORTS_END = 0.373
-const SOCK_TOP = 0.294
+const SHIRT_HEM = 0.5
 const ROGUE_SHOE_TOP = 0.145
 const ROGUE_SOLE_TOP = 0.04
 const ROGUE_ARM_AXIS = 1.107
+/** The rolled sleeve: a turned-back band of cord, then the bare forearm and hand. */
+const SLEEVE_ROLL: [number, number] = [0.655, 0.72]
 
-const jerseyArm: Classifier = (x) => (Math.abs(x) < JERSEY_SLEEVE ? Cell.Kit : Cell.Fair)
-const kitLeg: Classifier = (_x, y) => {
+const shirtArm: Classifier = (x) => {
+  const reach = Math.abs(x)
+  if (reach < SLEEVE_ROLL[0]) return Cell.Cord
+  if (reach < SLEEVE_ROLL[1]) return Cell.CordRoll
+  return Cell.Fair
+}
+const chinoLeg: Classifier = (_x, y) => {
   if (y < ROGUE_SOLE_TOP) return Cell.SneakerSole
   if (y < ROGUE_SHOE_TOP) return Cell.Sneaker
-  if (y < SOCK_TOP) return Cell.WhiteTee
-  if (y < SHORTS_END) return Cell.Fair
-  return Cell.Kit
+  return Cell.Chino
+}
+
+/** The rolled band stands a little proud of the forearm. */
+function rolledSleeve(p: THREE.Vector3): void {
+  const ax = Math.abs(p.x)
+  const w = smooth(SLEEVE_ROLL[0] - 0.012, SLEEVE_ROLL[0] + 0.01, ax) * (1 - smooth(SLEEVE_ROLL[1] - 0.01, SLEEVE_ROLL[1] + 0.012, ax))
+  if (w <= 0) return
+  const k = 1 + 0.16 * w
+  p.y = ROGUE_ARM_AXIS + (p.y - ROGUE_ARM_AXIS) * k
+  p.z *= k
 }
 
 /** Bare forearms: the bracer and the glove's flared cuff come in to the wrist's size. */
@@ -2996,16 +3008,16 @@ function lensTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Clear glasses in thin light frames: large soft squares with well-rounded corners, a fine
+ * Clear glasses in thin champagne-gold frames: large soft squares with well-rounded corners, a fine
  * bridge over the nose and temples running back over the hair to the ears. Fitted to
  * the face by probing it, so the lenses clear the eyes and the temples clear the head.
  */
 function buildGlasses(probe: Probe): THREE.Group {
   const group = new THREE.Group()
   group.name = 'persona:glasses'
-  const silver = new THREE.MeshStandardMaterial({ color: 0xdcd8d2, metalness: 0.5, roughness: 0.28 })
-  silver.emissive = new THREE.Color(0xb0aca6)
-  silver.emissiveIntensity = 0.3
+  const frame = new THREE.MeshStandardMaterial({ color: 0xdccaa0, metalness: 0.55, roughness: 0.28 })
+  frame.emissive = new THREE.Color(0xb39f78)
+  frame.emissiveIntensity = 0.3
   const glass = new THREE.MeshStandardMaterial({
     map: lensTexture(),
     transparent: true,
@@ -3036,7 +3048,7 @@ function buildGlasses(probe: Probe): THREE.Group {
       outline.push(new THREE.Vector3(cx + px, lens.y + py, 0))
     }
     for (const point of outline) point.z = lensZ(point.x, point.y)
-    const rim = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(outline, true), 72, 0.0085, 6, true), silver)
+    const rim = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(outline, true), 72, 0.0085, 6, true), frame)
     rim.castShadow = true
     group.add(rim)
 
@@ -3066,10 +3078,10 @@ function buildGlasses(probe: Probe): THREE.Group {
       const x = hit ? hit.x + side * 0.02 : side * 0.5
       path.push(new THREE.Vector3(side * Math.max(Math.abs(x), Math.abs(path[path.length - 1].x)), y - 0.004 * path.length, z))
     }
-    const temple = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path), 24, 0.008, 6, false), silver)
+    const temple = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path), 24, 0.008, 6, false), frame)
     temple.castShadow = true
     group.add(temple)
-    const hinge = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.026, 0.03), silver)
+    const hinge = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.026, 0.03), frame)
     hinge.position.copy(corner).add(new THREE.Vector3(0, 0, -0.012))
     group.add(hinge)
   }
@@ -3081,178 +3093,202 @@ function buildGlasses(probe: Probe): THREE.Group {
     new THREE.Vector3(0, bridgeY + 0.012, Math.max(0.49, faceZ(0, bridgeY + 0.012) + 0.03)),
     new THREE.Vector3(inner, bridgeY, lensZ(inner, bridgeY)),
   ])
-  group.add(new THREE.Mesh(new THREE.TubeGeometry(bridge, 16, 0.0075, 6, false), silver))
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(bridge, 16, 0.0075, 6, false), frame))
   return group
 }
 
-/* The kit ---------------------------------------------------------- */
+/* The shirt -------------------------------------------------------- */
 
-const KIT_BLUE = hex(KIT)
-const KIT_YELLOW = hex(KIT_GOLD)
+const CORD_BROWN = hex(CORD)
+const CHINO_BEIGE = hex(CHINO)
 /**
- * The shirt's texture: three planar panels, front (looking at him), back (from behind,
- * so the name reads left to right) and side, each 480 px to the metre across x (or z)
- * and down from y 1.4. The shorts are painted below the hem on the same panels.
+ * The shirt's texture: three planar panels, front (looking at him), back (from behind)
+ * and side, each 480 px to the metre across x (or z) and down from y 1.4. The tops of
+ * the chinos are painted below the shirt's hem on the same panels.
  */
-const KIT_PANEL = { scale: 480, half: 0.53, ceiling: 1.4 } as const
-type KitPanel = 'front' | 'back' | 'side'
-const KIT_ORIGIN: Record<KitPanel, [number, number]> = { front: [0, 0], back: [512, 0], side: [0, 512] }
-const kitPx = (panel: KitPanel, across: number, y: number): [number, number] => [
-  KIT_ORIGIN[panel][0] + (across + KIT_PANEL.half) * KIT_PANEL.scale,
-  KIT_ORIGIN[panel][1] + (KIT_PANEL.ceiling - y) * KIT_PANEL.scale,
+const SHIRT_PANEL = { scale: 480, half: 0.53, ceiling: 1.4 } as const
+type ShirtPanel = 'front' | 'back' | 'side'
+const SHIRT_ORIGIN: Record<ShirtPanel, [number, number]> = { front: [0, 0], back: [512, 0], side: [0, 512] }
+const shirtPx = (panel: ShirtPanel, across: number, y: number): [number, number] => [
+  SHIRT_ORIGIN[panel][0] + (across + SHIRT_PANEL.half) * SHIRT_PANEL.scale,
+  SHIRT_ORIGIN[panel][1] + (SHIRT_PANEL.ceiling - y) * SHIRT_PANEL.scale,
 ]
 
-/** Text centred at (x, y), `height` metres tall (cap height), squeezed to fit `width`. */
-function kitText(
-  ctx: CanvasRenderingContext2D,
-  panel: KitPanel,
-  text: string,
-  x: number,
-  y: number,
-  height: number,
-  width: number,
-  weight: number,
-  family: string
-): void {
-  const size = (height / 0.72) * KIT_PANEL.scale
-  ctx.font = `${weight} ${Math.round(size)}px ${family}`
-  const measured = ctx.measureText(text).width
-  const squeeze = Math.min(1, (width * KIT_PANEL.scale) / measured)
-  const [px, py] = kitPx(panel, x, y)
+/** A dashed line of stitching. */
+function stitch(ctx: CanvasRenderingContext2D, points: [number, number][], colour: string, width: number): void {
   ctx.save()
-  ctx.translate(px, py)
-  ctx.scale(squeeze, 1)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(text, 0, size * 0.04)
+  ctx.strokeStyle = colour
+  ctx.lineWidth = width
+  ctx.setLineDash([width * 2.2, width * 1.6])
+  ctx.beginPath()
+  points.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)))
+  ctx.stroke()
   ctx.restore()
 }
 
-function paintKit(): THREE.CanvasTexture {
+/** Fine vertical ribs of corduroy over a rectangle: a dark groove and a lit crest each. */
+function wales(ctx: CanvasRenderingContext2D, x0: number, y0: number, width: number, height: number): void {
+  for (let x = x0; x < x0 + width; x += 6) {
+    ctx.fillStyle = 'rgba(30,16,6,0.2)'
+    ctx.fillRect(x, y0, 2, height)
+    ctx.fillStyle = 'rgba(255,220,180,0.06)'
+    ctx.fillRect(x + 3, y0, 2, height)
+  }
+}
+
+function paintShirt(): THREE.CanvasTexture {
   const { canvas: element, ctx } = canvas(1024, 1024)
-  ctx.fillStyle = KIT_BLUE
+  ctx.fillStyle = CORD_BROWN
   ctx.fillRect(0, 0, 1024, 1024)
-  const m = KIT_PANEL.scale
+  const m = SHIRT_PANEL.scale
+  const seam = 'rgba(40,22,10,0.55)'
+  const thread = 'rgba(150,105,70,0.75)'
   for (const panel of ['front', 'back', 'side'] as const) {
-    const [left, top] = KIT_ORIGIN[panel]
-    // A soft fall of light down the shirt, the shorts a shade deeper under a hem shadow.
-    const shade = ctx.createLinearGradient(0, top, 0, top + 512)
-    shade.addColorStop(0, 'rgba(255,255,255,0.06)')
-    shade.addColorStop(1, 'rgba(0,0,30,0.12)')
+    const [left, top] = SHIRT_ORIGIN[panel]
+    const hem = shirtPx(panel, 0, SHIRT_HEM)[1]
+    wales(ctx, left, top, 512, hem - top)
+    // A soft fall of light down the shirt.
+    const shade = ctx.createLinearGradient(0, top, 0, hem)
+    shade.addColorStop(0, 'rgba(255,235,210,0.07)')
+    shade.addColorStop(1, 'rgba(20,10,0,0.14)')
     ctx.fillStyle = shade
-    ctx.fillRect(left, top, 512, 512)
-    const hem = kitPx(panel, 0, JERSEY_HEM)[1]
-    ctx.fillStyle = 'rgba(8,20,70,0.22)'
+    ctx.fillRect(left, top, 512, hem - top)
+    // Below the untucked hem: the chinos, in the shirt's shadow at first.
+    ctx.fillStyle = CHINO_BEIGE
     ctx.fillRect(left, hem, 512, top + 512 - hem)
-    ctx.fillStyle = 'rgba(6,14,50,0.45)'
-    ctx.fillRect(left, hem, 512, 0.012 * m)
-    // A yellow stripe down the side of the shorts.
-    ctx.fillStyle = KIT_YELLOW
+    const under = ctx.createLinearGradient(0, hem, 0, hem + 0.06 * m)
+    under.addColorStop(0, 'rgba(40,25,10,0.4)')
+    under.addColorStop(1, 'rgba(40,25,10,0)')
+    ctx.fillStyle = under
+    ctx.fillRect(left, hem, 512, 0.06 * m)
+    // The hem itself, turned and stitched.
+    ctx.fillStyle = 'rgba(35,18,6,0.35)'
+    ctx.fillRect(left, hem - 0.01 * m, 512, 0.01 * m)
+    stitch(ctx, [[left, hem - 0.018 * m], [left + 512, hem - 0.018 * m]], thread, 1.4)
     if (panel === 'side') {
-      const [sx] = kitPx(panel, 0, 0)
-      ctx.fillRect(sx - 0.008 * m, hem + 0.02 * m, 0.016 * m, top + 512 - hem)
-      // The shirt's piping down the side seam, from the armpit to the hem.
-      const [, armpit] = kitPx(panel, 0, 1.16)
-      ctx.fillRect(sx - 0.006 * m, armpit, 0.012 * m, hem - armpit)
+      const [sx] = shirtPx(panel, 0, 0)
+      const [, armpit] = shirtPx(panel, 0, 1.16)
+      ctx.fillStyle = seam
+      ctx.fillRect(sx - 1, armpit, 2, hem - armpit)
+      // The chinos' side seam.
+      ctx.fillStyle = 'rgba(90,70,40,0.45)'
+      ctx.fillRect(sx - 1, hem, 2, top + 512 - hem)
     }
   }
 
-  // Front, as seen facing him: Nike swoosh on his right breast (left of the picture),
-  // the gold club-world-champions badge between, the crest over his heart, USDC across
-  // the chest with "by Circle" under it, and the yellow-trimmed V at the neck.
-  ctx.fillStyle = KIT_YELLOW
-  ctx.strokeStyle = KIT_YELLOW
+  // Front: an open neck with a white tee showing, the button placket down the middle,
+  // and a patch pocket over his heart (right of the picture).
   {
-    const [cx, cy] = kitPx('front', -0.15, 1.06)
-    const w = 0.1 * m
+    const [cx, top] = shirtPx('front', 0, 1.27)
+    const [, tip] = shirtPx('front', 0, 1.15)
+    const w = 0.07 * m
+    ctx.fillStyle = 'rgba(30,15,5,0.5)'
     ctx.beginPath()
-    ctx.moveTo(cx - w * 0.5, cy - w * 0.02)
-    ctx.quadraticCurveTo(cx - w * 0.62, cy + w * 0.3, cx - w * 0.3, cy + w * 0.26)
-    ctx.quadraticCurveTo(cx + w * 0.1, cy + w * 0.18, cx + w * 0.55, cy - w * 0.22)
-    ctx.quadraticCurveTo(cx + w * 0.05, cy + w * 0.08, cx - w * 0.3, cy + w * 0.13)
-    ctx.quadraticCurveTo(cx - w * 0.5, cy + w * 0.12, cx - w * 0.5, cy - w * 0.02)
-    ctx.fill()
-  }
-  {
-    const [cx, cy] = kitPx('front', 0, 1.035)
-    const r = 0.03 * m
-    ctx.fillStyle = '#d9a93a'
-    ctx.beginPath()
-    ctx.arc(cx, cy, r, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = '#f6dc8a'
-    ctx.beginPath()
-    ctx.arc(cx, cy, r * 0.62, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = '#c8952c'
-    ctx.beginPath()
-    ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  {
-    // The crest: a gold ring around blue, the lion rampant in gold, a ball at its feet.
-    const [cx, cy] = kitPx('front', 0.15, 1.065)
-    const r = 0.048 * m
-    ctx.fillStyle = KIT_YELLOW
-    ctx.beginPath()
-    ctx.arc(cx, cy, r, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = '#1c3f9e'
-    ctx.beginPath()
-    ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = KIT_YELLOW
-    ctx.beginPath()
-    ctx.moveTo(cx - r * 0.35, cy + r * 0.5)
-    ctx.lineTo(cx - r * 0.2, cy - r * 0.05)
-    ctx.lineTo(cx - r * 0.45, cy - r * 0.35)
-    ctx.lineTo(cx - r * 0.15, cy - r * 0.3)
-    ctx.lineTo(cx + r * 0.05, cy - r * 0.6)
-    ctx.lineTo(cx + r * 0.25, cy - r * 0.45)
-    ctx.lineTo(cx + r * 0.15, cy - r * 0.2)
-    ctx.lineTo(cx + r * 0.42, cy + r * 0.05)
-    ctx.lineTo(cx + r * 0.2, cy + r * 0.12)
-    ctx.lineTo(cx + r * 0.3, cy + r * 0.5)
-    ctx.lineTo(cx + r * 0.08, cy + r * 0.25)
-    ctx.lineTo(cx - r * 0.12, cy + r * 0.5)
+    ctx.moveTo(cx - w - 3, top)
+    ctx.lineTo(cx, tip + 3)
+    ctx.lineTo(cx + w + 3, top)
     ctx.closePath()
     ctx.fill()
-  }
-  ctx.fillStyle = KIT_YELLOW
-  kitText(ctx, 'front', 'USDC', 0, 0.87, 0.105, 0.42, 900, '"Arial Black", "Helvetica Neue", Arial, sans-serif')
-  {
-    const [cx, cy] = kitPx('front', -0.085, 0.785)
-    ctx.lineWidth = 0.006 * m
-    ctx.beginPath()
-    ctx.arc(cx, cy, 0.012 * m, 0.4, Math.PI * 2 - 0.4)
-    ctx.stroke()
-  }
-  kitText(ctx, 'front', 'BY CIRCLE', 0.02, 0.785, 0.024, 0.16, 700, 'Arial, "Helvetica Neue", sans-serif')
-  {
-    // The V of the collar: a yellow-edged notch below the neck.
-    const [cx, top] = kitPx('front', 0, 1.26)
-    const [, tip] = kitPx('front', 0, 1.12)
-    const w = 0.065 * m
-    ctx.fillStyle = KIT_YELLOW
+    ctx.fillStyle = '#f2efe8'
     ctx.beginPath()
     ctx.moveTo(cx - w, top)
     ctx.lineTo(cx, tip)
     ctx.lineTo(cx + w, top)
     ctx.closePath()
     ctx.fill()
-    ctx.fillStyle = '#1b3e9c'
-    ctx.beginPath()
-    ctx.moveTo(cx - w * 0.72, top)
-    ctx.lineTo(cx, tip - 0.018 * m)
-    ctx.lineTo(cx + w * 0.72, top)
-    ctx.closePath()
+    // The tee's crew neck across the top of the V.
+    ctx.fillStyle = 'rgba(200,190,175,0.9)'
+    ctx.fillRect(cx - w * 0.8, top, w * 1.6, 0.012 * m)
+  }
+  {
+    const [cx, top] = shirtPx('front', 0, 1.15)
+    const [, bottom] = shirtPx('front', 0, SHIRT_HEM)
+    const half = 0.018 * m
+    ctx.fillStyle = 'rgba(255,225,190,0.05)'
+    ctx.fillRect(cx - half, top, half * 2, bottom - top)
+    ctx.fillStyle = seam
+    ctx.fillRect(cx - half - 1, top, 2, bottom - top)
+    ctx.fillRect(cx + half - 1, top, 2, bottom - top)
+    stitch(ctx, [[cx + half - 5, top], [cx + half - 5, bottom]], thread, 1.2)
+    for (let y = 1.13; y > SHIRT_HEM + 0.03; y -= 0.095) {
+      const [bx, by] = shirtPx('front', 0, y)
+      const r = 0.011 * m
+      ctx.fillStyle = '#3a2414'
+      ctx.beginPath()
+      ctx.arc(bx, by, r, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = 'rgba(255,230,200,0.35)'
+      ctx.beginPath()
+      ctx.arc(bx - r * 0.3, by - r * 0.3, r * 0.4, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+  {
+    const [x0, y0] = shirtPx('front', 0.075, 1.05)
+    const [x1, y1] = shirtPx('front', 0.205, 0.9)
+    const mid = (x0 + x1) / 2
+    const point = 0.012 * m
+    const outline: [number, number][] = [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1 - point],
+      [mid, y1],
+      [x0, y1 - point],
+      [x0, y0],
+    ]
+    const trace = (dx: number, dy: number): void => {
+      ctx.beginPath()
+      outline.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x + dx, y + dy) : ctx.lineTo(x + dx, y + dy)))
+    }
+    // Its shadow, its face a shade lighter, the stitching round it and across the top.
+    ctx.fillStyle = 'rgba(25,12,4,0.45)'
+    trace(2, 3)
     ctx.fill()
+    ctx.save()
+    trace(0, 0)
+    ctx.clip()
+    ctx.fillStyle = CORD_BROWN
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+    wales(ctx, x0 + 1, y0, x1 - x0, y1 - y0)
+    ctx.fillStyle = 'rgba(255,225,190,0.07)'
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+    ctx.restore()
+    const inset = outline.map(([x, y]) => [x + (x < mid ? 4 : x > mid ? -4 : 0), y + (y === y0 ? 0 : -4)] as [number, number])
+    stitch(ctx, inset, thread, 1.3)
+    stitch(ctx, [[x0, y0 + 0.016 * m], [x1, y0 + 0.016 * m]], thread, 1.3)
+  }
+  {
+    // The chinos' fly below the hem.
+    const [fx, fy] = shirtPx('front', 0.025, SHIRT_HEM)
+    const [, crotch] = shirtPx('front', 0, 0.4)
+    ctx.strokeStyle = 'rgba(90,70,40,0.5)'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(fx, fy)
+    ctx.lineTo(fx, crotch - 0.02 * m)
+    ctx.quadraticCurveTo(fx, crotch, fx - 0.025 * m, crotch)
+    ctx.stroke()
   }
 
-  // Back: JEREMIAH over a big 7, in white.
-  ctx.fillStyle = '#f7f8fb'
-  kitText(ctx, 'back', 'JEREMIAH', 0, 1.095, 0.085, 0.44, 800, '"Arial Narrow", "Helvetica Neue", Arial, sans-serif')
-  kitText(ctx, 'back', '7', 0, 0.86, 0.27, 0.3, 800, '"Arial Narrow", "Helvetica Neue", Arial, sans-serif')
+  // Back: the yoke across the shoulders, and a box pleat under it.
+  {
+    const [lx, yoke] = shirtPx('back', -SHIRT_PANEL.half, 1.16)
+    ctx.fillStyle = seam
+    ctx.fillRect(lx, yoke, 512, 2)
+    stitch(ctx, [[lx, yoke + 5], [lx + 512, yoke + 5]], thread, 1.2)
+    const [cx] = shirtPx('back', 0, 0)
+    const [, hem] = shirtPx('back', 0, SHIRT_HEM)
+    const pleat = ctx.createLinearGradient(cx - 0.03 * m, 0, cx + 0.03 * m, 0)
+    pleat.addColorStop(0, 'rgba(30,15,5,0)')
+    pleat.addColorStop(0.5, 'rgba(30,15,5,0.25)')
+    pleat.addColorStop(1, 'rgba(30,15,5,0)')
+    ctx.fillStyle = pleat
+    ctx.fillRect(cx - 0.03 * m, yoke + 2, 0.06 * m, (hem - yoke) * 0.35)
+    // The collar band at the nape.
+    const [, band] = shirtPx('back', 0, 1.3)
+    ctx.fillStyle = 'rgba(30,15,5,0.35)'
+    ctx.fillRect(lx, band, 512, 3)
+  }
 
   const texture = textureOf(element)
   texture.flipY = false
@@ -3260,10 +3296,10 @@ function paintKit(): THREE.CanvasTexture {
 }
 
 /**
- * The shirt and shorts on the rogue's torso. The pouches come off the belt first
- * (flatWaist), then every triangle is projected onto the panel it faces most.
+ * The shirt (and the tops of the chinos) on the rogue's torso. The pouches come off the
+ * belt first (flatWaist), then every triangle is projected onto the panel it faces most.
  */
-function dressKit(torso: THREE.SkinnedMesh): void {
+function dressShirt(torso: THREE.SkinnedMesh): void {
   const geometry = torso.geometry.index ? torso.geometry.toNonIndexed() : torso.geometry.clone()
   torso.geometry = geometry
   sculpt(torso, flatWaist)
@@ -3273,42 +3309,53 @@ function dressKit(torso: THREE.SkinnedMesh): void {
   const b = new THREE.Vector3()
   const c = new THREE.Vector3()
   const n = new THREE.Vector3()
+  const edge = new THREE.Vector3()
   for (let i = 0; i + 2 < position.count; i += 3) {
     a.fromBufferAttribute(position, i)
     b.fromBufferAttribute(position, i + 1)
     c.fromBufferAttribute(position, i + 2)
-    n.subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b)).normalize()
-    const panel: KitPanel = n.z > 0.4 ? 'front' : n.z < -0.4 ? 'back' : 'side'
+    n.subVectors(c, b).cross(edge.subVectors(a, b)).normalize()
+    const panel: ShirtPanel = n.z > 0.4 ? 'front' : n.z < -0.4 ? 'back' : 'side'
     for (let k = 0; k < 3; k += 1) {
       const x = position.getX(i + k)
       const across = panel === 'front' ? x : panel === 'back' ? -x : position.getZ(i + k)
-      const clamped = Math.min(KIT_PANEL.half - 0.01, Math.max(-KIT_PANEL.half + 0.01, across))
-      const [px, py] = kitPx(panel, clamped, Math.max(KIT_PANEL.ceiling - 1.05, position.getY(i + k)))
+      const clamped = Math.min(SHIRT_PANEL.half - 0.01, Math.max(-SHIRT_PANEL.half + 0.01, across))
+      const [px, py] = shirtPx(panel, clamped, Math.max(SHIRT_PANEL.ceiling - 1.05, position.getY(i + k)))
       uv[(i + k) * 2] = px / 1024
       uv[(i + k) * 2 + 1] = py / 1024
     }
   }
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-  const texture = paintKit()
+  const texture = paintShirt()
   const material = torso.material as THREE.MeshStandardMaterial
   material.map = texture
   material.emissiveMap = texture
+  // Corduroy is matte: no sheen across the chest.
+  material.roughness = 1
+  material.metalness = 0
   material.needsUpdate = true
 }
 
 /**
- * The shirt's fold-down collar: two blue points edged in yellow, lying on the chest
- * either side of the V. Fitted to the torso by probing it.
+ * The shirt's collar: two pointed brown corduroy leaves lying open on the chest either
+ * side of the neck, top-stitched near the edge. Fitted to the torso by probing it.
  */
-function buildKitCollar(probe: Probe): THREE.Group {
+function buildShirtCollar(probe: Probe): THREE.Group {
   const group = new THREE.Group()
-  group.name = 'persona:kit-collar'
+  group.name = 'persona:shirt-collar'
   const { canvas: element, ctx } = canvas(64, 64)
-  ctx.fillStyle = KIT_BLUE
+  ctx.fillStyle = CORD_BROWN
   ctx.fillRect(0, 0, 64, 64)
-  ctx.fillStyle = KIT_YELLOW
-  ctx.fillRect(54, 0, 10, 64)
-  ctx.fillRect(0, 54, 64, 10)
+  for (let y = 0; y < 64; y += 6) {
+    ctx.fillStyle = 'rgba(30,16,6,0.22)'
+    ctx.fillRect(0, y, 64, 2)
+  }
+  ctx.fillStyle = 'rgba(255,225,190,0.08)'
+  ctx.fillRect(0, 0, 64, 64)
+  ctx.fillStyle = 'rgba(30,15,5,0.55)'
+  ctx.fillRect(58, 0, 6, 64)
+  ctx.fillRect(0, 58, 64, 6)
+  stitch(ctx, [[53, 0], [53, 53], [0, 53]], 'rgba(150,105,70,0.85)', 1.5)
   const cloth = litMaterial({ map: textureOf(element) })
   cloth.side = THREE.DoubleSide
   let lastZ = 0.2
@@ -3318,12 +3365,12 @@ function buildKitCollar(probe: Probe): THREE.Group {
     return lastZ
   }
   for (const side of [-1, 1]) {
-    // Corners: inner top, outer top, outer bottom, the point; raised a little at the edges.
+    // Corners: inner top (at the neck), outer top, outer bottom, the point.
     const corners: [number, number][] = [
-      [side * 0.05, 1.25],
-      [side * 0.21, 1.24],
-      [side * 0.17, 1.125],
-      [side * 0.075, 1.09],
+      [side * 0.06, 1.275],
+      [side * 0.2, 1.255],
+      [side * 0.165, 1.15],
+      [side * 0.07, 1.115],
     ]
     const [p, q, r, t] = corners
     const steps = 8
@@ -3336,8 +3383,9 @@ function buildKitCollar(probe: Probe): THREE.Group {
         const w = j / steps
         const x = (p[0] * (1 - s) + q[0] * s) * (1 - w) + (t[0] * (1 - s) + r[0] * s) * w
         const y = (p[1] * (1 - s) + q[1] * s) * (1 - w) + (t[1] * (1 - s) + r[1] * s) * w
-        const edge = Math.max(Math.abs(s - 0.5), Math.abs(w - 0.5)) * 2
-        positions.push(x, y, front(x, y) + 0.012 + 0.008 * edge * edge)
+        // Rolled up off the chest along the fold at the neck, flatter toward the point.
+        const fold = (1 - w) * (1 - w)
+        positions.push(x, y, front(x, y) + 0.012 + 0.022 * fold * (1 - s * 0.5))
         uvs.push(s, w)
       }
     }
@@ -3352,9 +3400,9 @@ function buildKitCollar(probe: Probe): THREE.Group {
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
     geometry.setIndex(indices)
     geometry.computeVertexNormals()
-    const flap = new THREE.Mesh(geometry, cloth)
-    flap.castShadow = true
-    group.add(flap)
+    const leaf = new THREE.Mesh(geometry, cloth)
+    leaf.castShadow = true
+    group.add(leaf)
   }
   return group
 }
@@ -3369,15 +3417,22 @@ function dressLecter(root: THREE.Object3D): void {
     space?.add(buildLecterHair(probe))
     space?.add(buildGlasses(probe))
   }
-  dress(findMesh(root, '_armleft'), palette, jerseyArm)
-  dress(findMesh(root, '_armright'), palette, jerseyArm)
-  dress(findMesh(root, '_legleft'), palette, kitLeg)
-  dress(findMesh(root, '_legright'), palette, kitLeg)
-  sculpt(findMesh(root, '_armleft'), bareForearm)
-  sculpt(findMesh(root, '_armright'), bareForearm)
+  dress(findMesh(root, '_armleft'), palette, shirtArm)
+  dress(findMesh(root, '_armright'), palette, shirtArm)
+  dress(findMesh(root, '_legleft'), palette, chinoLeg)
+  dress(findMesh(root, '_legright'), palette, chinoLeg)
+  for (const side of ['_armleft', '_armright']) {
+    sculpt(findMesh(root, side), bareForearm)
+    sculpt(findMesh(root, side), rolledSleeve)
+  }
+  // Cord and cotton twill are matte.
+  for (const part of ['_armleft', '_armright', '_legleft', '_legright']) {
+    const material = findMesh(root, part)?.material as THREE.MeshStandardMaterial | undefined
+    if (material) material.roughness = 1
+  }
   if (torso) {
-    dressKit(torso)
-    bindSpaceOf(torso, 'chest')?.add(buildKitCollar(prober(torso.geometry)))
+    dressShirt(torso)
+    bindSpaceOf(torso, 'chest')?.add(buildShirtCollar(prober(torso.geometry)))
   }
 }
 
