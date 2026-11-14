@@ -56,14 +56,6 @@ export function carGeometry(): THREE.BufferGeometry {
   parts.push(paint(new THREE.BoxGeometry(1.86, 0.18, 0.24), 0xff5a4a, [0, 0.78, -2.16]))
   parts.push(paint(new THREE.BoxGeometry(1.98, 0.22, 4.34), 0x2b3242, [0, 0.44, 0]))
   parts.push(wheel(-0.98, 1.42), wheel(0.98, 1.42), wheel(-0.98, -1.42), wheel(0.98, -1.42))
-  const arch = new THREE.TorusGeometry(PILLAR_X, 0.5, 10, 26, Math.PI)
-  arch.scale(1, 0.62, 1)
-  arch.translate(0, PILLAR_TOP, 0)
-  parts.push(paint(arch, 0xb7c3d4))
-  const band = new THREE.TorusGeometry(PILLAR_X, 0.22, 8, 26, Math.PI)
-  band.scale(1, 0.62, 1)
-  band.translate(0, PILLAR_TOP, 0.66)
-  parts.push(paint(band, 0xf7c33c))
   const merged = mergeGeometries(parts, false) as THREE.BufferGeometry
   for (const part of parts) part.dispose()
   return merged

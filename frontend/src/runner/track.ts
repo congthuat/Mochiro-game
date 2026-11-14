@@ -186,10 +186,8 @@ export class Track {
     const pillarGeo = new THREE.BoxGeometry(0.55, 6.4, 0.55)
     const beamGeo = new THREE.BoxGeometry(11.6, 0.5, 0.8)
     const glowGeo = new THREE.BoxGeometry(11.6, 0.12, 0.2)
-    const signGeo = new THREE.BoxGeometry(2.6, 0.9, 0.12)
     const pillarMat = new THREE.MeshStandardMaterial({ color: 0xf6faff, roughness: 0.55, metalness: 0.1 })
-    const signMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.08 })
-    this.disposables.push(pillarGeo, beamGeo, glowGeo, signGeo, pillarMat, signMat)
+    this.disposables.push(pillarGeo, beamGeo, glowGeo, pillarMat)
     for (let i = 0; i < 6; i++) {
       const arch = new THREE.Group()
       const hue = ARCH_COLORS[i % ARCH_COLORS.length]
@@ -207,9 +205,6 @@ export class Track {
       const glow = new THREE.Mesh(glowGeo, glowMat)
       glow.position.set(0, 6.06, 0.2)
       arch.add(glow)
-      const sign = new THREE.Mesh(signGeo, signMat)
-      sign.position.set(0, 5.4, 0.1)
-      arch.add(sign)
       arch.position.z = -18 - i * ARCH_SPACING
       this.group.add(arch)
       this.arches.push(arch)
