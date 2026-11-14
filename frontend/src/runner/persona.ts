@@ -29,7 +29,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { recolorTexture } from './recolor'
 
-export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter'
+export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter' | 'mike'
 
 /* ------------------------------------------------------------------ *
  * Palette
@@ -63,17 +63,22 @@ const KIT = 0x2350c4
 const KIT_GOLD = 0xf2c230
 const USDC_BLUE = '#2775ca'
 const PRINT_BLUE = '#2f6fe0'
+// Mike: a light-blue oxford button-down, navy chinos, white sneakers, warm skin.
+const OXFORD = 0x9cc0e4
+const OXFORD_CUFF = 0x8bb1da
+const NAVY = 0x2b3446
+const MIKE_SKIN = 0xe2ae95
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT, mike: OXFORD }
 /**
  * …and what it sees below that: the trousers. Two people in black tops are still told
  * apart from behind by their legs (kit-check uses this when the tops are close).
  */
-export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT }
+export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT, mike: NAVY }
 
 /** Order matters: a colour's index is its palette cell. */
-const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, KIT, KIT_GOLD] as const
+const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, KIT, KIT_GOLD, OXFORD, OXFORD_CUFF, NAVY, MIKE_SKIN] as const
 const enum Cell {
   Tee = 0,
   Jeans = 1,
@@ -92,6 +97,10 @@ const enum Cell {
   Tan = 14,
   Kit = 15,
   KitGold = 16,
+  Oxford = 17,
+  OxfordCuff = 18,
+  Navy = 19,
+  MikeSkin = 20,
 }
 
 /** Skin re-hue for the painted head: the artist's peach becomes a warm deep brown. */
@@ -3132,6 +3141,1099 @@ function dressLecter(root: THREE.Object3D): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * The bare-headed rogue rig: a real person's head, and a button-down shirt
+ * ------------------------------------------------------------------ */
+
+const SHIRT_HEM = 0.5
+const ROGUE_SHOE_TOP = 0.145
+const ROGUE_SOLE_TOP = 0.04
+const ROGUE_ARM_AXIS = 1.107
+
+/** Bare forearms: the bracer and the glove's flared cuff come in to the wrist's size. */
+function bareForearm(p: THREE.Vector3): void {
+  const ax = Math.abs(p.x)
+  const w = smooth(0.585, 0.62, ax) * (1 - smooth(0.77, 0.81, ax))
+  if (w <= 0) return
+  const dy = p.y - ROGUE_ARM_AXIS
+  const r = Math.hypot(dy, p.z)
+  const target = 0.104
+  if (r <= target) return
+  const k = 1 + (target / r - 1) * w
+  p.y = ROGUE_ARM_AXIS + dy * k
+  p.z *= k
+}
+
+/** No belt pouches: whatever stands proud of the waist is drawn back onto it. */
+function flatWaist(p: THREE.Vector3): void {
+  const w = smooth(0.4, 0.43, p.y) * (1 - smooth(0.665, 0.69, p.y))
+  if (w <= 0) return
+  const extent = (p.x / 0.386) ** 4 + (p.z / 0.33) ** 4
+  if (extent <= 1.02) return
+  const k = 1 + ((1.02 / extent) ** 0.25 - 1) * w
+  p.x *= k
+  p.z *= k
+}
+
+
+/** Connected pieces of a non-indexed mesh (corners matched by position), per triangle. */
+function pieces(geometry: THREE.BufferGeometry): { piece: Int32Array; boxes: THREE.Box3[] } {
+  const position = geometry.getAttribute('position')
+  const triangles = Math.floor(position.count / 3)
+  const parent = new Int32Array(triangles).map((_, i) => i)
+  const find = (a: number): number => {
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]]
+      a = parent[a]
+    }
+    return a
+  }
+  const owner = new Map<string, number>()
+  for (let i = 0; i < position.count; i += 1) {
+    const id = `${position.getX(i).toFixed(4)},${position.getY(i).toFixed(4)},${position.getZ(i).toFixed(4)}`
+    const triangle = Math.floor(i / 3)
+    const seen = owner.get(id)
+    if (seen === undefined) owner.set(id, triangle)
+    else parent[find(seen)] = find(triangle)
+  }
+  const index = new Map<number, number>()
+  const piece = new Int32Array(triangles)
+  const boxes: THREE.Box3[] = []
+  const p = new THREE.Vector3()
+  for (let t = 0; t < triangles; t += 1) {
+    const rootOf = find(t)
+    let id = index.get(rootOf)
+    if (id === undefined) {
+      id = boxes.length
+      index.set(rootOf, id)
+      boxes.push(new THREE.Box3())
+    }
+    piece[t] = id
+    for (let k = 0; k < 3; k += 1) boxes[id].expandByPoint(p.fromBufferAttribute(position, t * 3 + k))
+  }
+  return { piece, boxes }
+}
+
+/**
+ * The faded back and sides, painted on a strip of the head's texture below the face patch.
+ * Columns run from the front (centre) to the back by angle, the same on both sides, so no
+ * triangle straddles a seam at the nape.
+ */
+const FADE = { top: 700, scale: 380, ceiling: 1.95, centre: 512, spread: 500 } as const
+const fadeU = (x: number, z: number): number => FADE.centre + (Math.abs(Math.atan2(x, z)) / Math.PI) * FADE.spread
+const fadeV = (y: number): number => FADE.top + (FADE.ceiling - y) * FADE.scale
+
+type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'ear' | 'other'
+
+/** What sets one rogue-rig head apart from another: skin, hair colour, face, sides, jaw. */
+interface RogueLook {
+  skinShift: readonly [number, number, number]
+  hair: { dark: readonly number[]; light: readonly number[] }
+  paintFace: (ctx: CanvasRenderingContext2D, top: string, bottom: string) => void
+  paintSides: (ctx: CanvasRenderingContext2D, skin: number[]) => void
+  jaw: (p: THREE.Vector3) => void
+}
+
+/**
+ * A real person's head on the bare-headed rogue rig. The rig's hair is already short and
+ * close to the skull, so it keeps its sculpt (cropped further by shortCrop) and is
+ * recoloured; below the top its back and sides are repainted on a strip of their own
+ * (look.paintSides). The face is redrawn on a front-projected patch, the brow blocks fold
+ * away behind the forehead (brows are painted), the earrings and ears tuck in, and the
+ * jaw is reshaped. Returns a probe of the finished head surface for fitting hair to it,
+ * and where the left earring was.
+ */
+function dressRogueHead(head: THREE.SkinnedMesh, look: RogueLook): { probe: ReturnType<typeof prober>; earring: THREE.Vector3 | null } | null {
+  const material = head.material as THREE.MeshStandardMaterial
+  if (!material.map) return null
+  const copy = editableCopy(material.map)
+  if (!copy) return null
+  const { texture, ctx } = copy
+  const { width, height } = ctx.canvas
+  const pixels = ctx.getImageData(0, 0, width, height)
+  const data = pixels.data
+  const hairMask = new Uint8Array(width * height)
+  for (let at = 0; at < data.length; at += 4) {
+    const r = data[at]
+    const g = data[at + 1]
+    const b = data[at + 2]
+    if (r > 200 && g > 140 && b > 100) {
+      // Skin: a little paler and less orange.
+      for (let c = 0; c < 3; c += 1) data[at + c] = Math.min(255, Math.round(data[at + c] * look.skinShift[c]))
+    } else if (r > 100 && r < 190 && r - g > 40 && g - b > 5) {
+      // Hair: the auburn gradient (r 120–175) becomes copper brown, keeping its shading.
+      const t = Math.min(1, Math.max(0, (r - 120) / 55))
+      for (let c = 0; c < 3; c += 1) data[at + c] = Math.round(look.hair.dark[c] + (look.hair.light[c] - look.hair.dark[c]) * t)
+      hairMask[at / 4] = 1
+    }
+  }
+  ctx.putImageData(pixels, 0, 0)
+  const texel = (u: number, v: number): [number, number, number] => {
+    const px = Math.min(width - 1, Math.max(0, Math.floor(u * width)))
+    const py = Math.min(height - 1, Math.max(0, Math.floor(v * height)))
+    const at = (py * width + px) * 4
+    return [data[at], data[at + 1], data[at + 2]]
+  }
+  const isSkin = ([r, g, b]: [number, number, number]) => r > 200 && g > 150 && b > 110
+  const isHair = (u: number, v: number): boolean =>
+    hairMask[
+      Math.min(height - 1, Math.max(0, Math.floor(v * height))) * width +
+        Math.min(width - 1, Math.max(0, Math.floor(u * width)))
+    ] === 1
+
+  const geometry = head.geometry.index ? head.geometry.toNonIndexed() : head.geometry.clone()
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uv || !normal) return null
+
+  const { piece, boxes } = pieces(geometry)
+  const centre = new THREE.Vector3()
+  const size = new THREE.Vector3()
+  const kinds: HeadPiece[] = boxes.map((box) => {
+    box.getCenter(centre)
+    box.getSize(size)
+    const ax = Math.abs(centre.x)
+    if (size.x > 0.6) return 'main'
+    if (centre.z > 0.3 && centre.y > 1.68 && centre.y < 1.78 && ax > 0.12 && ax < 0.28) return 'brow'
+    if (centre.z > 0.3 && centre.y > 1.56 && centre.y < 1.65 && ax > 0.14 && ax < 0.27) return 'eye'
+    if (centre.z > 0.3 && ax < 0.03) return 'nose'
+    if (ax > 0.42 && centre.y < 1.5 && size.y < 0.15) return 'earring'
+    if (ax > 0.4 && centre.y > 1.36 && centre.y < 1.7) return 'ear'
+    return 'other'
+  })
+
+  const forehead = [0, 0, 0, 0]
+  const chin = [0, 0, 0, 0]
+  const faceTriangles: number[] = []
+  const fadeTriangles: number[] = []
+  // The rig's two earrings come off; he wears one small dark hoop, in his left ear.
+  const earring = new THREE.Vector3()
+  let earringCorners = 0
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    const kind = kinds[piece[i / 3]]
+    let x = 0
+    let y = 0
+    let z = 0
+    let nz = 0
+    let u = 0
+    let v = 0
+    for (let k = 0; k < 3; k += 1) {
+      x += position.getX(i + k) / 3
+      y += position.getY(i + k) / 3
+      z += position.getZ(i + k) / 3
+      nz += normal.getZ(i + k) / 3
+      u += uv.getX(i + k) / 3
+      v += uv.getY(i + k) / 3
+    }
+    if (kind === 'earring') {
+      for (let k = 0; k < 3; k += 1) {
+        // Where his own hoop goes: the left one's place, tucked in with the ear.
+        if (x > 0) {
+          earring.x += position.getX(i + k) - 0.05
+          earring.y += position.getY(i + k)
+          earring.z += position.getZ(i + k)
+          earringCorners += 1
+        }
+        position.setXYZ(i + k, x - Math.sign(x) * 0.12, y, z)
+      }
+      continue
+    }
+    if (kind === 'ear') {
+      // Ears tucked in against the closer crop.
+      for (let k = 0; k < 3; k += 1) position.setX(i + k, position.getX(i + k) - Math.sign(x) * 0.05)
+      continue
+    }
+    if (kind === 'brow') {
+      for (let k = 0; k < 3; k += 1) position.setZ(i + k, position.getZ(i + k) - 0.07)
+      continue
+    }
+    if (kind === 'eye' || kind === 'nose') {
+      faceTriangles.push(i)
+      continue
+    }
+    if (kind !== 'main') continue
+    if (isHair(u, v) && y < 1.88) {
+      // The rogue's fringe becomes forehead: his hair is swept up off a high, open brow.
+      if (z > 0.28 && Math.abs(x) < 0.36 && y < 1.83) faceTriangles.push(i)
+      // Below the curls the hair is faded short.
+      else if (!(z > 0.28 && Math.abs(x) < 0.3)) fadeTriangles.push(i)
+      continue
+    }
+    const colour = texel(u, v)
+    if (isSkin(colour) && nz > 0.3 && z > 0.2 && Math.abs(x) < 0.45 && y > FACE.bottom && y < FACE.ceiling) {
+      faceTriangles.push(i)
+      if (Math.abs(x) < 0.3) {
+        const into = y > 1.68 ? forehead : y < 1.36 ? chin : null
+        if (into) {
+          into[0] += colour[0]
+          into[1] += colour[1]
+          into[2] += colour[2]
+          into[3] += 1
+        }
+      }
+    }
+  }
+  const tone = (sum: number[], fallback: string) =>
+    sum[3] ? `rgb(${Math.round(sum[0] / sum[3])},${Math.round(sum[1] / sum[3])},${Math.round(sum[2] / sum[3])})` : fallback
+  look.paintFace(ctx, tone(forehead, '#f6cdb0'), tone(chin, '#f1bf9f'))
+  look.paintSides(ctx, forehead[3] ? [forehead[0] / forehead[3], forehead[1] / forehead[3], forehead[2] / forehead[3]] : [246, 205, 176])
+  texture.needsUpdate = true
+
+  for (const i of fadeTriangles) {
+    for (let k = 0; k < 3; k += 1) {
+      const at = i + k
+      uv.setXY(at, fadeU(position.getX(at), position.getZ(at)) / width, fadeV(position.getY(at)) / height)
+    }
+  }
+
+  for (const i of faceTriangles) {
+    for (let k = 0; k < 3; k += 1) {
+      uv.setXY(i + k, faceU(position.getX(i + k)) / width, faceV(position.getY(i + k)) / height)
+    }
+  }
+  uv.needsUpdate = true
+  position.needsUpdate = true
+  head.geometry = geometry
+  sculpt(head, look.jaw)
+  sculpt(head, shortCrop)
+  material.map = texture
+  material.emissiveMap = texture
+  material.needsUpdate = true
+  return { probe: prober(geometry), earring: earringCorners ? earring.divideScalar(earringCorners) : null }
+}
+
+/**
+ * Cuts the rogue's long hair down to a short crop: the tall crown is pressed down toward
+ * the skull, the back is drawn in, and the hair that hung over the nape is tapered into
+ * the neck. A pure function of position, so seams between pieces stay closed.
+ */
+function shortCrop(p: THREE.Vector3): void {
+  if (p.y > 1.84) p.y = 1.84 + (p.y - 1.84) * 0.4
+  // A close crop like Tim's: the crown narrower, the back of the head drawn in tight.
+  p.x *= 1 - 0.1 * smooth(1.74, 2.0, p.y)
+  p.x *= 1 - 0.13 * smooth(0.15, -0.25, p.z) * smooth(1.25, 1.45, p.y)
+  if (p.z < -0.1) p.z *= 1 - 0.2 * smooth(-0.1, -0.45, p.z)
+  const nape = smooth(1.62, 1.2, p.y) * smooth(-0.05, -0.3, p.z)
+  p.z *= 1 - 0.3 * nape
+  p.x *= 1 - 0.16 * nape
+}
+
+/** How the short back and sides are painted (see paintFade). */
+interface SidesStyle {
+  /** The clean skin low on the neck, given the skin tone. */
+  shadow: (skin: number[]) => number[]
+  /** The clippered band, given the skin tone. */
+  buzz: (skin: number[]) => number[]
+  /** The top's colour, and the heights over which the sides meet it. */
+  hair: readonly number[]
+  line: [number, number]
+  speck: readonly number[]
+  alpha: [number, number]
+}
+
+const mixRgb = (a: readonly number[], b: readonly number[], t: number) => a.map((v, k) => v + (b[k] - v) * t)
+
+/**
+ * The short back and sides: clean skin low at the nape and under the ears, darkening
+ * through the clippered band up to the top's colour under it. Rows run with height
+ * (fadeV), columns around the head (fadeU); fine specks of stubble over it.
+ */
+function paintFade(ctx: CanvasRenderingContext2D, skin: number[], style: SidesStyle): void {
+  const width = ctx.canvas.width
+  const mix = (a: readonly number[], b: readonly number[], t: number) => a.map((v, k) => v + (b[k] - v) * t)
+  const shadow = style.shadow(skin)
+  const buzz = style.buzz(skin)
+  const hair = style.hair
+  // How far round toward the back a column is.
+  const backness = (px: number) => smooth(0.45, 0.9, Math.abs(px - FADE.centre) / FADE.spread)
+  // Where the shadow of stubble gives way to clean skin: low at the nape and round
+  // under the ears.
+  const start = (px: number) => 1.5 - 0.08 * backness(px)
+  const top = Math.floor(fadeV(FADE.ceiling))
+  const bottom = Math.min(ctx.canvas.height, Math.ceil(fadeV(1.1)))
+  const image = ctx.getImageData(0, top, width, bottom - top)
+  for (let px = 0; px < width; px += 1) {
+    const lo = start(px)
+    for (let row = top; row < bottom; row += 1) {
+      const y = FADE.ceiling - (row - FADE.top) / FADE.scale
+      const short = mix(shadow, buzz, smooth(lo - 0.04, lo + 0.08, y))
+      // Under the top's overhang, the line of the undercut.
+      const colour = mix(short, hair, smooth(style.line[0], style.line[1], y))
+      const at = ((row - top) * width + px) * 4
+      image.data[at] = colour[0]
+      image.data[at + 1] = colour[1]
+      image.data[at + 2] = colour[2]
+      image.data[at + 3] = 255
+    }
+  }
+  ctx.putImageData(image, 0, top)
+  // Stubble: fine dark specks, thicker toward the top of the fade.
+  let state = 29
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  for (let i = 0; i < 16000; i += 1) {
+    const y = 1.35 + noise() * 0.55
+    const x = FADE.centre + noise() * FADE.spread
+    const lo = start(x)
+    if (noise() > 0.1 + 0.9 * smooth(lo - 0.06, lo + 0.1, y)) continue
+    ctx.fillStyle = `rgba(${style.speck.join(',')},${(style.alpha[0] + noise() * style.alpha[1]).toFixed(2)})`
+    ctx.fillRect(x, fadeV(y), 2, 2)
+  }
+}
+
+/**
+ * The shirt's texture: three planar panels, front (looking at him), back (from behind)
+ * and side, each 480 px to the metre across x (or z) and down from y 1.4. The tops of
+ * the chinos are painted below the shirt's hem on the same panels.
+ */
+const SHIRT_PANEL = { scale: 480, half: 0.53, ceiling: 1.4 } as const
+type ShirtPanel = 'front' | 'back' | 'side'
+const SHIRT_ORIGIN: Record<ShirtPanel, [number, number]> = { front: [0, 0], back: [512, 0], side: [0, 512] }
+const shirtPx = (panel: ShirtPanel, across: number, y: number): [number, number] => [
+  SHIRT_ORIGIN[panel][0] + (across + SHIRT_PANEL.half) * SHIRT_PANEL.scale,
+  SHIRT_ORIGIN[panel][1] + (SHIRT_PANEL.ceiling - y) * SHIRT_PANEL.scale,
+]
+
+/** A dashed line of stitching. */
+function stitch(ctx: CanvasRenderingContext2D, points: [number, number][], colour: string, width: number): void {
+  ctx.save()
+  ctx.strokeStyle = colour
+  ctx.lineWidth = width
+  ctx.setLineDash([width * 2.2, width * 1.6])
+  ctx.beginPath()
+  points.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)))
+  ctx.stroke()
+  ctx.restore()
+}
+
+
+/** One untucked, buttoned shirt over chinos, as painted by paintShirt. */
+interface ShirtStyle {
+  cloth: string
+  /** The weave over a rectangle (corduroy ribs, oxford basket weave). */
+  weave: (ctx: CanvasRenderingContext2D, x0: number, y0: number, width: number, height: number) => void
+  light: [string, string]
+  trousers: string
+  trouserSeam: string
+  /** rgb triplet of the shadow the hem casts on the chinos. */
+  under: string
+  hemShade: string
+  seam: string
+  thread: string
+  /** The open neck: what shows in the V, its depth and half-width, and a tee's band. */
+  neck: { fill: string; shadow: string; top: number; tip: number; half: number; band: string | null }
+  button: string
+  glint: string
+  /** The collar leaves: their cloth, ribs across them, edge shade, stitching, button. */
+  collar: { ribs: string | null; edge: string; thread: string; button: string | null }
+}
+
+
+function paintShirt(style: ShirtStyle): THREE.CanvasTexture {
+  const { canvas: element, ctx } = canvas(1024, 1024)
+  ctx.fillStyle = style.cloth
+  ctx.fillRect(0, 0, 1024, 1024)
+  const m = SHIRT_PANEL.scale
+  const seam = style.seam
+  const thread = style.thread
+  for (const panel of ['front', 'back', 'side'] as const) {
+    const [left, top] = SHIRT_ORIGIN[panel]
+    const hem = shirtPx(panel, 0, SHIRT_HEM)[1]
+    style.weave(ctx, left, top, 512, hem - top)
+    // A soft fall of light down the shirt.
+    const shade = ctx.createLinearGradient(0, top, 0, hem)
+    shade.addColorStop(0, style.light[0])
+    shade.addColorStop(1, style.light[1])
+    ctx.fillStyle = shade
+    ctx.fillRect(left, top, 512, hem - top)
+    // Below the untucked hem: the chinos, in the shirt's shadow at first.
+    ctx.fillStyle = style.trousers
+    ctx.fillRect(left, hem, 512, top + 512 - hem)
+    const under = ctx.createLinearGradient(0, hem, 0, hem + 0.06 * m)
+    under.addColorStop(0, `rgba(${style.under},0.4)`)
+    under.addColorStop(1, `rgba(${style.under},0)`)
+    ctx.fillStyle = under
+    ctx.fillRect(left, hem, 512, 0.06 * m)
+    // The hem itself, turned and stitched.
+    ctx.fillStyle = style.hemShade
+    ctx.fillRect(left, hem - 0.01 * m, 512, 0.01 * m)
+    stitch(ctx, [[left, hem - 0.018 * m], [left + 512, hem - 0.018 * m]], thread, 1.4)
+    if (panel === 'side') {
+      const [sx] = shirtPx(panel, 0, 0)
+      const [, armpit] = shirtPx(panel, 0, 1.16)
+      ctx.fillStyle = seam
+      ctx.fillRect(sx - 1, armpit, 2, hem - armpit)
+      // The chinos' side seam.
+      ctx.fillStyle = style.trouserSeam
+      ctx.fillRect(sx - 1, hem, 2, top + 512 - hem)
+    }
+  }
+
+  // Front: an open neck (a white tee, or bare skin, in the V), the button placket down
+  // the middle, and a patch pocket over his heart (right of the picture).
+  const { neck } = style
+  {
+    const [cx, top] = shirtPx('front', 0, neck.top)
+    const [, tip] = shirtPx('front', 0, neck.tip)
+    const w = neck.half * m
+    ctx.fillStyle = neck.shadow
+    ctx.beginPath()
+    ctx.moveTo(cx - w - 3, top)
+    ctx.lineTo(cx, tip + 3)
+    ctx.lineTo(cx + w + 3, top)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = neck.fill
+    ctx.beginPath()
+    ctx.moveTo(cx - w, top)
+    ctx.lineTo(cx, tip)
+    ctx.lineTo(cx + w, top)
+    ctx.closePath()
+    ctx.fill()
+    // A tee's crew neck across the top of the V.
+    if (neck.band) {
+      ctx.fillStyle = neck.band
+      ctx.fillRect(cx - w * 0.8, top, w * 1.6, 0.012 * m)
+    }
+  }
+  {
+    const [cx, top] = shirtPx('front', 0, neck.tip)
+    const [, bottom] = shirtPx('front', 0, SHIRT_HEM)
+    const half = 0.018 * m
+    ctx.fillStyle = 'rgba(255,225,190,0.05)'
+    ctx.fillRect(cx - half, top, half * 2, bottom - top)
+    ctx.fillStyle = seam
+    ctx.fillRect(cx - half - 1, top, 2, bottom - top)
+    ctx.fillRect(cx + half - 1, top, 2, bottom - top)
+    stitch(ctx, [[cx + half - 5, top], [cx + half - 5, bottom]], thread, 1.2)
+    for (let y = neck.tip - 0.02; y > SHIRT_HEM + 0.03; y -= 0.095) {
+      const [bx, by] = shirtPx('front', 0, y)
+      const r = 0.011 * m
+      ctx.fillStyle = style.button
+      ctx.beginPath()
+      ctx.arc(bx, by, r, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = style.glint
+      ctx.beginPath()
+      ctx.arc(bx - r * 0.3, by - r * 0.3, r * 0.4, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+  {
+    const [x0, y0] = shirtPx('front', 0.075, 1.05)
+    const [x1, y1] = shirtPx('front', 0.205, 0.9)
+    const mid = (x0 + x1) / 2
+    const point = 0.012 * m
+    const outline: [number, number][] = [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1 - point],
+      [mid, y1],
+      [x0, y1 - point],
+      [x0, y0],
+    ]
+    const trace = (dx: number, dy: number): void => {
+      ctx.beginPath()
+      outline.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x + dx, y + dy) : ctx.lineTo(x + dx, y + dy)))
+    }
+    // Its shadow, its face a shade lighter, the stitching round it and across the top.
+    ctx.fillStyle = 'rgba(25,12,4,0.45)'
+    trace(2, 3)
+    ctx.fill()
+    ctx.save()
+    trace(0, 0)
+    ctx.clip()
+    ctx.fillStyle = style.cloth
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+    style.weave(ctx, x0 + 1, y0, x1 - x0, y1 - y0)
+    ctx.fillStyle = 'rgba(255,225,190,0.07)'
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+    ctx.restore()
+    const inset = outline.map(([x, y]) => [x + (x < mid ? 4 : x > mid ? -4 : 0), y + (y === y0 ? 0 : -4)] as [number, number])
+    stitch(ctx, inset, thread, 1.3)
+    stitch(ctx, [[x0, y0 + 0.016 * m], [x1, y0 + 0.016 * m]], thread, 1.3)
+  }
+  {
+    // The chinos' fly below the hem.
+    const [fx, fy] = shirtPx('front', 0.025, SHIRT_HEM)
+    const [, crotch] = shirtPx('front', 0, 0.4)
+    ctx.strokeStyle = style.trouserSeam
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(fx, fy)
+    ctx.lineTo(fx, crotch - 0.02 * m)
+    ctx.quadraticCurveTo(fx, crotch, fx - 0.025 * m, crotch)
+    ctx.stroke()
+  }
+
+  // Back: the yoke across the shoulders, and a box pleat under it.
+  {
+    const [lx, yoke] = shirtPx('back', -SHIRT_PANEL.half, 1.16)
+    ctx.fillStyle = seam
+    ctx.fillRect(lx, yoke, 512, 2)
+    stitch(ctx, [[lx, yoke + 5], [lx + 512, yoke + 5]], thread, 1.2)
+    const [cx] = shirtPx('back', 0, 0)
+    const [, hem] = shirtPx('back', 0, SHIRT_HEM)
+    const pleat = ctx.createLinearGradient(cx - 0.03 * m, 0, cx + 0.03 * m, 0)
+    pleat.addColorStop(0, 'rgba(30,15,5,0)')
+    pleat.addColorStop(0.5, 'rgba(30,15,5,0.25)')
+    pleat.addColorStop(1, 'rgba(30,15,5,0)')
+    ctx.fillStyle = pleat
+    ctx.fillRect(cx - 0.03 * m, yoke + 2, 0.06 * m, (hem - yoke) * 0.35)
+    // The collar band at the nape.
+    const [, band] = shirtPx('back', 0, 1.3)
+    ctx.fillStyle = 'rgba(30,15,5,0.35)'
+    ctx.fillRect(lx, band, 512, 3)
+  }
+
+  const texture = textureOf(element)
+  texture.flipY = false
+  return texture
+}
+
+/**
+ * The shirt (and the tops of the chinos) on the rogue's torso. The pouches come off the
+ * belt first (flatWaist), then every triangle is projected onto the panel it faces most.
+ */
+function dressShirt(torso: THREE.SkinnedMesh, style: ShirtStyle): void {
+  const geometry = torso.geometry.index ? torso.geometry.toNonIndexed() : torso.geometry.clone()
+  torso.geometry = geometry
+  sculpt(torso, flatWaist)
+  const position = geometry.getAttribute('position')
+  const uv = new Float32Array(position.count * 2)
+  const a = new THREE.Vector3()
+  const b = new THREE.Vector3()
+  const c = new THREE.Vector3()
+  const n = new THREE.Vector3()
+  const edge = new THREE.Vector3()
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    a.fromBufferAttribute(position, i)
+    b.fromBufferAttribute(position, i + 1)
+    c.fromBufferAttribute(position, i + 2)
+    n.subVectors(c, b).cross(edge.subVectors(a, b)).normalize()
+    const panel: ShirtPanel = n.z > 0.4 ? 'front' : n.z < -0.4 ? 'back' : 'side'
+    for (let k = 0; k < 3; k += 1) {
+      const x = position.getX(i + k)
+      const across = panel === 'front' ? x : panel === 'back' ? -x : position.getZ(i + k)
+      const clamped = Math.min(SHIRT_PANEL.half - 0.01, Math.max(-SHIRT_PANEL.half + 0.01, across))
+      const [px, py] = shirtPx(panel, clamped, Math.max(SHIRT_PANEL.ceiling - 1.05, position.getY(i + k)))
+      uv[(i + k) * 2] = px / 1024
+      uv[(i + k) * 2 + 1] = py / 1024
+    }
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  const texture = paintShirt(style)
+  const material = torso.material as THREE.MeshStandardMaterial
+  material.map = texture
+  material.emissiveMap = texture
+  // Cotton is matte: no sheen across the chest.
+  material.roughness = 1
+  material.metalness = 0
+  material.needsUpdate = true
+}
+
+/**
+ * The shirt's collar: two pointed leaves of the shirt's cloth lying open on the chest either
+ * side of the neck, top-stitched near the edge. Fitted to the torso by probing it.
+ */
+function buildShirtCollar(probe: Probe, style: ShirtStyle): THREE.Group {
+  const group = new THREE.Group()
+  group.name = 'persona:shirt-collar'
+  const { canvas: element, ctx } = canvas(64, 64)
+  ctx.fillStyle = style.cloth
+  ctx.fillRect(0, 0, 64, 64)
+  const { ribs, edge, thread, button } = style.collar
+  if (ribs) {
+    for (let y = 0; y < 64; y += 6) {
+      ctx.fillStyle = ribs
+      ctx.fillRect(0, y, 64, 2)
+    }
+  }
+  ctx.fillStyle = 'rgba(255,225,190,0.08)'
+  ctx.fillRect(0, 0, 64, 64)
+  ctx.fillStyle = edge
+  ctx.fillRect(58, 0, 6, 64)
+  ctx.fillRect(0, 58, 64, 6)
+  stitch(ctx, [[53, 0], [53, 53], [0, 53]], thread, 1.5)
+  // A button-down collar: a small button holding each point to the shirt.
+  if (button) {
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    ctx.beginPath()
+    // Near the point (s 0, w 1: the canvas's top-left corner, the texture being flipped).
+    ctx.arc(18, 18, 6.5, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = button
+    ctx.beginPath()
+    ctx.arc(17, 17, 5.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  const cloth = litMaterial({ map: textureOf(element) })
+  cloth.side = THREE.DoubleSide
+  let lastZ = 0.2
+  const front = (x: number, y: number): number => {
+    const hit = probe(new THREE.Vector3(x, y, 1.5), new THREE.Vector3(0, 0, -1))
+    if (hit) lastZ = hit.z
+    return lastZ
+  }
+  for (const side of [-1, 1]) {
+    // Corners: inner top (at the neck), outer top, outer bottom, the point.
+    const corners: [number, number][] = [
+      [side * 0.06, 1.275],
+      [side * 0.2, 1.255],
+      [side * 0.165, 1.15],
+      [side * 0.07, 1.115],
+    ]
+    const [p, q, r, t] = corners
+    const steps = 8
+    const positions: number[] = []
+    const uvs: number[] = []
+    const indices: number[] = []
+    for (let j = 0; j <= steps; j += 1) {
+      for (let i = 0; i <= steps; i += 1) {
+        const s = i / steps
+        const w = j / steps
+        const x = (p[0] * (1 - s) + q[0] * s) * (1 - w) + (t[0] * (1 - s) + r[0] * s) * w
+        const y = (p[1] * (1 - s) + q[1] * s) * (1 - w) + (t[1] * (1 - s) + r[1] * s) * w
+        // Rolled up off the chest along the fold at the neck, flatter toward the point.
+        const fold = (1 - w) * (1 - w)
+        positions.push(x, y, front(x, y) + 0.012 + 0.022 * fold * (1 - s * 0.5))
+        uvs.push(s, w)
+      }
+    }
+    for (let j = 0; j < steps; j += 1) {
+      for (let i = 0; i < steps; i += 1) {
+        const k = j * (steps + 1) + i
+        indices.push(k, k + steps + 1, k + 1, k + 1, k + steps + 1, k + steps + 2)
+      }
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+    geometry.setIndex(indices)
+    geometry.computeVertexNormals()
+    const leaf = new THREE.Mesh(geometry, cloth)
+    leaf.castShadow = true
+    group.add(leaf)
+  }
+  return group
+}
+
+/* ------------------------------------------------------------------ *
+ * Mike
+ * ------------------------------------------------------------------ */
+
+// Mike, from a portrait of him: short black hair, thick and spiky on top and pushed
+// straight up off the forehead, the sides cut short and dark; thick straight black
+// brows, dark eyes narrowed by a big open grin that shows his teeth, full cheeks, a
+// light shadow of stubble round the mouth and chin. He wears a light-blue oxford
+// button-down, open at the neck, untucked over navy chinos, with white sneakers. He
+// wears the bare-headed rogue rig.
+
+/** His hair: black, with a little warm brown in the light. */
+const INK = { dark: [17, 14, 13], light: [70, 58, 54] } as const
+/** The rogue's peach to his warmer, slightly deeper tone. */
+const MIKE_SKIN_SHIFT = [0.93, 0.91, 0.955] as const
+const MIKE_SHADED_SKIN = '#d29f86'
+/** The sleeve's buttoned cuff, just short of the hand. */
+const OXFORD_CUFF_BAND: [number, number] = [0.735, 0.785]
+
+const MIKE_SIDES: SidesStyle = {
+  shadow: (skin) => mixRgb(skin, [96, 74, 66], 0.22),
+  // Short but not shaved: the sides read as dark hair, a little skin showing through.
+  buzz: (skin) => mixRgb(skin, INK.dark, 0.8),
+  hair: mixRgb(INK.dark, INK.light, 0.2),
+  line: [1.78, 1.9],
+  speck: INK.dark,
+  alpha: [0.25, 0.3],
+}
+
+/** His face is round and full: the rogue's jaw drawn in only a little. */
+function roundJaw(p: THREE.Vector3): void {
+  const w = smooth(1.47, 1.24, p.y) * smooth(-0.25, 0.1, p.z)
+  if (w <= 0) return
+  p.x *= 1 - 0.05 * w
+}
+
+const MIKE_LOOK: RogueLook = {
+  skinShift: MIKE_SKIN_SHIFT,
+  hair: INK,
+  paintFace: paintMikeFace,
+  paintSides: (ctx, skin) => paintFade(ctx, skin, MIKE_SIDES),
+  jaw: roundJaw,
+}
+
+/**
+ * Mike as in the portrait: thick straight black brows, dark eyes narrowed into crescents
+ * by the grin, full rosy cheeks with smile lines, a broad nose, a big open smile showing
+ * his top teeth (and a hint of the lower), and a light shadow of stubble on the upper
+ * lip, the chin and along the jaw.
+ */
+function paintMikeFace(ctx: CanvasRenderingContext2D, top: string, bottom: string): void {
+  const u = faceU
+  const v = faceV
+  const s = FACE.scale
+  const left = u(-FACE.half)
+  const right = u(FACE.half)
+  const skin = ctx.createLinearGradient(0, v(1.75), 0, v(1.3))
+  skin.addColorStop(0, top)
+  skin.addColorStop(1, bottom)
+  ctx.fillStyle = skin
+  ctx.fillRect(left, v(FACE.ceiling + 0.05), right - left, v(FACE.bottom - 0.05) - v(FACE.ceiling + 0.05))
+
+  const glow = (x: number, y: number, radius: number, colour: string, alpha: number, squash = 1) => {
+    ctx.save()
+    ctx.translate(u(x), v(y))
+    ctx.scale(1, squash)
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, radius * s)
+    g.addColorStop(0, `rgba(${colour},${alpha})`)
+    g.addColorStop(1, `rgba(${colour},0)`)
+    ctx.fillStyle = g
+    ctx.fillRect(-radius * s, -radius * s, radius * 2 * s, radius * 2 * s)
+    ctx.restore()
+  }
+  // Full cheeks, lifted and flushed by the grin; a broad nose shaded under and at the wings.
+  for (const side of [-1, 1]) glow(side * 0.27, 1.475, 0.12, '226,124,112', 0.26)
+  glow(0, 1.452, 0.06, '168,98,82', 0.32)
+  for (const side of [-1, 1]) glow(side * 0.046, 1.452, 0.017, '136,72,60', 0.5)
+
+  // Stubble: a soft grey-brown shadow over the upper lip, the chin and the jaw, then
+  // fine specks over it.
+  glow(0, 1.405, 0.13, '92,74,70', 0.2, 0.42)
+  glow(0, 1.27, 0.16, '92,74,70', 0.2, 0.6)
+  for (const side of [-1, 1]) glow(side * 0.24, 1.3, 0.14, '92,74,70', 0.1, 0.8)
+  let state = 53
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  for (let i = 0; i < 9000; i += 1) {
+    const x = (noise() - 0.5) * 0.62
+    const y = 1.18 + noise() * 0.27
+    const lip = smooth(0.15, 0.1, Math.abs(x)) * smooth(1.38, 1.395, y) * smooth(1.44, 1.425, y)
+    const chin = smooth(0.17, 0.1, Math.abs(x)) * smooth(1.33, 1.31, y)
+    const jaw = 0.45 * smooth(0.12, 0.2, Math.abs(x)) * smooth(1.36, 1.3, y)
+    if (noise() > Math.max(lip, chin, jaw)) continue
+    ctx.fillStyle = `rgba(40,30,28,${(0.18 + noise() * 0.22).toFixed(2)})`
+    ctx.fillRect(u(x), v(y), 2, 2)
+  }
+
+  // Smile lines from the wings of the nose round to the corners of the mouth.
+  ctx.strokeStyle = 'rgba(150,84,70,0.38)'
+  ctx.lineCap = 'round'
+  ctx.lineWidth = 0.006 * s
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.075), v(1.452))
+    ctx.quadraticCurveTo(u(side * 0.145), v(1.43), u(side * 0.15), v(1.36))
+    ctx.stroke()
+  }
+
+  // Brows: thick, black and nearly straight, square at the inner end, tapering outward.
+  for (const side of [-1, 1]) {
+    ctx.fillStyle = '#15100e'
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.062), v(1.702))
+    ctx.quadraticCurveTo(u(side * 0.058), v(1.734), u(side * 0.075), v(1.745))
+    ctx.quadraticCurveTo(u(side * 0.2), v(1.762), u(side * 0.31), v(1.733))
+    ctx.quadraticCurveTo(u(side * 0.322), v(1.72), u(side * 0.302), v(1.714))
+    ctx.quadraticCurveTo(u(side * 0.19), v(1.718), u(side * 0.062), v(1.702))
+    ctx.closePath()
+    ctx.fill()
+    // A few hairs breaking the edge.
+    ctx.strokeStyle = 'rgba(21,16,14,0.7)'
+    ctx.lineWidth = 2
+    for (let k = 0; k < 14; k += 1) {
+      const x = side * (0.07 + noise() * 0.22)
+      const y = 1.71 + noise() * 0.03
+      ctx.beginPath()
+      ctx.moveTo(u(x), v(y))
+      ctx.lineTo(u(x + side * 0.02), v(y + 0.012))
+      ctx.stroke()
+    }
+  }
+
+  // Eyes: narrowed by the smile, the upper lid a low arch, the lower lid pushed up into
+  // a flatter curve; dark irises half hidden; a smile crease under each.
+  for (const side of [-1, 1]) {
+    const inner = side * 0.135
+    const outer = side * 0.272
+    const mid = side * 0.2
+    const lid = () => {
+      ctx.beginPath()
+      ctx.moveTo(u(inner), v(1.6))
+      ctx.quadraticCurveTo(u(mid - side * 0.012), v(1.66), u(outer), v(1.614))
+      ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.588), u(inner), v(1.6))
+      ctx.closePath()
+    }
+    ctx.save()
+    lid()
+    ctx.fillStyle = '#f3ede6'
+    ctx.fill()
+    ctx.clip()
+    const cx = u(mid - side * 0.006)
+    const cy = v(1.618)
+    const iris = ctx.createRadialGradient(cx, cy - 0.01 * s, 0, cx, cy, 0.034 * s)
+    iris.addColorStop(0, '#4a2e1e')
+    iris.addColorStop(0.7, '#25160e')
+    iris.addColorStop(1, '#0c0705')
+    ctx.fillStyle = iris
+    ctx.beginPath()
+    ctx.arc(cx, cy, 0.036 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#060404'
+    ctx.beginPath()
+    ctx.arc(cx, cy, 0.015 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = 'rgba(50,30,24,0.3)'
+    ctx.fillRect(u(Math.min(inner, outer)) - 4, v(1.66), Math.abs(u(outer) - u(inner)) + 8, 0.02 * s)
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(cx + side * 0.01 * s, cy - 0.011 * s, 0.008 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    // A heavy black lash line along the upper lid, flicking out at the corner.
+    ctx.strokeStyle = '#100b09'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = 0.013 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner), v(1.6))
+    ctx.quadraticCurveTo(u(mid - side * 0.012), v(1.66), u(outer), v(1.614))
+    ctx.stroke()
+    ctx.lineWidth = 0.009 * s
+    ctx.beginPath()
+    ctx.moveTo(u(outer - side * 0.03), v(1.628))
+    ctx.lineTo(u(outer + side * 0.014), v(1.618))
+    ctx.stroke()
+    // The lower lid, and the cheek pushed up under it.
+    ctx.strokeStyle = 'rgba(100,58,46,0.55)'
+    ctx.lineWidth = 0.005 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner + side * 0.008), v(1.598))
+    ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.586), u(outer - side * 0.004), v(1.61))
+    ctx.stroke()
+    ctx.strokeStyle = 'rgba(160,96,80,0.32)'
+    ctx.lineWidth = 0.006 * s
+    ctx.beginPath()
+    ctx.moveTo(u(inner + side * 0.015), v(1.578))
+    ctx.quadraticCurveTo(u(mid + side * 0.01), v(1.56), u(outer + side * 0.01), v(1.596))
+    ctx.stroke()
+  }
+
+  // The grin: wide and open, the corners pulled up, the top teeth showing in full and
+  // the edge of the lower ones, over a full lower lip.
+  const my = 1.372
+  const hw = 0.124
+  const mouth = () => {
+    ctx.beginPath()
+    ctx.moveTo(u(-hw), v(my + 0.018))
+    ctx.quadraticCurveTo(u(0), v(my - 0.004), u(hw), v(my + 0.018))
+    ctx.quadraticCurveTo(u(0), v(my - 0.1), u(-hw), v(my + 0.018))
+    ctx.closePath()
+  }
+  ctx.fillStyle = '#c47c72'
+  ctx.beginPath()
+  ctx.moveTo(u(-hw * 0.84), v(my - 0.004))
+  ctx.quadraticCurveTo(u(0), v(my - 0.114), u(hw * 0.84), v(my - 0.004))
+  ctx.quadraticCurveTo(u(0), v(my - 0.088), u(-hw * 0.84), v(my - 0.004))
+  ctx.closePath()
+  ctx.fill()
+  ctx.save()
+  mouth()
+  ctx.fillStyle = '#4a1c1a'
+  ctx.fill()
+  ctx.clip()
+  ctx.fillStyle = '#fbf8f3'
+  ctx.beginPath()
+  ctx.moveTo(u(-hw), v(my + 0.018))
+  ctx.quadraticCurveTo(u(0), v(my - 0.004), u(hw), v(my + 0.018))
+  ctx.quadraticCurveTo(u(0), v(my - 0.064), u(-hw), v(my + 0.018))
+  ctx.closePath()
+  ctx.fill()
+  // The lower teeth's edge along the bottom of the opening.
+  ctx.fillStyle = '#e8e0d8'
+  ctx.beginPath()
+  ctx.moveTo(u(-hw * 0.75), v(my - 0.02))
+  ctx.quadraticCurveTo(u(0), v(my - 0.07), u(hw * 0.75), v(my - 0.02))
+  ctx.quadraticCurveTo(u(0), v(my - 0.11), u(-hw * 0.75), v(my - 0.02))
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(185,170,160,0.75)'
+  ctx.lineWidth = 0.003 * s
+  for (const x of [-0.084, -0.056, -0.028, 0, 0.028, 0.056, 0.084]) {
+    ctx.beginPath()
+    ctx.moveTo(u(x), v(my + 0.012))
+    ctx.lineTo(u(x), v(my - 0.026 + Math.abs(x) * 0.22))
+    ctx.stroke()
+  }
+  ctx.restore()
+  ctx.strokeStyle = '#97534c'
+  ctx.lineCap = 'round'
+  ctx.lineWidth = 0.006 * s
+  mouth()
+  ctx.stroke()
+  ctx.strokeStyle = 'rgba(150,84,72,0.5)'
+  ctx.lineWidth = 0.005 * s
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * (hw - 0.004)), v(my + 0.016))
+    ctx.quadraticCurveTo(u(side * (hw + 0.018)), v(my + 0.022), u(side * (hw + 0.022)), v(my + 0.04))
+    ctx.stroke()
+  }
+}
+
+/**
+ * His hair: short, thick and spiky, standing straight up off the scalp all over the top
+ * and pushed up off the forehead, the tips leaning back a touch and over to his right.
+ * Each spike is a tapered lock rooted on the rogue's own (cropped, blackened) hair.
+ */
+function buildMikeHair(probe: Probe): THREE.Group {
+  let state = 31
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  const radial = (theta: number, phi: number, lift: number): THREE.Vector3 => {
+    const dir = new THREE.Vector3(Math.sin(phi) * Math.sin(theta), Math.cos(phi), Math.sin(phi) * Math.cos(theta))
+    const fallback = new THREE.Vector3(dir.x * HAIR_RADII.x, dir.y * HAIR_RADII.y, dir.z * HAIR_RADII.z).add(HAIR_CENTRE)
+    const hit = probe(dir.clone().multiplyScalar(1.5).add(HAIR_CENTRE), dir.clone().negate()) ?? fallback
+    return hit.addScaledVector(dir, lift)
+  }
+  const light = new Locks()
+  const dark = new Locks()
+  const up = new THREE.Vector3()
+  const WORLD_UP = new THREE.Vector3(0, 1, 0)
+
+  const spike = (theta: number, phi: number, lean: THREE.Vector3, height: number, width: number): void => {
+    const root = radial(theta, phi, -0.012)
+    up.subVectors(root, HAIR_CENTRE).normalize()
+    const dir = up.clone().multiplyScalar(0.5).addScaledVector(WORLD_UP, 0.5).add(lean)
+    dir.x += (noise() - 0.5) * 0.4
+    dir.z += (noise() - 0.5) * 0.4
+    dir.normalize()
+    const at = (rise: number, bend: number) => root.clone().addScaledVector(dir, rise * height).addScaledVector(lean, bend * height)
+    const path = [at(0, 0), at(0.35, 0.02), at(0.7, 0.12), at(1, 0.3)]
+    ;(noise() < 0.35 ? light : dark).add(path, width, width * 0.7, 8, 6)
+  }
+
+  // The top ends low at the forehead and higher over the ears and at the back, where
+  // the short dark sides take over (paintFade with MIKE_SIDES).
+  const reach = (theta: number) => 1.36 - 0.18 * smooth(0.5, 1.4, Math.abs(theta)) - 0.1 * smooth(1.8, 3.0, Math.abs(theta))
+  const count = 320
+  const golden = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < count; i += 1) {
+    const phi = Math.acos(1 - ((i + 0.5) / count) * (1 - Math.cos(1.36)))
+    const theta = Math.atan2(Math.sin(i * golden), Math.cos(i * golden))
+    if (phi > reach(theta)) continue
+    const front = Math.max(0, Math.cos(theta))
+    const crown = 1 - smooth(0.35, 1.25, phi)
+    const lean = new THREE.Vector3(-0.14, 0, 0.1 * front - 0.18 * (1 - front))
+    const height = (0.065 + 0.085 * crown + 0.07 * front * (1 - crown)) * (0.8 + noise() * 0.4)
+    spike(theta, phi, lean, height, 0.04 + noise() * 0.012)
+  }
+
+  const group = new THREE.Group()
+  group.name = 'persona:spikes'
+  for (const [locks, base, glint, shade, seed] of [
+    [light, '#2a221f', 'rgba(120,104,96,0.5)', 'rgba(0,0,0,0.55)', 61],
+    [dark, '#141010', 'rgba(84,72,66,0.45)', 'rgba(0,0,0,0.65)', 67],
+  ] as const) {
+    const material = litMaterial({ map: hairStrands(base, glint, shade, seed) })
+    material.roughness = 0.55
+    const mesh = new THREE.Mesh(locks.build(), material)
+    mesh.castShadow = true
+    group.add(mesh)
+  }
+  return group
+}
+
+/* The oxford shirt --------------------------------------------------- */
+
+/** Oxford cloth: a fine basket weave of light and darker flecks. */
+function oxfordWeave(ctx: CanvasRenderingContext2D, x0: number, y0: number, width: number, height: number): void {
+  let state = 17
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  const flecks = Math.floor((width * height) / 14)
+  for (let i = 0; i < flecks; i += 1) {
+    ctx.fillStyle = noise() < 0.5 ? 'rgba(255,255,255,0.16)' : 'rgba(30,60,105,0.12)'
+    ctx.fillRect(x0 + noise() * width, y0 + noise() * height, 2, 1)
+  }
+  for (let y = y0; y < y0 + height; y += 4) {
+    ctx.fillStyle = 'rgba(255,255,255,0.04)'
+    ctx.fillRect(x0, y, width, 1)
+  }
+}
+
+const OXFORD_STYLE: ShirtStyle = {
+  cloth: hex(OXFORD),
+  weave: oxfordWeave,
+  light: ['rgba(255,255,255,0.08)', 'rgba(10,30,60,0.16)'],
+  trousers: hex(NAVY),
+  trouserSeam: 'rgba(12,16,26,0.6)',
+  under: '10,20,40',
+  hemShade: 'rgba(30,60,100,0.3)',
+  seam: 'rgba(40,75,120,0.45)',
+  thread: 'rgba(235,244,252,0.7)',
+  // Open at the neck, no tee: skin in the V.
+  neck: { fill: MIKE_SHADED_SKIN, shadow: 'rgba(20,40,70,0.45)', top: 1.27, tip: 1.19, half: 0.062, band: null },
+  button: '#f6f8fa',
+  glint: 'rgba(255,255,255,0.7)',
+  collar: { ribs: null, edge: 'rgba(40,75,120,0.4)', thread: 'rgba(235,244,252,0.8)', button: '#f6f8fa' },
+}
+
+const oxfordArm: Classifier = (x) => {
+  const reach = Math.abs(x)
+  if (reach < OXFORD_CUFF_BAND[0]) return Cell.Oxford
+  if (reach < OXFORD_CUFF_BAND[1]) return Cell.OxfordCuff
+  return Cell.MikeSkin
+}
+const navyLeg: Classifier = (_x, y) => {
+  if (y < ROGUE_SOLE_TOP) return Cell.SneakerSole
+  if (y < ROGUE_SHOE_TOP) return Cell.Sneaker
+  return Cell.Navy
+}
+
+/** The buttoned cuff stands a little proud of the wrist. */
+function shirtCuff(p: THREE.Vector3): void {
+  const ax = Math.abs(p.x)
+  const w = smooth(OXFORD_CUFF_BAND[0] - 0.01, OXFORD_CUFF_BAND[0] + 0.008, ax) * (1 - smooth(OXFORD_CUFF_BAND[1] - 0.008, OXFORD_CUFF_BAND[1] + 0.01, ax))
+  if (w <= 0) return
+  const k = 1 + 0.1 * w
+  p.y = ROGUE_ARM_AXIS + (p.y - ROGUE_ARM_AXIS) * k
+  p.z *= k
+}
+
+function dressMike(root: THREE.Object3D): void {
+  const head = findMesh(root, '_head')
+  const torso = findMesh(root, '_body')
+  const palette = paletteTexture()
+  const dressed = head ? dressRogueHead(head, MIKE_LOOK) : null
+  if (head && dressed) bindSpaceOf(head, 'head')?.add(buildMikeHair(dressed.probe))
+  dress(findMesh(root, '_armleft'), palette, oxfordArm)
+  dress(findMesh(root, '_armright'), palette, oxfordArm)
+  dress(findMesh(root, '_legleft'), palette, navyLeg)
+  dress(findMesh(root, '_legright'), palette, navyLeg)
+  for (const side of ['_armleft', '_armright']) {
+    sculpt(findMesh(root, side), bareForearm)
+    sculpt(findMesh(root, side), shirtCuff)
+  }
+  // Oxford cotton and chino twill are matte.
+  for (const part of ['_armleft', '_armright', '_legleft', '_legright']) {
+    const material = findMesh(root, part)?.material as THREE.MeshStandardMaterial | undefined
+    if (material) material.roughness = 1
+  }
+  if (torso) {
+    dressShirt(torso, OXFORD_STYLE)
+    bindSpaceOf(torso, 'chest')?.add(buildShirtCollar(prober(torso.geometry), OXFORD_STYLE))
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Entry point
  * ------------------------------------------------------------------ */
 
@@ -3151,6 +4253,10 @@ export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
   }
   if (id === 'lecter') {
     dressLecter(root)
+    return
+  }
+  if (id === 'mike') {
+    dressMike(root)
     return
   }
   const head = findMesh(root, '_head')

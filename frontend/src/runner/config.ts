@@ -6,7 +6,7 @@ import type { RecolorSpec } from './recolor'
 import barbarianModel from '../assets/models/barbarian.glb?url'
 import knightModel from '../assets/models/knight.glb?url'
 import mageModel from '../assets/models/mage.glb?url'
-import rogueHoodedModel from '../assets/models/rogue_hooded.glb?url'
+import rogueModel from '../assets/models/rogue.glb?url'
 
 /** Three-lane track. Lane 0 = left, 1 = centre, 2 = right. */
 export const LANES = [-2.3, 0, 2.3] as const
@@ -488,31 +488,27 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     perk: { id: 'wideMagnet', value: 1.45 },
     name: 'Mike',
     tagline: 'Marksman',
-    // The hooded rig: the hood plus a ranged weapon is the classic ranger
-    // silhouette, and it keeps the archer from looking like the bare-headed
-    // knife-fighter.
-    model: rogueHoodedModel,
+    // Mike as himself (see persona.ts): short black hair spiked straight up, thick
+    // brows, a big grin, a light-blue oxford button-down open at the neck, navy chinos
+    // and white sneakers, on the bare-headed rogue rig; the cape, knives, bomb and
+    // crossbows stay home.
+    persona: 'mike',
+    model: rogueModel,
+    hideNodes: ['Crossbow', 'Cape', 'Knife', 'Throwable'],
     modelHeight: 1.74,
     modelFacing: Math.PI,
-    // A bolt quiver on the back; the crossbow itself is the rig's own.
-    gear: { quiver: true },
-    // The rogue rig ships a knife *and* two crossbows. The knives go, the light
-    // crossbow goes with them, and the arbalest stays: it is a real prop mounted on
-    // the hand slot, so it swings with the arm instead of needing to be built and
-    // re-placed every frame.
-    hideNodes: ['Knife', '1H_Crossbow', 'Cape'],
-    skin: 0xe8c4a0,
-    hair: 0x3d2b1f,
-    hairStyle: 'ponytail',
-    outfit: 0x2f7d4f,
-    outfitDark: 0x1f5c39,
-    shirt: 0xf3f7f2,
-    bottom: 0x2b3f2c,
-    shoe: 0x24513a,
-    sole: 0xe9f4ef,
-    accent: 0xffd447,
-    glove: 0x25332f,
-    eye: 0x54c98a,
+    skin: 0xe2ae95,
+    hair: 0x141010,
+    hairStyle: 'spiky',
+    outfit: 0x9cc0e4,
+    outfitDark: 0x8bb1da,
+    shirt: 0x9cc0e4,
+    bottom: 0x2b3446,
+    shoe: 0xf2f1ee,
+    sole: 0xbfc0c4,
+    accent: 0xf6f8fa,
+    glove: 0xe2ae95,
+    eye: 0x25160e,
   },
   tim: {
     id: 'tim',

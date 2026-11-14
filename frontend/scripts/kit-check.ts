@@ -378,9 +378,9 @@ const archer = byId('rin')
 
 check('Lecter carries none of the rig\'s weapons', assassin.shown.length === 0, assassin.shown.join(', ') || 'nothing')
 check('the assassin carries no crossbow', !assassin.shown.some((n) => /crossbow/i.test(n)), assassin.shown.filter((n) => /crossbow/i.test(n)).join(', ') || 'none')
-check('the archer carries the arbalest and nothing else', archer.shown.length === 1 && /^2H_Crossbow$/i.test(archer.shown[0]), archer.shown.join(', ') || 'none')
-check('the archer carries no light crossbow', !archer.shown.some((n) => /^1H_/i.test(n)), archer.shown.filter((n) => /^1H_/i.test(n)).join(', ') || 'none')
-check('the archer carries no bow', !archer.shown.some((n) => /\bbow\b/i.test(n)), archer.shown.filter((n) => /\bbow\b/i.test(n)).join(', ') || 'none')
+// Mike is dressed as himself (persona.ts) on the bare-headed rogue rig: no crossbows,
+// no knives, no bow.
+check('Mike carries none of the rig\'s weapons', archer.shown.length === 0, archer.shown.join(', ') || 'nothing')
 // Two heroes now share the knight rig, which is the one case where a `hideNodes`
 // list has to be right for both of them at once: the shield knight keeps a blade
 // and a shield, the duelist keeps only the two-handed sword.

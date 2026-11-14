@@ -87,18 +87,9 @@ for (const id of heroes) {
     console.log('   weapons:', JSON.stringify(weapons))
   }
   if (id === 'rin') {
-    const baked = Object.entries(weapons).filter(([name]) => !name.startsWith('gear:'))
-    check(
-      'the archer carries no baked-in melee weapon',
-      baked.every(([, visible]) => !visible),
-      baked.map(([name, visible]) => `${name}=${visible}`).join(' ') || 'none'
-    )
-    const arbalest = Object.entries(weapons).find(([name]) => /^2H_Crossbow$/i.test(name))
-    check(
-      "the archer holds the rig's arbalest",
-      arbalest?.[1] === true,
-      arbalest ? `${arbalest[0]} visible=${arbalest[1]}` : 'no crossbow in the rig'
-    )
+    // Mike is dressed as himself (persona.ts): none of the rig's weapons stay.
+    const shown = Object.entries(weapons).filter(([, visible]) => visible)
+    check("Mike carries none of the rig's weapons", shown.length === 0, shown.map(([name]) => name).join(' ') || 'none')
   }
   if (id === 'nyx') {
     const knife = Object.entries(weapons).find(([name]) => /knife/i.test(name))
@@ -115,24 +106,7 @@ for (const id of heroes) {
   const visible = (name: RegExp): boolean | undefined =>
     Object.entries(weapons).find(([key]) => name.test(key))?.[1]
   if (id === 'rin') {
-    const quiver = gear.find((g) => g.name === 'gear:quiver')
-    // There is no bow in the pack any more: Mike carries the rig's own arbalest, so
-    // the thing worth asserting is that the old hand-built bow is gone for good.
-    check(
-      'the archer carries no bow',
-      visible(/\bbow\b/i) !== true,
-      `bow mesh visible=${visible(/\bbow\b/i)}`
-    )
-    check(
-      'the archer carries no light crossbow',
-      visible(/^1H_Crossbow$/i) !== true,
-      `1H_Crossbow visible=${visible(/^1H_Crossbow$/i)}`
-    )
-    check(
-      'the quiver rides on the back, clear of the spine',
-      quiver ? gap(quiver.centre, spine) > 0.22 : false,
-      quiver ? `${gap(quiver.centre, spine).toFixed(2)} m from the chest bone` : 'missing'
-    )
+    check('Mike carries no quiver', !gear.some((g) => g.name === 'gear:quiver'), gear.map((g) => g.name).join(', ') || 'none')
   } else if (id === 'kai' || id === 'tim') {
     // The two knights share a rig, so this is the one place where the switch-off
     // list has to be right for two heroes at once.
