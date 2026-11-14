@@ -14,7 +14,19 @@ export interface StageOptions {
   onReady?: () => void
   /** Fires when the player clicks a hero on the stage. */
   onSelect?: (id: CharacterId) => void
+  /**
+   * The row of hero cards under the stage (each card carries `data-hero`). When all six
+   * sit side by side under the canvas, every hero stands right above their own card.
+   */
+  cards?: () => HTMLElement | null
+  /** The name plate, kept floating just above the chosen hero's head. */
+  label?: () => HTMLElement | null
 }
+
+/** Height on the body that is lined up over the card's centre (about the chest). */
+const ALIGN_HEIGHT = 0.9
+/** Gap in px between the top of the chosen hero's head and the name plate. */
+const LABEL_GAP = 6
 
 /**
  * Gap between heroes. Their kit — Teddyz's shield, Bobbilee's book, the axes — reaches
@@ -145,6 +157,14 @@ interface Slot {
   burst: THREE.Mesh
   burstMaterial: THREE.MeshBasicMaterial
   home: THREE.Vector3
+  /** Where the hero stands across the stage right now: over their card, or `home.x`. */
+  targetX: number
+  /** Top of the head (hair included) above the stand, at scale 1. */
+  top: number
+  /** Whether `top` has been measured off the posed, visible meshes yet. */
+  measured: boolean
+  /** False until the hero has been put over their card once (then they glide). */
+  placed: boolean
   spin: number
   /** Seconds left on the "picked!" hop and floor ripple. */
   hop: number
@@ -170,13 +190,18 @@ export class CharacterStage {
   private shadowMap: THREE.Texture
   private beamMap: THREE.Texture | null = null
   private onReady?: () => void
+  private cards?: () => HTMLElement | null
+  private label?: () => HTMLElement | null
   private time = 0
+  private scratch = new THREE.Vector3()
 
   constructor(options: StageOptions, selected: CharacterId) {
     this.canvas = options.canvas
     this.selected = selected
     this.onReady = options.onReady
     this.onSelect = options.onSelect
+    this.cards = options.cards
+    this.label = options.label
     const quality: StageQuality = options.quality ?? 'medium'
 
     this.renderer = new THREE.WebGLRenderer({
@@ -314,6 +339,10 @@ export class CharacterStage {
         burst,
         burstMaterial,
         home,
+        targetX: home.x,
+        top: spec.modelHeight,
+        measured: false,
+        placed: false,
         spin: 0,
         hop: 0,
         burstT: 0,
@@ -322,6 +351,7 @@ export class CharacterStage {
       this.slots.push(slot)
       void avatar.ready.then((ok) => {
         slot.ready = ok
+
         if (this.slots.every((item) => item.ready)) this.onReady?.()
       })
     }
@@ -393,6 +423,88 @@ export class CharacterStage {
     this.camera.fov = stageFov(aspect)
     this.camera.position.z = stageCameraZ(this.camera.fov, aspect)
     this.camera.updateProjectionMatrix()
+    this.camera.updateMatrixWorld()
+  }
+
+  /**
+   * Stands every hero over their own card. The cards are measured each frame (they move
+   * with the layout, not only with the canvas), and each hero's x is solved at the depth
+   * they stand at, so the arc and the step forward keep them over the card too. Only
+   * when all six cards are one row under the canvas — on phones they wrap into two rows,
+   * and the line-up keeps its even spacing there.
+   */
+  private alignToCards(): void {
+    const row = this.cards?.()
+    const canvasRect = this.canvas.getBoundingClientRect()
+    const tiles = row ? Array.from(row.querySelectorAll<HTMLElement>('[data-hero]')) : []
+    const rects = tiles.map((tile) => tile.getBoundingClientRect())
+    const oneRow =
+      tiles.length === this.slots.length &&
+      canvasRect.width > 0 &&
+      rects.every((rect) => Math.abs(rect.top - rects[0].top) < 4) &&
+      rects.every((rect) => rect.left + rect.width / 2 > canvasRect.left && rect.right - rect.width / 2 < canvasRect.right)
+    const tan = Math.tan((this.camera.fov * Math.PI) / 360)
+    for (const slot of this.slots) {
+      const index = tiles.findIndex((tile) => tile.dataset.hero === slot.id)
+      if (!oneRow || index < 0) {
+        slot.targetX = slot.home.x
+        continue
+      }
+      const rect = rects[index]
+      const ndcX = ((rect.left + rect.width / 2 - canvasRect.left) / canvasRect.width) * 2 - 1
+      // The camera only tilts down, so view-space x is world x and only the depth is
+      // needed: how far in front of the camera the hero's chest is.
+      const depth = -this.scratch.set(0, ALIGN_HEIGHT, slot.root.position.z).applyMatrix4(this.camera.matrixWorldInverse).z
+      slot.targetX = this.camera.position.x + ndcX * tan * this.camera.aspect * depth
+    }
+  }
+
+  /**
+   * How tall the hero really stands: the visible meshes only, in their posed shape (a
+   * rig's hidden props, and the model height it was scaled by, can reach well past the
+   * hair). Taken once, on the first posed frame, with the hop and the lift taken out.
+   */
+  private measureTop(slot: Slot): void {
+    slot.measured = true
+    slot.root.updateMatrixWorld(true)
+    const box = new THREE.Box3()
+    const part = new THREE.Box3()
+    slot.avatar.root.traverseVisible((object) => {
+      const mesh = object as THREE.Mesh
+      if (!mesh.isMesh) return
+      if ((mesh as THREE.SkinnedMesh).isSkinnedMesh) (mesh as THREE.SkinnedMesh).computeBoundingBox()
+      else if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
+      const local = (mesh as THREE.SkinnedMesh).isSkinnedMesh ? (mesh as THREE.SkinnedMesh).boundingBox : mesh.geometry.boundingBox
+      if (local) box.union(part.copy(local).applyMatrix4(mesh.matrixWorld))
+    })
+    if (box.isEmpty()) return
+    const top = (box.max.y - slot.root.position.y - slot.avatar.root.position.y * slot.root.scale.y) / Math.max(0.01, slot.root.scale.y)
+    if (Number.isFinite(top)) slot.top = THREE.MathUtils.clamp(top, 1.2, 2.6)
+  }
+
+  /** Floats the name plate just above the chosen hero's head (not the hop). */
+  private placeLabel(): void {
+    const plate = this.label?.()
+    const slot = this.slots.find((item) => item.id === this.selected)
+    const parent = plate?.offsetParent as HTMLElement | null
+    if (!plate || !parent || !slot?.ready) return
+    const head = this.scratch.set(
+      slot.root.position.x,
+      slot.root.position.y + slot.top * slot.root.scale.y,
+      slot.root.position.z
+    )
+    head.project(this.camera)
+    const canvasRect = this.canvas.getBoundingClientRect()
+    const parentRect = parent.getBoundingClientRect()
+    const x = canvasRect.left - parentRect.left + ((head.x + 1) / 2) * canvasRect.width
+    const y = canvasRect.top - parentRect.top + ((1 - head.y) / 2) * canvasRect.height - LABEL_GAP
+    // Kept inside the stage: the plate's bottom edge sits at `y`.
+    const half = plate.offsetWidth / 2 + 6
+    const left = THREE.MathUtils.clamp(x, half, Math.max(half, parent.clientWidth - half))
+    const bottom = Math.max(y, plate.offsetHeight + 6)
+    plate.style.left = `${left.toFixed(1)}px`
+    plate.style.top = `${bottom.toFixed(1)}px`
+    if (!plate.classList.contains('is-anchored')) plate.classList.add('is-anchored')
   }
 
   private loop = (): void => {
@@ -401,8 +513,11 @@ export class CharacterStage {
     const dt = Math.min(0.05, this.clock.getDelta())
     this.time += dt
     this.resize()
+    this.alignToCards()
     for (const slot of this.slots) {
       if (!slot.ready) continue
+      slot.root.position.x = slot.placed ? THREE.MathUtils.damp(slot.root.position.x, slot.targetX, 8, dt) : slot.targetX
+      slot.placed = true
       const active = slot.id === this.selected
       const hovered = slot.id === this.hovered
       // Step forward when chosen, and give a small bob while hovering.
@@ -454,7 +569,9 @@ export class CharacterStage {
         time: this.time,
         mode: 'menu',
       })
+      if (!slot.measured) this.measureTop(slot)
     }
+    this.placeLabel()
     this.renderer.render(this.scene, this.camera)
   }
 

@@ -133,6 +133,8 @@ export function RushMenu({
   const [editing, setEditing] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
+  const cardsRef = useRef<HTMLDivElement>(null)
+  const plateRef = useRef<HTMLDivElement>(null)
   const stageInstance = useRef<CharacterStage | null>(null)
   const [stageReady, setStageReady] = useState(false)
 
@@ -142,7 +144,15 @@ export function RushMenu({
     const canvas = canvasRef.current
     if (!canvas) return
     const stage = new CharacterStage(
-      { canvas, quality, onReady: () => setStageReady(true), onSelect: (id) => onCharacterChange(id) },
+      {
+        canvas,
+        quality,
+        onReady: () => setStageReady(true),
+        onSelect: (id) => onCharacterChange(id),
+        // Each hero stands over their own card, and the name plate rides above the pick.
+        cards: () => cardsRef.current,
+        label: () => plateRef.current,
+      },
       character
     )
     stageInstance.current = stage
@@ -228,9 +238,10 @@ export function RushMenu({
                   <Loader2 size={16} className="ar-spin" /> {t('menu.chooseRunner')}
                 </div>
               )}
-              {/* The pick is named on the stage itself: the 3D line-up shows who, the plate
-                  says who, in that hero's colour. */}
+              {/* The pick is named on the stage itself, right above their head (the stage
+                  moves the plate there every frame), in that hero's colour. */}
               <div
+                ref={plateRef}
                 className="ar-stage-plate"
                 key={character}
                 style={{ ['--ar-accent' as string]: heroColorCss(character) }}
@@ -241,10 +252,11 @@ export function RushMenu({
               </div>
             </div>
 
-            <div className="ar-char-row">
+            <div className="ar-char-row" ref={cardsRef}>
               {(CHARACTER_IDS.map((id) => CHARACTERS[id]) as CharacterSpec[]).map((item) => (
                 <button
                   key={item.id}
+                  data-hero={item.id}
                   className={`ar-char-tile ${character === item.id ? 'is-active' : ''} ${
                     heroUnlocked(economy, item.id) ? '' : 'is-locked'
                   }`}
