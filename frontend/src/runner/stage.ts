@@ -249,6 +249,7 @@ export class CharacterStage {
         gear: spec.gear,
         hideNodes: spec.hideNodes,
         persona: spec.persona,
+        sleeve: spec.persona ? spec.outfit : undefined,
       })
       root.add(avatar.root)
 

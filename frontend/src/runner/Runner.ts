@@ -756,6 +756,7 @@ export class Runner {
       gear: spec.gear,
       hideNodes: spec.hideNodes,
       persona: spec.persona,
+      sleeve: spec.persona ? spec.outfit : undefined,
     })
     const ok = await model.ready
     if (this.disposed || !ok) {
