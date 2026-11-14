@@ -76,38 +76,11 @@ export interface ModelAvatarOptions {
   sleeve?: number
 }
 
-/** How much of the run cycle's arm swing is kept: the rig's own is wide and stiff. */
-const ARM_SWING = 0.72
-/** Radians the arms are drawn in toward the body while running. */
-const ARM_TUCK = 0.13
 /** Radius of the cap over each shoulder joint, in rig units. */
 const SHOULDER_CAP = 0.125
 
-interface ArmBone {
-  side: 1 | -1
-  upper: THREE.Object3D
-  lower: THREE.Object3D
-  /** The run cycle's average pose of each bone, which the swing is scaled around. */
-  upperMean: THREE.Quaternion
-  lowerMean: THREE.Quaternion
-}
-
 const boneKey = (name: string): string => name.replace(/[[\].:/]/g, '').toLowerCase()
 
-/** The average of a clip's rotation track for a bone (signs aligned, normalised). */
-function meanRotation(clip: THREE.AnimationClip | undefined, bone: THREE.Object3D): THREE.Quaternion {
-  const mean = new THREE.Quaternion(0, 0, 0, 0)
-  const track = clip?.tracks.find((t) => t.name === `${bone.name}.quaternion`)
-  if (!track) return bone.quaternion.clone()
-  const q = new THREE.Quaternion()
-  const first = new THREE.Quaternion().fromArray(track.values, 0)
-  for (let i = 0; i + 3 < track.values.length; i += 4) {
-    q.fromArray(track.values, i)
-    if (q.dot(first) < 0) q.set(-q.x, -q.y, -q.z, -q.w)
-    mean.set(mean.x + q.x, mean.y + q.y, mean.z + q.z, mean.w + q.w)
-  }
-  return mean.normalize()
-}
 
 const RUN_FADE = 0.22
 const ACTION_FADE = 0.14
@@ -167,9 +140,6 @@ export class ModelAvatar {
   private hideNodes: string[] = []
   private persona?: PersonaId
   private sleeve?: number
-  private arms: ArmBone[] = []
-  /** 0 = the rig's own arms, 1 = eased (while running). */
-  private armBlend = 0
   private maskState = new Map<THREE.Object3D, boolean>()
   private lean = 0
   private yaw = 0
@@ -267,7 +237,7 @@ export class ModelAvatar {
         this.actions.set(clip.name, action)
       }
       this.mixer.addEventListener('finished', this.handleFinished)
-      this.softenShoulders(scene, loaded.animations)
+      this.softenShoulders(scene)
       this.play('Idle', 0)
       return true
     } catch (error) {
@@ -279,19 +249,15 @@ export class ModelAvatar {
   /**
    * The arms are separate rigid blocks on the rig, so at the shoulder they meet the body
    * at a hard corner that opens and closes with every swing. Each shoulder gets a round
-   * cap in the sleeve's colour over the joint, and the run's arm swing is eased in
-   * easeArms.
+   * cap in the sleeve's colour over the joint; the arms keep the rig's own swing.
    */
-  private softenShoulders(scene: THREE.Object3D, clips: THREE.AnimationClip[]): void {
+  private softenShoulders(scene: THREE.Object3D): void {
+    if (this.sleeve === undefined) return
     const bones = new Map<string, THREE.Object3D>()
     scene.traverse((object) => bones.set(boneKey(object.name), object))
-    const run = clips.find((clip) => clip.name === 'Running_A')
-    for (const [suffix, side] of [['l', 1], ['r', -1]] as const) {
+    for (const suffix of ['l', 'r']) {
       const upper = bones.get(`upperarm${suffix}`)
-      const lower = bones.get(`lowerarm${suffix}`)
-      if (!upper || !lower) continue
-      this.arms.push({ side, upper, lower, upperMean: meanRotation(run, upper), lowerMean: meanRotation(run, lower) })
-      if (this.sleeve === undefined) continue
+      if (!upper) continue
       const material = new THREE.MeshStandardMaterial({ color: this.sleeve, roughness: 0.85, metalness: 0 })
       material.emissive = new THREE.Color(this.sleeve)
       material.emissiveIntensity = 0.26
@@ -300,39 +266,6 @@ export class ModelAvatar {
       cap.position.set(0, 0.03, 0)
       cap.castShadow = true
       upper.add(cap)
-    }
-  }
-
-  private easeScratch = {
-    target: new THREE.Quaternion(),
-    tuck: new THREE.Quaternion(),
-    parent: new THREE.Quaternion(),
-    scene: new THREE.Quaternion(),
-    axis: new THREE.Vector3(),
-  }
-
-  /** Runs after the mixer: narrows the arm swing and draws the arms in toward the body. */
-  private easeArms(dt: number): void {
-    const running = this.current !== null && this.current === this.actions.get('Running_A')
-    this.armBlend = damp(this.armBlend, running ? 1 : 0, 8, dt)
-    if (this.armBlend < 0.002 || !this.model) return
-    const s = this.easeScratch
-    this.model.getWorldQuaternion(s.scene)
-    for (const arm of this.arms) {
-      for (const [bone, mean] of [
-        [arm.upper, arm.upperMean],
-        [arm.lower, arm.lowerMean],
-      ] as const) {
-        s.target.copy(mean).slerp(bone.quaternion, ARM_SWING)
-        bone.quaternion.slerp(s.target, this.armBlend)
-      }
-      // Drawn in about the body's own front-to-back axis, expressed in the shoulder's parent.
-      const parent = arm.upper.parent
-      if (!parent) continue
-      parent.getWorldQuaternion(s.parent)
-      s.axis.set(0, 0, 1).applyQuaternion(s.scene).applyQuaternion(s.parent.invert())
-      s.tuck.setFromAxisAngle(s.axis.normalize(), -arm.side * ARM_TUCK * this.armBlend)
-      arm.upper.quaternion.premultiply(s.tuck)
     }
   }
 
@@ -477,7 +410,6 @@ export class ModelAvatar {
     this.root.rotation.y = this.yaw
 
     this.mixer?.update(dt)
-    this.easeArms(dt)
 
     // --- the slide, applied to the body -------------------------------------
     // Damped rather than switched, so going down and standing back up are both a
