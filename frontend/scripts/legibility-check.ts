@@ -159,7 +159,6 @@ interface Target {
 
 const TARGETS: Target[] = [
   { selector: '.ar-char-tile-name', background: PANEL },
-  { selector: '.ar-char-tile-tag', background: PANEL },
   { selector: '.ar-char-tile-perk-label', background: PANEL },
   { selector: '.ar-char-tile-perk-text', background: PANEL },
   { selector: '.ar-stage-hint', background: STAGE },
@@ -388,24 +387,14 @@ if (scoreStops.length >= 2) {
   )
 }
 
-// A job label that wraps mid-phrase turns six cards into a ragged row: "Chiến binh sấm
-// sét" took two lines while "Pháp sư" took one, and the pair looked unrelated. The
-// budget is derived from the tile rather than guessed: the panel is 1080 px, the left
-// column is 1.62fr of a 2.42fr grid with an 18 px gap, six tiles with 8 px gaps and
-// 10 px of padding leave about 86 px of text, and the tag is 10 px uppercase at 0.06em
-// — which is roughly twelve characters.
-const TAG_BUDGET = 12
-const I18N_SOURCE = readFileSync('src/lib/i18n.ts', 'utf8')
-const TAGS = [...I18N_SOURCE.matchAll(/'char\.\w+\.tag': \{ en: '([^']+)', vi: '([^']+)' \}/g)]
-check('the hero tag list is readable', TAGS.length === 6, `${TAGS.length} tags found`)
-for (const [, en, vi] of TAGS) {
-  const longest = Math.max(en.length, vi.length)
-  check(
-    `hero tag fits one line — ${vi}`,
-    longest <= TAG_BUDGET,
-    `${longest} of ${TAG_BUDGET} characters (en "${en}", vi "${vi}")`
-  )
-}
+// Heroes are named only: the job labels under the names ("Khiên USDC", "Diễn giả"…)
+// were dropped, so none may come back on a card or the stage plate.
+const SCREENS = readFileSync('src/components/runner/RushScreens.tsx', 'utf8')
+check(
+  'heroes carry no job label',
+  !/char\.\$\{[^}]+\}\.tag/.test(SCREENS) && !/'char\.\w+\.tag'/.test(readFileSync('src/lib/i18n.ts', 'utf8')),
+  'name and ability only'
+)
 
 const menuButton = style('.ar-menu .ar-menu-row > .ar-btn')
 check(

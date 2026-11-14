@@ -381,26 +381,11 @@ check('the assassin carries no crossbow', !assassin.shown.some((n) => /crossbow/
 // Mike is dressed as himself (persona.ts) on the bare-headed rogue rig: no crossbows,
 // no knives, no bow.
 check('Mike carries none of the rig\'s weapons', archer.shown.length === 0, archer.shown.join(', ') || 'nothing')
-// Two heroes now share the knight rig, which is the one case where a `hideNodes`
-// list has to be right for both of them at once: the shield knight keeps a blade
-// and a shield, the duelist keeps only the two-handed sword.
+// Tim is dressed as himself (persona.ts) on the knight rig: the swords, shield, helmet
+// and cape all stay home.
 const swordsman = byId('tim')
 const shieldKnight = byId('kai')
-check(
-  'the swordsman carries the greatsword and nothing else',
-  swordsman.shown.length === 1 && /^2H_Sword$/i.test(swordsman.shown[0]),
-  swordsman.shown.join(', ') || 'none'
-)
-check(
-  'the swordsman carries no shield',
-  !swordsman.shown.some((n) => /shield/i.test(n)),
-  swordsman.shown.filter((n) => /shield/i.test(n)).join(', ') || 'none'
-)
-check(
-  'the swordsman carries no side sword',
-  !swordsman.shown.some((n) => /^1H_/i.test(n)),
-  swordsman.shown.filter((n) => /^1H_/i.test(n)).join(', ') || 'none'
-)
+check("Tim carries none of the rig's weapons", swordsman.shown.length === 0, swordsman.shown.join(', ') || 'nothing')
 // Sam is dressed as himself (persona.ts): the rig's blades and shields all go, and the
 // round shield's grip holds a USDC coin instead.
 check('Sam carries none of the rig\'s weapons', shieldKnight.shown.length === 0, shieldKnight.shown.join(', ') || 'none')

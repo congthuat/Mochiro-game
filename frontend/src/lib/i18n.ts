@@ -37,14 +37,6 @@ const DICT: Record<string, Entry> = {
 
   // ----------------------------------------------------------------- menu --
 
-  // ----------------------------------------------------------- characters --
-  'char.kai.tag': { en: 'USDC Shield', vi: 'Khiên USDC' },
-  'char.mika.tag': { en: 'Keynote', vi: 'Diễn giả' },
-  'char.bjorn.tag': { en: 'Bruiser', vi: 'Chiến binh' },
-  'char.nyx.tag': { en: 'Night blade', vi: 'Sát thủ đêm' },
-  'char.rin.tag': { en: 'Marksman', vi: 'Xạ thủ nỏ' },
-  'char.tim.tag': { en: 'Duelist', vi: 'Kiếm sĩ' },
-
   // ------------------------------------------------------------------ hud --
   'hud.combo': { en: 'Combo', vi: 'Chuỗi' },
   'hud.speed': { en: 'Speed', vi: 'Tốc độ' },

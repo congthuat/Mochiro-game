@@ -229,7 +229,7 @@ export function RushMenu({
                 </div>
               )}
               {/* The pick is named on the stage itself: the 3D line-up shows who, the plate
-                  says who and what they are, in that hero's colour. */}
+                  says who, in that hero's colour. */}
               <div
                 className="ar-stage-plate"
                 key={character}
@@ -238,7 +238,6 @@ export function RushMenu({
               >
                 <span className="ar-stage-plate-dot" />
                 <strong>{CHARACTERS[character].name}</strong>
-                <span className="ar-stage-plate-tag">{t(`char.${character}.tag`)}</span>
               </div>
             </div>
 
@@ -253,7 +252,6 @@ export function RushMenu({
                   onClick={() => onCharacterChange(item.id)}
                 >
                   <span className="ar-char-tile-name">{item.name}</span>
-                  <span className="ar-char-tile-tag">{t(`char.${item.id}.tag`)}</span>
                   <span className="ar-char-tile-perk" title={t('char.ability')}>
                     <PerkIcon id={item.perk.id} />
                     <span className="ar-char-tile-perk-text">{t(`perk.${item.perk.id}`)}</span>
