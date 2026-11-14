@@ -1686,7 +1686,19 @@ function fadeTop(angle: number): number {
   return 1.88 + 0.06 * smooth(0.8, 1.3, a) - 0.12 * smooth(2.2, 2.9, a)
 }
 
-function paintScalp(ctx: CanvasRenderingContext2D, skin: [number, number, number], dark: readonly number[] = [26, 21, 19]): void {
+interface ScalpCut {
+  /** Where hair starts, by angle round the head. */
+  line: (angle: number) => number
+  /** Where the short sides give way to the full-length top. */
+  top: (angle: number) => number
+}
+
+function paintScalp(
+  ctx: CanvasRenderingContext2D,
+  skin: [number, number, number],
+  dark: readonly number[] = [26, 21, 19],
+  cut: ScalpCut = { line: hairline, top: fadeTop }
+): void {
   const x0 = SCALP.left - 8
   const y0 = SCALP.top - 4
   const w = SCALP.width + 16
@@ -1702,8 +1714,8 @@ function paintScalp(ctx: CanvasRenderingContext2D, skin: [number, number, number
     const y = SCALP.high - ((py + y0 - SCALP.top) / SCALP.height) * (SCALP.high - SCALP.low)
     for (let px = 0; px < w; px += 1) {
       const angle = SCALP.from + ((px + x0 - SCALP.left) / SCALP.width) * (SCALP.to - SCALP.from)
-      const line = hairline(angle)
-      const top = fadeTop(angle)
+      const line = cut.line(angle)
+      const top = cut.top(angle)
       // 0 = bare skin, 1 = full hair; the fade climbs from a shadow to near-black.
       let cover = 0
       if (y >= top) cover = 1
@@ -1757,6 +1769,7 @@ function dressTeddyzHead(head: THREE.SkinnedMesh, look: 'teddyz' | 'lecter' = 't
   const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
   if (!uv || !normal) return null
 
+  const lineAt = look === 'lecter' ? LECTER_CUT.line : hairline
   const tone = [0, 0, 0, 0]
   const faceTriangles: number[] = []
   const scalpTriangles: number[] = []
@@ -1778,7 +1791,7 @@ function dressTeddyzHead(head: THREE.SkinnedMesh, look: 'teddyz' | 'lecter' = 't
       nz += normal.getZ(i + k) / 3
       u += uv.getX(i + k) / 3
       v += uv.getY(i + k) / 3
-      peak = Math.max(peak, position.getY(i + k) - hairline(Math.atan2(position.getX(i + k), position.getZ(i + k))))
+      peak = Math.max(peak, position.getY(i + k) - lineAt(Math.atan2(position.getX(i + k), position.getZ(i + k))))
       reach = Math.max(reach, position.getY(i + k))
     }
     const [r, g, b] = texel(u, v)
@@ -1835,7 +1848,7 @@ function dressTeddyzHead(head: THREE.SkinnedMesh, look: 'teddyz' | 'lecter' = 't
 
   if (look === 'lecter') {
     const lit = (k: number) => `rgb(${base.map((v) => Math.min(255, Math.round(v * k))).join(',')})`
-    paintScalp(ctx, base, COPPER.dark)
+    paintScalp(ctx, base, COPPER.dark, LECTER_CUT)
     paintLecterFace(ctx, lit(1.02), lit(0.97), 1.386)
   } else {
     paintScalp(ctx, base)
@@ -2582,6 +2595,23 @@ function paintLecterFace(ctx: CanvasRenderingContext2D, top: string, bottom: str
 
 /* Hair, glasses, collar --------------------------------------------- */
 
+/**
+ * Lecter's cut is not Teddyz's: the top stays full over the ears, and at the back the hair
+ * is left long enough to cover the nape, tapering down into a soft rounded point at the
+ * centre of the neck, instead of a clipper-faded back and sides.
+ */
+const LECTER_CUT: ScalpCut = {
+  line: (angle) => {
+    const a = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)))
+    // Low over the ears, then down to the nape, lowest at the centre of the back.
+    return 1.88 - 0.22 * smooth(0.8, 1.3, a) - 0.1 * smooth(1.6, 2.2, a) - 0.2 * smooth(2.2, 3.1, a)
+  },
+  top: (angle) => {
+    const a = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)))
+    return 1.86 + 0.04 * smooth(0.8, 1.3, a) - 0.1 * smooth(1.6, 2.2, a) - 0.22 * smooth(2.2, 3.1, a)
+  },
+}
+
 /** His hair: a deep red-brown, dark at the roots of the faded sides. */
 const COPPER = { dark: [74, 20, 14], light: [160, 56, 34] } as const
 
@@ -2705,6 +2735,19 @@ function buildLecterHair(probe: Probe): THREE.Group {
     const top = 1 - smooth(0.25, 1.05, phi)
     const lift = (1 + 0.45 * forward * crown + 0.7 * top) * (1 - 0.25 * rim) * (1 - 0.25 * back)
     curl(theta, phi, heading, (0.032 + noise() * 0.02) * lift, 0.07 + noise() * 0.03, 0.04 + noise() * 0.012)
+  }
+  // The back: layered locks that fall from the crown over the nape, longest at the centre
+  // so the hair ends in a soft, rounded point at the neck, each curling out a little.
+  for (let i = 0; i < 150; i += 1) {
+    const side = i % 2 === 0 ? 1 : -1
+    const spread = noise()
+    const theta = side * (Math.PI - spread * 1.35)
+    // How far down the neck this column reaches: lowest at the centre of the back.
+    const depth = 1.62 + 0.3 * smooth(0.0, 1.0, 1 - spread)
+    const phi = 1.12 + noise() * (depth - 1.12)
+    const fall = new THREE.Vector3(Math.sin(theta) * 0.35, -1, Math.cos(theta) * 0.25)
+    const tip = (phi - 1.1) * 0.1
+    curl(theta, phi, fall, 0.018 + noise() * 0.012, 0.05 + tip + noise() * 0.03, 0.04 + noise() * 0.012)
   }
   // The front hairline: short strands lifted up and over to his left, off an open forehead.
   for (const [x, length] of [
