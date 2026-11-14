@@ -400,8 +400,6 @@ const DICT: Record<string, Entry> = {
   'ach.coins.goal': { en: 'Collect {n} Arc in total', vi: 'Nhặt tổng cộng {n} Arc' },
   'ach.hard': { en: 'Fearless', vi: 'Gan dạ' },
   'ach.hard.goal': { en: 'Run {n} on Hard', vi: 'Chạy {n} ở chế độ Khó' },
-  'ach.heroes': { en: 'Collector', vi: 'Nhà sưu tầm' },
-  'ach.heroes.goal': { en: 'Own {n} heroes', vi: 'Sở hữu {n} nhân vật' },
   'ach.upgrades': { en: 'Engineer', vi: 'Kỹ sư' },
   'ach.upgrades.goal': { en: 'Max out {n} power-up(s)', vi: 'Nâng tối đa {n} vật phẩm' },
   'ach.streak': { en: 'Regular', vi: 'Chuyên cần' },

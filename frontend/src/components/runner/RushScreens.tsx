@@ -261,7 +261,11 @@ export function RushMenu({
                   {heroUnlocked(economy, item.id) ? (
                     <span className={`ar-char-tile-foot${character === item.id ? ' is-using' : ''}`}>
                       {character === item.id && <Check size={11} strokeWidth={3} />}
-                      {character === item.id ? t('char.inUse') : t('shop.owned')}
+                      {character === item.id
+                        ? t('char.inUse')
+                        : heroPrice(economy, item.id) === 0
+                          ? t('shop.free')
+                          : t('shop.owned')}
                     </span>
                   ) : (
                     (economy?.bank ?? 0) >= heroPrice(economy, item.id) ? (

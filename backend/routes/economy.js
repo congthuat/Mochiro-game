@@ -28,21 +28,21 @@ router.use((_req, res, next) => {
 // A regular player (≈10 min a day) earns ≈ 3,000 from runs + ≈ 800 daily login
 // + ≈ 1,200 from quests ≈ 5,000 Arc a day. Runs stay the main income (~60%), but
 // showing up every day and finishing quests is worth ~40% — not a rounding error.
-//   first paid hero  ≈ 2 days · every hero ≈ 2.5 weeks · every upgrade maxed ≈ +1 month
+//   every hero is free · every upgrade maxed ≈ 1 month
 
 /**
- * Hero prices. Two starters are free; every other hero costs the same, because each one
- * is a different way to play rather than a stronger tier — the perks are balanced as
- * sidegrades (see CHARACTERS in the client config). ≈ 4 days of regular income each.
+ * Hero prices. Every hero is free, so everyone can try every way to play from the first
+ * run: the perks are sidegrades, not tiers (see CHARACTERS in the client config). A price
+ * of 0 means "owned by everyone" throughout — the client shows it as Free and /buy
+ * refuses it as already owned.
  */
-const HERO_PRICE = 20000
 const CHARACTER_PRICES = {
   kai: 0, // Sam — starts with a shield
   mika: 0, // Bobbilee — helpful power-ups last +20%
-  bjorn: HERO_PRICE, // Teddyz — immune to the three bad pick-ups
-  nyx: HERO_PRICE, // Lecter — faster lane changes, close calls score double
-  rin: HERO_PRICE, // Mike — always pulls nearby coins, magnet reaches 45% further
-  tim: HERO_PRICE, // Tim — Overdrive lasts twice as long
+  bjorn: 0, // Teddyz — immune to the three bad pick-ups
+  nyx: 0, // Lecter — faster lane changes, close calls score double
+  rin: 0, // Mike — always pulls nearby coins, magnet reaches 45% further
+  tim: 0, // Tim — Overdrive lasts twice as long
 }
 
 /** Each level stretches that power-up by +10% (max +50%). Costs climb per level. */
@@ -88,7 +88,6 @@ const ACHIEVEMENTS = [
   { id: 'runs', metric: 'runs', tiers: [[10, 300], [50, 1000], [200, 3000], [500, 6000]] },
   { id: 'coins', metric: 'coins', tiers: [[5000, 300], [25000, 1000], [100000, 3000], [300000, 6000]] },
   { id: 'hard', metric: 'hard_distance', tiers: [[1000, 500], [3000, 1500], [8000, 4000]] },
-  { id: 'heroes', metric: 'heroes', tiers: [[3, 500], [6, 3000]] },
   { id: 'upgrades', metric: 'maxed', tiers: [[1, 1000], [4, 4000]] },
   { id: 'streak', metric: 'dailies', tiers: [[7, 500], [30, 2500]] },
   { id: 'quests', metric: 'quests', tiers: [[10, 500], [50, 2000]] },
@@ -236,15 +235,11 @@ async function lifetimeStats(clientId, profile) {
     ),
     dbQuery('SELECT COUNT(*)::int AS n FROM runner_profiles WHERE referred_by = $1 AND ref_paid IS TRUE', [clientId]),
   ])
-  const owned = Object.keys(CHARACTER_PRICES).filter(
-    (id) => CHARACTER_PRICES[id] === 0 || (profile?.unlocked ?? ',').includes(`,${id},`)
-  ).length
   const maxed = UPGRADE_KINDS.filter((kind) => Number(profile?.[`up_${kind}`] ?? 0) >= UPGRADE_MAX).length
   return {
     ...(runs.rows[0] ?? {}),
     ...(book.rows[0] ?? {}),
     friends: friends.rows[0]?.n ?? 0,
-    heroes: owned,
     maxed,
   }
 }
