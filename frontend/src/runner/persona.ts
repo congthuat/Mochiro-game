@@ -3227,6 +3227,8 @@ type HeadPiece = 'main' | 'brow' | 'eye' | 'nose' | 'earring' | 'ear' | 'other'
 /** What sets one rogue-rig head apart from another: skin, hair colour, face, sides, jaw. */
 interface RogueLook {
   skinShift: readonly [number, number, number]
+  /** The skin's own colour, for a head painted from scratch (the knight's is bare steel-grey atlas). */
+  tone: readonly [number, number, number]
   hair: { dark: readonly number[]; light: readonly number[] }
   paintFace: (ctx: CanvasRenderingContext2D, top: string, bottom: string) => void
   paintSides: (ctx: CanvasRenderingContext2D, skin: number[]) => void
@@ -3400,6 +3402,115 @@ function dressRogueHead(head: THREE.SkinnedMesh, look: RogueLook): { probe: Retu
   material.emissiveMap = texture
   material.needsUpdate = true
   return { probe: prober(geometry), earring: earringCorners ? earring.divideScalar(earringCorners) : null }
+}
+
+/**
+ * A real person's head on the knight rig (Sam's and Tim's). Its texture is the knight's
+ * steel atlas, and the skull is bare under a helmet, so the head is painted from scratch:
+ * a fresh texture of skin with the face patch and the faded back and sides painted on it
+ * (look.paintFace, look.paintSides), every triangle pointed at the right one by where it
+ * sits. The pieces are the rogue's (ears, brows, eyes, nose), handled the same way; the
+ * tall skull is lowered and cropped (shortCrop). Returns a probe of the finished surface.
+ */
+function dressKnightHead(head: THREE.SkinnedMesh, look: RogueLook): { probe: ReturnType<typeof prober> } | null {
+  const material = head.material as THREE.MeshStandardMaterial
+  const geometry = head.geometry.index ? head.geometry.toNonIndexed() : head.geometry.clone()
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined
+  if (!uv || !normal) return null
+
+  const { canvas: element, ctx } = canvas(1024, 1024)
+  const { width, height } = element
+  const tone = look.tone
+  const lit = (k: number) => `rgb(${tone.map((v) => Math.min(255, Math.round(v * k))).join(',')})`
+  ctx.fillStyle = lit(1)
+  ctx.fillRect(0, 0, width, height)
+  look.paintFace(ctx, lit(1.03), lit(0.97))
+  look.paintSides(ctx, [...tone])
+  const texture = textureOf(element)
+  texture.flipY = false
+
+  const { piece, boxes } = pieces(geometry)
+  const centre = new THREE.Vector3()
+  const size = new THREE.Vector3()
+  const kinds: HeadPiece[] = boxes.map((box) => {
+    box.getCenter(centre)
+    box.getSize(size)
+    const ax = Math.abs(centre.x)
+    if (size.x > 0.6) return 'main'
+    if (centre.z > 0.3 && centre.y > 1.68 && centre.y < 1.78 && ax > 0.12 && ax < 0.28) return 'brow'
+    if (centre.z > 0.3 && centre.y > 1.56 && centre.y < 1.65 && ax > 0.14 && ax < 0.27) return 'eye'
+    if (centre.z > 0.3 && ax < 0.03) return 'nose'
+    if (ax > 0.4 && centre.y > 1.36 && centre.y < 1.7) return 'ear'
+    return 'other'
+  })
+
+  // Pieces that are not the skull keep their own (skin-coloured) corner of the texture.
+  const skinU = 0.01
+  const skinV = 0.01
+  const faceTriangles: number[] = []
+  const hairTriangles: number[] = []
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    const kind = kinds[piece[i / 3]]
+    let x = 0
+    let y = 0
+    let z = 0
+    let nz = 0
+    for (let k = 0; k < 3; k += 1) {
+      x += position.getX(i + k) / 3
+      y += position.getY(i + k) / 3
+      z += position.getZ(i + k) / 3
+      nz += normal.getZ(i + k) / 3
+    }
+    if (kind === 'ear') {
+      for (let k = 0; k < 3; k += 1) {
+        position.setX(i + k, position.getX(i + k) - Math.sign(x) * 0.05)
+        uv.setXY(i + k, skinU, skinV)
+      }
+      continue
+    }
+    if (kind === 'brow') {
+      for (let k = 0; k < 3; k += 1) {
+        position.setZ(i + k, position.getZ(i + k) - 0.07)
+        uv.setXY(i + k, skinU, skinV)
+      }
+      continue
+    }
+    if (kind === 'eye' || kind === 'nose') {
+      faceTriangles.push(i)
+      continue
+    }
+    if (kind !== 'main') {
+      for (let k = 0; k < 3; k += 1) uv.setXY(i + k, skinU, skinV)
+      continue
+    }
+    const face = nz > 0.3 && z > 0.2 && Math.abs(x) < 0.45 && y > FACE.bottom && y < 1.83
+    if (face) faceTriangles.push(i)
+    else if (y >= 1.83 || (z < -0.05 && y > 1.38) || (z < 0.18 && y > 1.58)) hairTriangles.push(i)
+    else for (let k = 0; k < 3; k += 1) uv.setXY(i + k, skinU, skinV)
+  }
+  for (const i of hairTriangles) {
+    for (let k = 0; k < 3; k += 1) {
+      const at = i + k
+      uv.setXY(at, fadeU(position.getX(at), position.getZ(at)) / width, fadeV(Math.min(position.getY(at), FADE.ceiling)) / height)
+    }
+  }
+  for (const i of faceTriangles) {
+    for (let k = 0; k < 3; k += 1) {
+      uv.setXY(i + k, faceU(position.getX(i + k)) / width, faceV(position.getY(i + k)) / height)
+    }
+  }
+  uv.needsUpdate = true
+  position.needsUpdate = true
+  head.geometry = geometry
+  sculpt(head, look.jaw)
+  sculpt(head, shortCrop)
+  material.map = texture
+  material.emissiveMap = texture
+  material.color.set(0xffffff)
+  material.needsUpdate = true
+  return { probe: prober(geometry) }
 }
 
 /**
@@ -3858,6 +3969,7 @@ function roundJaw(p: THREE.Vector3): void {
 
 const MIKE_LOOK: RogueLook = {
   skinShift: MIKE_SKIN_SHIFT,
+  tone: [226, 174, 149],
   hair: INK,
   paintFace: paintMikeFace,
   paintSides: (ctx, skin) => paintFade(ctx, skin, MIKE_SIDES),
@@ -4193,8 +4305,8 @@ const oxfordArm: Classifier = (x) => {
   return Cell.MikeSkin
 }
 const navyLeg: Classifier = (_x, y) => {
-  if (y < ROGUE_SOLE_TOP) return Cell.SneakerSole
-  if (y < ROGUE_SHOE_TOP) return Cell.Sneaker
+  if (y < SNEAKER_SOLE_TOP) return Cell.SneakerSole
+  if (y < SNEAKER_TOP) return Cell.Sneaker
   return Cell.Navy
 }
 
@@ -4212,7 +4324,7 @@ function dressMike(root: THREE.Object3D): void {
   const head = findMesh(root, '_head')
   const torso = findMesh(root, '_body')
   const palette = paletteTexture()
-  const dressed = head ? dressRogueHead(head, MIKE_LOOK) : null
+  const dressed = head ? dressKnightHead(head, MIKE_LOOK) : null
   if (head && dressed) bindSpaceOf(head, 'head')?.add(buildMikeHair(dressed.probe))
   dress(findMesh(root, '_armleft'), palette, oxfordArm)
   dress(findMesh(root, '_armright'), palette, oxfordArm)

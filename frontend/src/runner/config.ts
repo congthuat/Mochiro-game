@@ -6,7 +6,6 @@ import type { RecolorSpec } from './recolor'
 import barbarianModel from '../assets/models/barbarian.glb?url'
 import knightModel from '../assets/models/knight.glb?url'
 import mageModel from '../assets/models/mage.glb?url'
-import rogueModel from '../assets/models/rogue.glb?url'
 
 /** Three-lane track. Lane 0 = left, 1 = centre, 2 = right. */
 export const LANES = [-2.3, 0, 2.3] as const
@@ -490,11 +489,11 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     tagline: 'Marksman',
     // Mike as himself (see persona.ts): short black hair spiked straight up, thick
     // brows, a big grin, a light-blue oxford button-down open at the neck, navy chinos
-    // and white sneakers, on the bare-headed rogue rig; the cape, knives, bomb and
-    // crossbows stay home.
+    // and white sneakers, on the knight rig (Sam's and Tim's skeleton); the plate, helmet,
+    // cape and blades all stay home.
     persona: 'mike',
-    model: rogueModel,
-    hideNodes: ['Crossbow', 'Cape', 'Knife', 'Throwable'],
+    model: knightModel,
+    hideNodes: ['1H_Sword', '2H_Sword', 'Shield', 'Knight_Helmet', 'Knight_Cape'],
     modelHeight: 1.74,
     modelFacing: Math.PI,
     skin: 0xe2ae95,
