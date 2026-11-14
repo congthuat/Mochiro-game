@@ -516,39 +516,26 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     perk: { id: 'longBoost', value: 2 },
     name: 'Tim',
     tagline: 'Blade Duelist',
-    // The knight rig a second time — the duelist is the shield knight's opposite
-    // number. Gold plate instead of blue, no cloak, no shield, and the two-handed
-    // blade: a swordsman you can tell apart from Sam in a single glance from behind.
-    // Sharing a rig is safe because every clone repaints its own material (model.ts),
-    // so neither hero's palette can leak into the other's.
-    recolor: { from: [150, 260], to: 42, sat: 1.3, light: 1.0, grey: true },
+    // Tim as himself (see persona.ts): short auburn hair, thin dark glasses, a periwinkle
+    // short-sleeved shirt with a conference lanyard, dark khaki chinos and white sneakers,
+    // on the knight rig (Sam's skeleton); the plate, helmet, cape and blades stay home.
+    persona: 'tim',
     model: knightModel,
     modelHeight: 1.74,
     modelFacing: Math.PI,
-    // Everything the knight ships except the greatsword and the body. `1H_Sword`
-    // covers the side sword and its offhand twin, and the four shields and the cape
-    // go with them, leaving a bare-headed duelist holding one big blade.
-    hideNodes: [
-      '1H_Sword',
-      'Badge_Shield',
-      'Rectangle_Shield',
-      'Round_Shield',
-      'Spike_Shield',
-      'Knight_Cape',
-      'Knight_Helmet',
-    ],
-    skin: 0xf2c9a0,
-    hair: 0x8a5522,
+    hideNodes: ['1H_Sword', '2H_Sword', 'Shield', 'Knight_Helmet', 'Knight_Cape'],
+    skin: 0xeebfa4,
+    hair: 0x8a5230,
     hairStyle: 'spiky',
-    outfit: 0xe8b43a,
-    outfitDark: 0xb8862a,
-    shirt: 0xfff4d8,
-    bottom: 0x4a3a22,
-    shoe: 0x6b5228,
-    sole: 0xf6e6c8,
-    accent: 0xffd447,
-    glove: 0x6b5228,
-    eye: 0x4fa8e0,
+    outfit: 0xa7b7e2,
+    outfitDark: 0x95a6d6,
+    shirt: 0xa7b7e2,
+    bottom: 0x6e6655,
+    shoe: 0xf2f1ee,
+    sole: 0xbfc0c4,
+    accent: 0xf0b81c,
+    glove: 0xeebfa4,
+    eye: 0x5b7893,
   },
 }
 
