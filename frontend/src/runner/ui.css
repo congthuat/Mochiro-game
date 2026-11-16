@@ -3792,3 +3792,5 @@ html[lang='vi'] .ar-mult {
 .ar-auth-forgot { display: block; margin: 12px auto 0; font-size: 12.5px; letter-spacing: 0; text-transform: none; text-align: center; line-height: 1.35; }
 /* "Tiếng Việt" must render in a font with Vietnamese glyphs even while the UI is English. */
 .ar-lang-btn[lang='vi'] { font-family: 'Chakra Petch', 'Exo 2', system-ui, sans-serif; }
+/* Two wallet cards per row on a phone: a long name ("Coinbase Wallet") wraps instead of "…". */
+.ar-pick-card .ar-pick-name { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.15; overflow-wrap: anywhere; }
