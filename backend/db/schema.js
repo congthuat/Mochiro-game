@@ -5,6 +5,7 @@ const {
   serial,
   text,
   integer,
+  bigint,
   boolean,
   timestamp,
 } = require("drizzle-orm/pg-core");
@@ -30,15 +31,15 @@ exports.runner_profiles = pgTable("runner_profiles", {
   id: serial("id").primaryKey(),
   client_id: text("client_id").notNull().unique(),
   name: text("name").notNull().default("Runner"),
-  best_score: integer("best_score").notNull().default(0),
-  total_score: integer("total_score").notNull().default(0),
-  total_coins: integer("total_coins").notNull().default(0),
+  best_score: bigint("best_score", { mode: "number" }).notNull().default(0),
+  total_score: bigint("total_score", { mode: "number" }).notNull().default(0),
+  total_coins: bigint("total_coins", { mode: "number" }).notNull().default(0),
   best_distance: integer("best_distance").notNull().default(0),
   best_combo: integer("best_combo").notNull().default(0),
   runs: integer("runs").notNull().default(0),
   // ---- Economy (server-authoritative; see routes/economy.js) ----
   // Spendable coins, carried across runs.
-  bank: integer("bank").notNull().default(0),
+  bank: bigint("bank", { mode: "number" }).notNull().default(0),
   // Comma-wrapped list of bought heroes, e.g. ",bjorn,nyx," (free heroes are implied).
   unlocked: text("unlocked").notNull().default(","),
   // Power-up upgrade levels, 0..5 each.
@@ -68,11 +69,11 @@ exports.runner_profiles = pgTable("runner_profiles", {
 exports.runner_ledger = pgTable("runner_ledger", {
   id: serial("id").primaryKey(),
   client_id: text("client_id").notNull(),
-  delta: integer("delta").notNull(),
+  delta: bigint("delta", { mode: "number" }).notNull(),
   // 'run' | 'buy:char:<id>' | 'buy:up:<kind>' | 'daily' | 'quest:<id>' | 'season:<key>' | 'welcome'
   // | 'ach:<tier ids>' | 'invite:welcome' | 'invite:friend'
   reason: text("reason").notNull(),
-  balance: integer("balance"),
+  balance: bigint("balance", { mode: "number" }),
   created_at: timestamp("created_at").defaultNow(),
 });
 
@@ -81,18 +82,19 @@ exports.runner_runs = pgTable("runner_runs", {
   id: serial("id").primaryKey(),
   client_id: text("client_id").notNull(),
   name: text("name").notNull().default("Runner"),
-  score: integer("score").notNull().default(0),
-  coins: integer("coins").notNull().default(0),
-  distance_m: integer("distance_m").notNull().default(0),
+  score: bigint("score", { mode: "number" }).notNull().default(0),
+  coins: bigint("coins", { mode: "number" }).notNull().default(0),
+  distance_m: bigint("distance_m", { mode: "number" }).notNull().default(0),
   top_speed: integer("top_speed").notNull().default(0),
   best_combo: integer("best_combo").notNull().default(0),
   duration_s: integer("duration_s").notNull().default(0),
-  // Signed-in account that played the run (null for guests).
+  // Signed-in account that played the run.
   account_id: integer("account_id"),
   // True only when the run came with a valid server ticket, from a signed-in player,
   // and passed the plausibility checks. Only verified runs reach the public board.
   verified: boolean("verified").notNull().default(false),
-  // Why a run was kept off the board (null when verified).
+  // Why a run was kept off the board (null when verified). 'review' = passed every check
+  // but beat anything on record; it is kept and banked, and waits for a person.
   flag: text("flag"),
   // Game mode the run was played on: easy | normal | hard.
   difficulty: text("difficulty").notNull().default("normal"),
@@ -154,7 +156,8 @@ exports.arc_accounts = pgTable("arc_accounts", {
   last_seen_at: timestamp("last_seen_at").defaultNow(),
 });
 
-// Bearer sessions handed to the client after a successful sign-in.
+// Bearer sessions handed to the client after a successful sign-in. `token` holds the
+// SHA-256 of the bearer token (rows from before Nov 2026 hold the raw token).
 exports.arc_sessions = pgTable("arc_sessions", {
   token: text("token").primaryKey(),
   account_id: integer("account_id").notNull(),
@@ -170,4 +173,19 @@ exports.arc_challenges = pgTable("arc_challenges", {
   created_at: timestamp("created_at").defaultNow(),
   expires_at: timestamp("expires_at").notNull(),
   consumed_at: timestamp("consumed_at"),
+  // Requesting IP, for the per-IP challenge rate limit.
+  ip: text("ip"),
 });
+
+// ---------------------------------------------------------------------------
+// Indexes (created by hand on the production database — the schema sync does not run
+// there). Kept here so the list lives next to the tables:
+//   runner_runs     (verified, client_id, score DESC)   -- boards, rank
+//   runner_runs     (client_id, created_at)             -- daily stats, rate limit
+//   runner_ledger   (client_id)
+//   runner_profiles (referred_by)                        -- invite cap
+//   runner_profiles UNIQUE (lower(name)) WHERE lower(name) <> 'runner'  -- one name, one player
+//   runner_tickets  (created_at), (ip, created_at)       -- rate limit, cleanup
+//   arc_challenges  (expires_at), (ip, created_at)
+//   arc_sessions    (account_id)
+// ---------------------------------------------------------------------------

@@ -14,10 +14,25 @@ const crypto = require('node:crypto')
 const { SiweMessage } = require('siwe')
 const { verifyMessage, getAddress, isAddress } = require('ethers')
 const { dbQuery } = require('../db/client')
+const { hashToken, TOKEN_RE, bearer, sessionAccount: lookupSession } = require('../db/session')
 
 const ARC_CHAIN_ID = 5042002
 const SESSION_DAYS = 30
 const CHALLENGE_MS = 10 * 60 * 1000
+/** How old a Google wallet-link signature may be. */
+const LINK_MAX_AGE_MS = 10 * 60 * 1000
+/** Sign-in challenges one IP / one address may ask for per 10 minutes. */
+const NONCE_RATE = { windowSec: 600, perIp: 40, perAddress: 12 }
+
+/**
+ * Hosts a SIWE message may name. Production refuses anything else, so a look-alike site
+ * cannot fetch a valid challenge for mochiro.xyz and relay the player's signature: the
+ * wallet shows the real domain the message was made for, and a phishing page cannot ask
+ * for one that names itself. Local and sandbox builds (no DATABASE_URL) accept any host.
+ */
+const PRODUCTION = Boolean(process.env.DATABASE_URL)
+const ALLOWED_HOSTS = [/^(www\.)?mochiro\.xyz$/i, /^mochiro[a-z0-9-]*\.vercel\.app$/i, /^localhost(:\d+)?$/i]
+const hostAllowed = (host) => !PRODUCTION || ALLOWED_HOSTS.some((re) => re.test(host))
 // Mochiro's own OAuth client (Google Cloud project "Mochiro"). Client ids are public — the
 // secret is never needed for ID-token sign-in. GOOGLE_CLIENT_ID overrides it per deployment.
 // Pinning it here also means the server only accepts tokens minted for *this* app.
@@ -58,6 +73,11 @@ function clientOrigin(req) {
   return { host: String(host).split(',')[0].trim(), protocol: String(proto).split(',')[0].trim() }
 }
 
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  return (forwarded || req.socket?.remoteAddress || 'unknown').slice(0, 64)
+}
+
 async function accountById(id) {
   const { rows } = await dbQuery('SELECT * FROM arc_accounts WHERE id = $1', [id])
   return rows[0] ?? null
@@ -74,49 +94,68 @@ function accountShape(row) {
   }
 }
 
+/**
+ * Sessions are stored as a SHA-256 of the token, so a leaked database copy holds no
+ * usable sessions. Older rows (raw tokens) still resolve until they expire.
+ */
 async function issueSession(accountId) {
   const token = crypto.randomBytes(32).toString('hex')
   const expires = new Date(Date.now() + SESSION_DAYS * 24 * 3600 * 1000)
   await dbQuery('INSERT INTO arc_sessions (token, account_id, expires_at) VALUES ($1, $2, $3)', [
-    token,
+    hashToken(token),
     accountId,
     expires.toISOString(),
   ])
+  // Opportunistic housekeeping instead of a public sweep endpoint.
+  if (Math.random() < 0.05) await sweep().catch(() => {})
   return token
 }
 
-/** Resolve a bearer token into an account row (or null). */
+/** Resolve the bearer token into an account row (or null). Never read from the URL. */
 async function sessionAccount(req) {
-  const raw = req.headers.authorization || ''
-  const token = raw.startsWith('Bearer ') ? raw.slice(7).trim() : String(req.query.token || '')
-  if (!/^[0-9a-f]{64}$/.test(token)) return null
+  const account = await lookupSession(req)
+  if (!account) return null
+  await dbQuery('UPDATE arc_accounts SET last_seen_at = now() WHERE id = $1', [account.id]).catch(() => {})
+  return account
+}
+
+async function sweep() {
+  await dbQuery('DELETE FROM arc_sessions WHERE expires_at < now()')
+  await dbQuery("DELETE FROM arc_challenges WHERE expires_at < now() - interval '1 hour'")
+}
+
+/** A wallet (SIWE) sign-in. Never touches the Google link of an existing account. */
+async function upsertWalletAccount(address) {
   const { rows } = await dbQuery(
-    `SELECT a.* FROM arc_sessions s
-     JOIN arc_accounts a ON a.id = s.account_id
-     WHERE s.token = $1 AND s.expires_at > now()`,
-    [token]
+    `INSERT INTO arc_accounts (address, method, wallet_kind)
+     VALUES ($1, 'wallet', 'eoa')
+     ON CONFLICT (address) DO UPDATE SET last_seen_at = now()
+     RETURNING *`,
+    [normalise(address)]
   )
-  if (!rows[0]) return null
-  void dbQuery('UPDATE arc_accounts SET last_seen_at = now() WHERE id = $1', [rows[0].id]).catch(() => {})
   return rows[0]
 }
 
-async function upsertAccount({ address, method, googleSub, email, displayName, walletKind }) {
-  const lower = normalise(address)
-  const { rows } = await dbQuery(
-    `INSERT INTO arc_accounts (address, method, google_sub, email, display_name, wallet_kind)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (address) DO UPDATE SET
-       last_seen_at = now(),
-       email = COALESCE(EXCLUDED.email, arc_accounts.email),
-       google_sub = COALESCE(EXCLUDED.google_sub, arc_accounts.google_sub),
-       display_name = COALESCE(EXCLUDED.display_name, arc_accounts.display_name),
-       wallet_kind = EXCLUDED.wallet_kind,
-       method = EXCLUDED.method
-     RETURNING *`,
-    [lower, method, googleSub ?? null, email ?? null, displayName ?? null, walletKind]
-  )
-  return rows[0]
+/**
+ * Parses the message a Google player's device wallet signs (see linkMessage in
+ * frontend/src/lib/auth.ts). Returns the reason it is unacceptable, or null.
+ */
+function linkProblem(message, address, identity) {
+  const lines = String(message).split('\n')
+  if (lines[0] !== 'Link this Arc wallet to my Mochiro account.') return 'bad_link'
+  const field = (name) => {
+    const line = lines.find((l) => l.startsWith(`${name}: `))
+    return line ? line.slice(name.length + 2).trim() : null
+  }
+  if (normalise(field('Address')) !== normalise(address)) return 'bad_link'
+  if (Number(field('Chain ID')) !== ARC_CHAIN_ID) return 'bad_link'
+  const account = normalise(field('Account'))
+  if (account !== 'google' && account !== normalise(identity.email)) return 'bad_link'
+  const issued = Date.parse(field('Issued At') || '')
+  if (!Number.isFinite(issued)) return 'bad_link'
+  // A little slack for a phone whose clock runs fast.
+  if (Date.now() - issued > LINK_MAX_AGE_MS || issued - Date.now() > 2 * 60 * 1000) return 'link_expired'
+  return null
 }
 
 /** Google ID token check — Google validates the signature on the tokeninfo endpoint. */
@@ -156,8 +195,9 @@ router.get('/', async (req, res) => {
     const account = await sessionAccount(req)
     res.json({ authenticated: Boolean(account), account: accountShape(account), chainId: ARC_CHAIN_ID })
   } catch (error) {
+    // A database hiccup is not a sign-out: say "unavailable" so the client keeps its session.
     console.error('[auth] session failed', error)
-    res.json({ authenticated: false, account: null, chainId: ARC_CHAIN_ID })
+    res.status(503).json({ error: 'unavailable' })
   }
 })
 
@@ -181,6 +221,18 @@ router.post('/nonce', async (req, res) => {
     const address = canonicalAddress(req.body?.address)
     if (!address) return res.status(400).json({ error: 'A valid wallet address is required.' })
     const { host, protocol } = clientOrigin(req)
+    if (!hostAllowed(host)) return res.status(403).json({ error: 'Sign in on mochiro.xyz.' })
+    const ip = clientIp(req)
+    const { rows: recent } = await dbQuery(
+      `SELECT COUNT(*) FILTER (WHERE ip = $1)::int AS by_ip,
+              COUNT(*) FILTER (WHERE address = $2)::int AS by_address
+         FROM arc_challenges
+        WHERE created_at > now() - make_interval(secs => $3)`,
+      [ip, address.toLowerCase(), NONCE_RATE.windowSec]
+    )
+    if ((recent[0]?.by_ip ?? 0) >= NONCE_RATE.perIp || (recent[0]?.by_address ?? 0) >= NONCE_RATE.perAddress) {
+      return res.status(429).json({ error: 'slow_down' })
+    }
     const nonce = crypto.randomBytes(16).toString('hex')
     const message = new SiweMessage({
       domain: host,
@@ -195,10 +247,10 @@ router.post('/nonce', async (req, res) => {
       expirationTime: new Date(Date.now() + CHALLENGE_MS).toISOString(),
     }).prepareMessage()
     await dbQuery(
-      `INSERT INTO arc_challenges (nonce, address, message, expires_at)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO arc_challenges (nonce, address, message, expires_at, ip)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (nonce) DO NOTHING`,
-      [nonce, address.toLowerCase(), message, new Date(Date.now() + CHALLENGE_MS).toISOString()]
+      [nonce, address.toLowerCase(), message, new Date(Date.now() + CHALLENGE_MS).toISOString(), ip]
     )
     res.json({ message, nonce, chainId: ARC_CHAIN_ID })
   } catch (error) {
@@ -222,17 +274,10 @@ router.post('/verify', async (req, res) => {
     if (parsed.chainId !== ARC_CHAIN_ID) {
       return res.status(400).json({ error: `Switch your wallet to Arc testnet (chain ${ARC_CHAIN_ID}).` })
     }
-    const { rows: challengeRows } = await dbQuery(
-      'SELECT * FROM arc_challenges WHERE nonce = $1 AND consumed_at IS NULL AND expires_at > now()',
-      [parsed.nonce]
-    )
-    const challenge = challengeRows[0]
-    if (!challenge || challenge.message !== message) {
-      return res.status(401).json({ error: 'This sign-in challenge has expired. Try again.' })
-    }
     const { host } = clientOrigin(req)
-    if (parsed.domain !== host) return res.status(401).json({ error: 'Sign-in domain mismatch.' })
-
+    if (parsed.domain !== host || !hostAllowed(host)) {
+      return res.status(401).json({ error: 'Sign-in domain mismatch.' })
+    }
     let recovered
     try {
       recovered = getAddress(verifyMessage(message, signature))
@@ -242,15 +287,16 @@ router.post('/verify', async (req, res) => {
     if (recovered.toLowerCase() !== String(parsed.address).toLowerCase()) {
       return res.status(401).json({ error: 'Signature does not match the wallet address.' })
     }
-    await dbQuery('UPDATE arc_challenges SET consumed_at = now() WHERE nonce = $1', [parsed.nonce])
+    // Spend the challenge atomically: two racing requests with one signature get one session.
+    const { rows: spent } = await dbQuery(
+      `UPDATE arc_challenges SET consumed_at = now()
+        WHERE nonce = $1 AND message = $2 AND address = $3 AND consumed_at IS NULL AND expires_at > now()
+        RETURNING nonce`,
+      [parsed.nonce, message, recovered.toLowerCase()]
+    )
+    if (!spent[0]) return res.status(401).json({ error: 'This sign-in challenge has expired. Try again.' })
 
-    const account = await upsertAccount({
-      address: recovered,
-      method: 'wallet',
-      email: null,
-      displayName: null,
-      walletKind: 'eoa',
-    })
+    const account = await upsertWalletAccount(recovered)
     const token = await issueSession(account.id)
     res.json({ token, account: accountShape(account), chainId: ARC_CHAIN_ID })
   } catch (error) {
@@ -269,37 +315,54 @@ router.post('/google', async (req, res) => {
     if (identity.error) return res.status(identity.status).json({ error: identity.error })
 
     // The device mints the wallet; the signature proves the caller holds the key.
-    let address = null
-    let walletKind = 'embedded'
-    const wallet = req.body?.wallet
-    if (wallet && typeof wallet.address === 'string' && typeof wallet.signature === 'string' && typeof wallet.message === 'string') {
-      try {
-        const recovered = getAddress(verifyMessage(wallet.message, wallet.signature))
-        if (recovered.toLowerCase() === wallet.address.toLowerCase()) address = recovered
-      } catch {
-        /* fall through — an unproven address is simply not linked */
-      }
-    }
-    if (!address) {
-      // No wallet yet: look for one this Google account already registered.
-      const { rows } = await dbQuery('SELECT * FROM arc_accounts WHERE google_sub = $1', [identity.sub])
-      if (rows[0]) {
-        const token = await issueSession(rows[0].id)
-        return res.json({ token, account: accountShape(rows[0]), chainId: ARC_CHAIN_ID, needsWallet: false })
-      }
-      return res.json({ token: null, account: null, chainId: ARC_CHAIN_ID, needsWallet: true })
+    // A Google account that already owns a wallet signs straight into it. This is also
+    // the way back for a player who forgot the device password: Google alone is enough.
+    const { rows: linked } = await dbQuery('SELECT * FROM arc_accounts WHERE google_sub = $1', [identity.sub])
+    if (linked[0]) {
+      await dbQuery('UPDATE arc_accounts SET last_seen_at = now() WHERE id = $1', [linked[0].id]).catch(() => {})
+      const token = await issueSession(linked[0].id)
+      return res.json({ token, account: accountShape(linked[0]), chainId: ARC_CHAIN_ID, needsWallet: false })
     }
 
-    const account = await upsertAccount({
-      address,
-      method: 'google',
-      googleSub: identity.sub,
-      email: identity.email,
-      displayName: identity.name,
-      walletKind,
-    })
-    const token = await issueSession(account.id)
-    res.json({ token, account: accountShape(account), chainId: ARC_CHAIN_ID, needsWallet: false })
+    const wallet = req.body?.wallet
+    const hasWallet =
+      wallet && typeof wallet.address === 'string' && typeof wallet.signature === 'string' && typeof wallet.message === 'string'
+    if (!hasWallet) return res.json({ token: null, account: null, chainId: ARC_CHAIN_ID, needsWallet: true })
+
+    // The device mints the wallet; a fresh signature over the link message for *this*
+    // Google account proves the caller holds the key right now.
+    let address = null
+    try {
+      const recovered = getAddress(verifyMessage(wallet.message, wallet.signature))
+      if (recovered.toLowerCase() === wallet.address.toLowerCase()) address = recovered
+    } catch {
+      /* not a valid signature */
+    }
+    if (!address) return res.status(401).json({ error: 'Signature could not be verified.' })
+    const problem = linkProblem(wallet.message, address, identity)
+    if (problem === 'link_expired') return res.status(401).json({ error: 'link_expired' })
+    if (problem) return res.status(401).json({ error: 'Signature could not be verified.' })
+
+    // Linking only ever creates a new account. A wallet that already has one — a wallet
+    // sign-in or another Google account — is never taken over.
+    const { rows: created } = await dbQuery(
+      `INSERT INTO arc_accounts (address, method, google_sub, email, display_name, wallet_kind)
+       VALUES ($1, 'google', $2, $3, $4, 'embedded')
+       ON CONFLICT DO NOTHING
+       RETURNING *`,
+      [normalise(address), identity.sub, identity.email || null, identity.name]
+    )
+    if (!created[0]) {
+      // Lost a race with this same Google account on another tab: sign into that one.
+      const { rows: again } = await dbQuery('SELECT * FROM arc_accounts WHERE google_sub = $1', [identity.sub])
+      if (again[0]) {
+        const token = await issueSession(again[0].id)
+        return res.json({ token, account: accountShape(again[0]), chainId: ARC_CHAIN_ID, needsWallet: false })
+      }
+      return res.status(409).json({ error: 'wallet_owned' })
+    }
+    const token = await issueSession(created[0].id)
+    res.json({ token, account: accountShape(created[0]), chainId: ARC_CHAIN_ID, needsWallet: false })
   } catch (error) {
     console.error('[auth] google failed', error)
     res.status(500).json({ error: 'Sign-in failed.' })
@@ -308,23 +371,12 @@ router.post('/google', async (req, res) => {
 
 router.post('/logout', async (req, res) => {
   try {
-    const token = String(req.body?.token || '')
-    if (/^[0-9a-f]{64}$/.test(token)) await dbQuery('DELETE FROM arc_sessions WHERE token = $1', [token])
+    const token = bearer(req) || String(req.body?.token || '')
+    if (TOKEN_RE.test(token)) await dbQuery('DELETE FROM arc_sessions WHERE token IN ($1, $2)', [hashToken(token), token])
     res.json({ authenticated: false })
   } catch (error) {
     console.error('[auth] logout failed', error)
     res.json({ authenticated: false })
-  }
-})
-
-/** Housekeeping: drop expired sessions and challenges. */
-router.post('/sweep', async (_req, res) => {
-  try {
-    await dbQuery('DELETE FROM arc_sessions WHERE expires_at < now()')
-    await dbQuery('DELETE FROM arc_challenges WHERE expires_at < now() - interval \'1 hour\'')
-    res.json({ ok: true })
-  } catch (error) {
-    res.status(500).json({ ok: false })
   }
 })
 

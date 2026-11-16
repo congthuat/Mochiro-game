@@ -5,16 +5,21 @@
 //   2. POST /runs spends that ticket. The claimed duration can never exceed the real
 //      time that passed since the ticket, and score / distance / coins / speed must be
 //      physically reachable in that time with the game's own tuning.
-//   3. Only runs from a signed-in account that pass every check are "verified", and
-//      only verified runs reach the public board. Everything else is still saved to the
-//      player's own profile, so an honest offline/guest run is never thrown away.
-//   4. Tickets and ticket-less submissions are rate limited per player and per IP.
+//   3. Only signed-in accounts may write at all. Runs that pass every check are
+//      "verified" and reach the public board; a ticket-less run is still saved to the
+//      player's own profile, so an honest run is never thrown away.
+//   4. A score far beyond anything an honest run has reached is held for review: it is
+//      kept (coins are banked, missions count) but stays off the public board and out of
+//      season payouts until it is approved.
+//   5. Tickets and ticket-less submissions are rate limited per player and per IP.
 //
-// A profile whose id is bound to a wallet ("arc:0x…") can only be written by a session
-// for that same wallet, so nobody can rename or post as somebody else.
+// A profile id is always "arc:" + the account's lower-case address, and only a session
+// for that wallet may write it, so nobody can post as somebody else or split one wallet
+// into several profiles.
 const { Router } = require('express')
 const crypto = require('node:crypto')
 const { dbQuery } = require('../db/client')
+const { authorise, sessionAccount, profileIdFor } = require('../db/session')
 
 const router = Router()
 router.use((_req, res, next) => {
@@ -30,17 +35,28 @@ const clampInt = (value, min, max) => {
 
 // ------------------------------------------------------------- limits --
 /**
- * Upper bounds derived from the game's tuning (frontend/src/runner/config.ts):
- * top speed 42 × hard 1.16 × boost 1.55 ≈ 75.5 m/s. Honest top players sit at
- * ~3,000 pts/s, ~46 m/s average and ~6 coins/s, so these leave generous headroom
- * for a perfect run while making forged numbers impossible.
+ * Hard upper bounds. Physical ones come from the game's tuning
+ * (frontend/src/runner/config.ts): top speed 42 × hard 1.16 × boost 1.55 ≈ 75.5 m/s.
+ * Rate ones come from every honest run on record (Nov 2026, all modes), expressed
+ * before the mode's points multiplier: the best is ~3,000 pts/s, ~6 coins/s,
+ * ~0.26 coins/m and ~4.4 combo/s. Each cap sits ~35–40% above that — room for a
+ * better player, none for forged numbers. Anything inside the caps but beyond what
+ * anyone has done is not rejected but held for review (see REVIEW).
  */
 const LIMITS = {
   topSpeed: 80, // m/s
   metresPerSecond: 80,
-  pointsPerSecond: 6_000,
-  coinsPerSecond: 12,
-  comboPerSecond: 8,
+  pointsPerSecond: 4_200, // before the mode multiplier
+  coinsPerSecond: 8.5,
+  coinsPerMetre: 0.4,
+  comboPerSecond: 6.5,
+  /**
+   * Score is built from distance (≤ 8 pts/m at the top multiplier) and coins (≤ 400
+   * each, doubled, at the top multiplier); obstacles, perfect lines and close calls add
+   * the rest. Honest runs reach 1.3× those two parts; 2.5× leaves room for a run full
+   * of close calls.
+   */
+  structuralFactor: 2.5,
   minDuration: 3, // s
   clockSlack: 3, // s of tolerance between the client's clock and ours
   ticketMaxAgeMs: 3 * 3600 * 1000,
@@ -83,6 +99,21 @@ function resolveMode(claimed, distance, duration) {
   const fit = ratio / MODES[claimed].speed
   if (fit >= 0.9 && fit <= 1.1) return claimed
   return ratio >= 1.08 ? 'hard' : ratio >= 0.93 ? 'normal' : 'easy'
+}
+
+/**
+ * A run inside the caps can still be a bot that plays perfectly. Those that go far
+ * past the best run anyone has posted, or faster than any honest run, are kept but
+ * held off the public board until a person looks at them.
+ */
+const REVIEW = {
+  /** Beating the all-time #1 by more than this factor. */
+  overTop: 1.3,
+  /** …but only once scores are big enough to matter. */
+  minScore: 150_000,
+  /** Points per second before the mode multiplier, on runs long enough to judge. */
+  pointsPerSecond: 3_500,
+  minDuration: 60,
 }
 
 const RATE = {
@@ -166,35 +197,6 @@ function clientIp(req) {
   return (forwarded || req.socket?.remoteAddress || 'unknown').slice(0, 64)
 }
 
-/** Resolves the bearer token (same sessions as /api/auth) into an account row, or null. */
-async function sessionAccount(req) {
-  const raw = req.headers.authorization || ''
-  const token = raw.startsWith('Bearer ') ? raw.slice(7).trim() : ''
-  if (!/^[0-9a-f]{64}$/.test(token)) return null
-  const { rows } = await dbQuery(
-    `SELECT a.* FROM arc_sessions s
-       JOIN arc_accounts a ON a.id = s.account_id
-      WHERE s.token = $1 AND s.expires_at > now()`,
-    [token]
-  )
-  return rows[0] ?? null
-}
-
-/**
- * Who is allowed to act as `clientId`. Wallet-bound ids ("arc:0x…") need a live session
- * for that exact address; anonymous guest ids are allowed as before.
- * Returns { ok, account } — account is set only for a signed-in owner.
- */
-async function authorise(req, clientId) {
-  const account = await sessionAccount(req)
-  if (clientId.startsWith('arc:')) {
-    const address = clientId.slice(4).toLowerCase()
-    if (!account || String(account.address).toLowerCase() !== address) return { ok: false, account: null }
-    return { ok: true, account }
-  }
-  return { ok: true, account: null }
-}
-
 // --------------------------------------------------------------- board --
 const DAY_MS = 24 * 3600 * 1000
 
@@ -234,9 +236,9 @@ async function fetchBoard(scope = 'all') {
     weekly ? boardQuery(iso(thisWeek), null, 20) : boardQuery(null, null, 20),
     dbQuery(
       `SELECT COUNT(*)::int AS runs,
-              COALESCE(SUM(coins), 0)::int AS coins,
-              COALESCE(MAX(score) FILTER (WHERE verified), 0)::int AS best_score,
-              COALESCE(MAX(distance_m) FILTER (WHERE verified), 0)::int AS best_distance
+              COALESCE(SUM(coins), 0)::bigint AS coins,
+              COALESCE(MAX(score) FILTER (WHERE verified), 0)::bigint AS best_score,
+              COALESCE(MAX(distance_m) FILTER (WHERE verified), 0)::bigint AS best_distance
          FROM runner_runs`
     ),
     weekly ? boardQuery(iso(thisWeek - 7 * DAY_MS), iso(thisWeek), 3) : Promise.resolve({ rows: [] }),
@@ -252,7 +254,10 @@ async function fetchBoard(scope = 'all') {
 // GET /api/runner/leaderboard?scope=all|week
 router.get('/leaderboard', async (req, res) => {
   try {
-    res.json(await fetchBoard(req.query.scope === 'week' ? 'week' : 'all'))
+    const board = await fetchBoard(req.query.scope === 'week' ? 'week' : 'all')
+    // The board is public and the same for everyone: let the CDN absorb the traffic.
+    res.set('Cache-Control', 'public, max-age=0, s-maxage=10, stale-while-revalidate=30')
+    res.json(board)
   } catch (error) {
     console.error('[runner] leaderboard failed', error)
     res.status(500).json({ error: 'leaderboard_unavailable' })
@@ -265,7 +270,16 @@ router.get('/profile', async (req, res) => {
   if (!clientId) return res.json({ profile: null })
   try {
     const { rows } = await dbQuery('SELECT * FROM runner_profiles WHERE client_id = $1', [clientId])
-    res.json({ profile: rows[0] ?? null })
+    const profile = rows[0] ?? null
+    // Who invited whom is the owner's business only.
+    if (profile) {
+      const account = await sessionAccount(req).catch(() => null)
+      if (profileIdFor(account) !== clientId) {
+        delete profile.referred_by
+        delete profile.ref_at
+      }
+    }
+    res.json({ profile })
   } catch (error) {
     console.error('[runner] profile read failed', error)
     res.status(500).json({ error: 'profile_unavailable' })
@@ -295,8 +309,8 @@ router.post('/profile', async (req, res) => {
   if (name.length < NAME_MIN) return res.status(400).json({ error: 'name_too_short' })
   if (nameBlocked(name)) return res.status(400).json({ error: 'name_blocked' })
   try {
-    const { ok } = await authorise(req, clientId)
-    if (!ok) return res.status(401).json({ error: 'not_your_profile' })
+    const { ok, error: denied } = await authorise(req, clientId)
+    if (!ok) return res.status(401).json({ error: denied })
     if (await nameTaken(name, clientId)) return res.status(409).json({ error: 'name_taken' })
     const { rows } = await dbQuery(
       `INSERT INTO runner_profiles (client_id, name)
@@ -308,6 +322,8 @@ router.post('/profile', async (req, res) => {
     )
     res.json({ profile: rows[0] ?? null })
   } catch (error) {
+    // Two players racing for one name: the unique index lets exactly one have it.
+    if (error?.code === '23505') return res.status(409).json({ error: 'name_taken' })
     console.error('[runner] profile write failed', error)
     res.status(500).json({ error: 'profile_write_failed' })
   }
@@ -319,8 +335,8 @@ router.post('/runs/start', async (req, res) => {
   if (!clientId) return res.status(400).json({ error: 'invalid_client_id' })
   const ip = clientIp(req)
   try {
-    const { ok, account } = await authorise(req, clientId)
-    if (!ok) return res.status(401).json({ error: 'not_your_profile' })
+    const { ok, account, error: denied } = await authorise(req, clientId)
+    if (!ok) return res.status(401).json({ error: denied })
 
     const { rows } = await dbQuery(
       `SELECT COUNT(*) FILTER (WHERE client_id = $1)::int AS by_client,
@@ -341,7 +357,7 @@ router.post('/runs/start', async (req, res) => {
     )
     // Housekeeping: old tickets are worthless; keep the table small.
     if (Math.random() < 0.05) {
-      void dbQuery(`DELETE FROM runner_tickets WHERE created_at < NOW() - INTERVAL '1 day'`).catch(() => {})
+      await dbQuery(`DELETE FROM runner_tickets WHERE created_at < NOW() - INTERVAL '1 day'`).catch(() => {})
     }
     res.json({ ticket: token })
   } catch (error) {
@@ -363,11 +379,23 @@ function implausible({ score, coins, distance, topSpeed, bestCombo, duration, mo
   // easier run being posted as a harder mode.
   if (distance < base * 0.8 - 60) return 'mode'
   if (score > duration * LIMITS.pointsPerSecond * spec.score + 2_000) return 'score'
-  if (coins > duration * LIMITS.coinsPerSecond + 200) return 'coins'
+  if (coins > duration * LIMITS.coinsPerSecond + 40) return 'coins'
+  if (coins > distance * LIMITS.coinsPerMetre + 40) return 'coins'
   if (bestCombo > duration * LIMITS.comboPerSecond + 20) return 'combo'
+  if (score > spec.score * LIMITS.structuralFactor * (8 * distance + 400 * coins) + 5_000) return 'score'
   // Score always includes the distance points (≥ 1 point per metre, times the mode).
   if (score + 5 < distance * spec.score) return 'score_vs_distance'
   return null
+}
+
+/** Whether a run that passed every check should still be held for a person to review. */
+async function needsReview({ score, duration, mode }) {
+  const raw = score / MODES[mode].score
+  if (duration >= REVIEW.minDuration && raw / duration > REVIEW.pointsPerSecond) return true
+  if (score < REVIEW.minScore) return false
+  const { rows } = await dbQuery('SELECT COALESCE(MAX(score), 0)::bigint AS top FROM runner_runs WHERE verified = true')
+  const top = Number(rows[0]?.top ?? 0)
+  return top > 0 && score > top * REVIEW.overTop
 }
 
 // POST /api/runner/runs — submit a finished sprint.
@@ -387,12 +415,11 @@ router.post('/runs', async (req, res) => {
   const ticket = typeof req.body?.ticket === 'string' ? req.body.ticket.trim() : ''
 
   try {
-    const { ok, account } = await authorise(req, clientId)
-    if (!ok) return res.status(401).json({ error: 'not_your_profile' })
+    const { ok, account, error: denied } = await authorise(req, clientId)
+    if (!ok) return res.status(401).json({ error: denied })
 
     // ---- verification ---------------------------------------------------
     let flag = null
-    if (!account) flag = 'guest'
     // Set when this result continues a run already on record (the player revived).
     let continued = null
 
@@ -450,6 +477,11 @@ router.post('/runs', async (req, res) => {
     }
     // A forged second post on a used ticket is dropped, not stored as a fresh run.
     if (flag === 'ticket_used') return res.status(409).json({ error: 'ticket_used' })
+    // Held for review: kept, banked and counted, but off the public board for now.
+    if (flag === null && (await needsReview({ score, duration, mode }))) {
+      flag = 'review'
+      console.warn('[runner] run held for review', { clientId, score, distance, duration, mode })
+    }
     const verified = flag === null
 
     // A finished run must never be thrown away over a name clash. If the submitted name is
@@ -484,15 +516,17 @@ router.post('/runs', async (req, res) => {
     }
 
     // Totals grow by what this post adds: the whole run, or only the part after a revive.
-    const addScore = continued ? score - continued.score : score
-    const addCoins = continued ? coins - continued.coins : coins
+    const addScore = Math.max(0, continued ? score - Number(continued.score) : score)
+    const addCoins = Math.max(0, continued ? coins - Number(continued.coins) : coins)
     // Coins only reach the spendable bank from runs the server handed a ticket for, scaled
     // by the mode (Easy ×0.7, Hard ×1.3). A continued run banks only what it added.
-    const bankable = flag === null || flag === 'guest'
+    const bankable = flag === null || flag === 'review'
     const bankMult = MODES[mode].bank
     const bankedTotal = bankable ? Math.round(coins * bankMult) : 0
-    const bankDelta = bankable ? bankedTotal - (continued ? Math.round(continued.coins * bankMult) : 0) : 0
-    const { rows: profileRows } = await dbQuery(
+    const bankDelta = bankable
+      ? Math.max(0, bankedTotal - (continued ? Math.round(Number(continued.coins) * bankMult) : 0))
+      : 0
+    const writeProfile = (asName) => dbQuery(
       `INSERT INTO runner_profiles
          (client_id, name, best_score, total_score, total_coins, best_distance, best_combo, runs, bank)
        VALUES ($1, $2, $3, $7, GREATEST($8, 0), $5, $6, 1, GREATEST($9, 0))
@@ -507,15 +541,25 @@ router.post('/runs', async (req, res) => {
          runs = runner_profiles.runs + $4,
          updated_at = NOW()
        RETURNING *`,
-      [clientId, name, score, continued ? 0 : 1, distance, bestCombo, addScore, addCoins, bankDelta]
+      [clientId, asName, score, continued ? 0 : 1, distance, bestCombo, addScore, addCoins, bankDelta]
     )
+    let profileRows
+    try {
+      ;({ rows: profileRows } = await writeProfile(name))
+    } catch (error) {
+      if (error?.code !== '23505') throw error
+      // Someone took the name a moment ago: keep the run, under the profile's own name.
+      const { rows } = await dbQuery('SELECT name FROM runner_profiles WHERE client_id = $1', [clientId])
+      ;({ rows: profileRows } = await writeProfile(rows[0]?.name ?? 'Runner'))
+    }
     if (bankDelta !== 0 && profileRows[0]) {
-      void dbQuery('INSERT INTO runner_ledger (client_id, delta, reason, balance) VALUES ($1, $2, $3, $4)', [
+      // Awaited: on serverless the process may freeze the moment the response is sent.
+      await dbQuery('INSERT INTO runner_ledger (client_id, delta, reason, balance) VALUES ($1, $2, $3, $4)', [
         clientId,
         bankDelta,
         'run',
         profileRows[0].bank,
-      ]).catch(() => {})
+      ]).catch((error) => console.error('[runner] ledger write failed', error))
     }
 
     // Rank on the public board (one line per player). Unverified runs have no rank.
@@ -530,7 +574,15 @@ router.post('/runs', async (req, res) => {
       rank = rankRows[0]?.rank ?? null
     }
 
-    res.json({ entry, profile: profileRows[0] ?? null, rank, verified, reason: flag, banked: bankedTotal })
+    res.json({
+      entry,
+      profile: profileRows[0] ?? null,
+      rank,
+      verified,
+      review: flag === 'review',
+      reason: flag,
+      banked: bankedTotal,
+    })
   } catch (error) {
     console.error('[runner] run submit failed', error)
     res.status(500).json({ error: 'submit_failed' })

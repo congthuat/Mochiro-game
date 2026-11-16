@@ -16,6 +16,7 @@
 //   GET  /api/economy/invite/:code                         (who sent this link)
 const { Router } = require('express')
 const { dbQuery } = require('../db/client')
+const { authorise } = require('../db/session')
 
 const router = Router()
 router.use((_req, res, next) => {
@@ -141,24 +142,10 @@ const cleanClientId = (value) => {
   return id.length >= 6 && id.length <= 80 ? id : null
 }
 
-async function sessionAccount(req) {
-  const raw = req.headers.authorization || ''
-  const token = raw.startsWith('Bearer ') ? raw.slice(7).trim() : ''
-  if (!/^[0-9a-f]{64}$/.test(token)) return null
-  const { rows } = await dbQuery(
-    `SELECT a.* FROM arc_sessions s
-       JOIN arc_accounts a ON a.id = s.account_id
-      WHERE s.token = $1 AND s.expires_at > now()`,
-    [token]
-  )
-  return rows[0] ?? null
-}
-
-/** Wallet-bound ids ("arc:0x…") may only be spent from by that wallet's session. */
+/** Economy writes need a signed-in owner acting on their own (exact) profile id. */
 async function mayWrite(req, clientId) {
-  if (!clientId.startsWith('arc:')) return true
-  const account = await sessionAccount(req)
-  return Boolean(account && String(account.address).toLowerCase() === clientId.slice(4).toLowerCase())
+  const { ok, error } = await authorise(req, clientId)
+  return ok ? null : error
 }
 
 async function ensureProfile(clientId) {
@@ -178,21 +165,24 @@ async function ledger(clientId, delta, reason, balance) {
 }
 
 // ---------------------------------------------------------------- state --
+/** bigint aggregates may arrive as strings depending on the driver — make them numbers. */
+const nums = (row) => (row ? Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v === null ? 0 : Number(v)])) : row)
+
 /** Today's totals from runs that carried a valid server ticket. */
 async function todayStats(clientId, now) {
   const start = new Date(`${dayKey(now)}T00:00:00Z`)
   const { rows } = await dbQuery(
     `SELECT COUNT(*)::int AS runs,
-            COALESCE(SUM(distance_m), 0)::int AS distance,
-            COALESCE(SUM(coins), 0)::int AS coins,
-            COALESCE(MAX(score), 0)::int AS best_score,
-            COALESCE(MAX(best_combo), 0)::int AS best_combo,
-            COALESCE(SUM(duration_s), 0)::int AS seconds
+            COALESCE(SUM(distance_m), 0)::bigint AS distance,
+            COALESCE(SUM(coins), 0)::bigint AS coins,
+            COALESCE(MAX(score), 0)::bigint AS best_score,
+            COALESCE(MAX(best_combo), 0)::bigint AS best_combo,
+            COALESCE(SUM(duration_s), 0)::bigint AS seconds
        FROM runner_runs
-      WHERE client_id = $1 AND created_at >= $2 AND (flag IS NULL OR flag = 'guest')`,
+      WHERE client_id = $1 AND created_at >= $2 AND (flag IS NULL OR flag IN ('guest', 'review'))`,
     [clientId, start.toISOString()]
   )
-  return rows[0] ?? { runs: 0, distance: 0, coins: 0, best_score: 0, best_combo: 0, seconds: 0 }
+  return nums(rows[0]) ?? { runs: 0, distance: 0, coins: 0, best_score: 0, best_combo: 0, seconds: 0 }
 }
 
 /** Final rank of `clientId` on last week's board (verified runs, best per player). */
@@ -218,13 +208,13 @@ async function lifetimeStats(clientId, profile) {
   const [runs, book, friends] = await Promise.all([
     dbQuery(
       `SELECT COUNT(*)::int AS runs,
-              COALESCE(MAX(distance_m), 0)::int AS best_distance,
-              COALESCE(MAX(score), 0)::int AS best_score,
-              COALESCE(MAX(best_combo), 0)::int AS best_combo,
-              COALESCE(SUM(coins), 0)::int AS coins,
-              COALESCE(MAX(distance_m) FILTER (WHERE difficulty = 'hard'), 0)::int AS hard_distance
+              COALESCE(MAX(distance_m), 0)::bigint AS best_distance,
+              COALESCE(MAX(score), 0)::bigint AS best_score,
+              COALESCE(MAX(best_combo), 0)::bigint AS best_combo,
+              COALESCE(SUM(coins), 0)::bigint AS coins,
+              COALESCE(MAX(distance_m) FILTER (WHERE difficulty = 'hard'), 0)::bigint AS hard_distance
          FROM runner_runs
-        WHERE client_id = $1 AND (flag IS NULL OR flag = 'guest')`,
+        WHERE client_id = $1 AND (flag IS NULL OR flag IN ('guest', 'review'))`,
       [clientId]
     ),
     dbQuery(
@@ -237,7 +227,7 @@ async function lifetimeStats(clientId, profile) {
   ])
   const maxed = UPGRADE_KINDS.filter((kind) => Number(profile?.[`up_${kind}`] ?? 0) >= UPGRADE_MAX).length
   return {
-    ...(runs.rows[0] ?? {}),
+    ...(nums(runs.rows[0]) ?? {}),
     ...(book.rows[0] ?? {}),
     friends: friends.rows[0]?.n ?? 0,
     maxed,
@@ -386,7 +376,8 @@ function writeRoute(handler) {
     const clientId = cleanClientId(req.body?.client_id)
     if (!clientId) return res.status(400).json({ error: 'invalid_client_id' })
     try {
-      if (!(await mayWrite(req, clientId))) return res.status(401).json({ error: 'not_your_profile' })
+      const denied = await mayWrite(req, clientId)
+      if (denied) return res.status(401).json({ error: denied })
       await ensureProfile(clientId)
       const outcome = await handler(clientId, req.body ?? {})
       if (outcome?.error) return res.status(outcome.status ?? 400).json({ error: outcome.error })
@@ -579,13 +570,19 @@ router.post(
       from.client_id,
     ])
     if ((count[0]?.n ?? 0) >= INVITE.cap) return { error: 'inviter_full', status: 409 }
+    // The cap is checked again inside the write, so two friends joining at the same moment
+    // cannot push an inviter past it.
     const { rows } = await dbQuery(
       `UPDATE runner_profiles SET referred_by = $2, ref_at = NOW(), updated_at = NOW()
         WHERE client_id = $1 AND referred_by IS NULL
+          AND (SELECT COUNT(*) FROM runner_profiles r WHERE r.referred_by = $2) < $3
         RETURNING client_id`,
-      [clientId, from.client_id]
+      [clientId, from.client_id, INVITE.cap]
     )
-    if (!rows[0]) return { error: 'already_joined', status: 409 }
+    if (!rows[0]) {
+      const { rows: again } = await dbQuery('SELECT referred_by FROM runner_profiles WHERE client_id = $1', [clientId])
+      return again[0]?.referred_by ? { error: 'already_joined', status: 409 } : { error: 'inviter_full', status: 409 }
+    }
     return { joined: true }
   })
 )

@@ -19,18 +19,9 @@ router.get('/', async (_req, res) => {
     await dbQuery('SELECT 1')
     res.json({ db: 'ok', backend: dbBackend, ms: Date.now() - started })
   } catch (err) {
-    const text = String(err?.message || err)
-    let reason = 'query failed'
-    let gatewayStatus = null
-    if (dbBackend === 'surf') {
-      gatewayStatus = Number(/API error (\d{3})/.exec(text)?.[1]) || null
-      reason = /"message"\s*:\s*"([^"]{1,120})"/.exec(text)?.[1] || reason
-    } else {
-      // pg error codes/messages name the problem (auth, timeout, missing table) without
-      // echoing the connection string.
-      reason = (err?.code ? `${err.code} ` : '') + text.replace(/postgres(ql)?:\/\/\S+/g, '[url]').slice(0, 120)
-    }
-    res.status(503).json({ db: 'error', backend: dbBackend, gatewayStatus, reason, ms: Date.now() - started })
+    // The detail goes to the server log only; the public answer names no table, host or code.
+    console.error('[status] database check failed', err)
+    res.status(503).json({ db: 'error', backend: dbBackend, ms: Date.now() - started })
   }
 })
 
