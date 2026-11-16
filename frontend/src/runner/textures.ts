@@ -82,17 +82,6 @@ export function roadTexture(): THREE.CanvasTexture {
     ctx.fillRect(x, y, Math.random() < 0.8 ? 2 : 3, 2)
   }
 
-  // Tar seams running with the road, the way a repaired surface looks.
-  ctx.strokeStyle = 'rgba(12, 14, 18, 0.3)'
-  ctx.lineWidth = 2
-  for (let i = 0; i < 3; i++) {
-    const x = 34 + Math.random() * (w - 68)
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x + (Math.random() - 0.5) * 12, h)
-    ctx.stroke()
-  }
-
   // Solid white edge lines. The road plane is 9.6 world units across 256 px, so the
   // 7 px band sits at ±4.54 — just inside the drivable ±4.6, where a real edge line
   // is painted. Off-white rather than pure white: pure white blows out under the
