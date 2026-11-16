@@ -221,6 +221,12 @@ export default function RushApp() {
   phaseRef.current = phase
   panelRef.current = panel
 
+  // Exposed on <html> so page chrome outside React (the studio badge) can step aside
+  // while a run is on screen and the touch controls own the bottom corners.
+  useEffect(() => {
+    document.documentElement.dataset.phase = phase
+  }, [phase])
+
   const pushToast = useCallback((toast: ToastMsg) => {
     setToasts((prev) => [...prev.slice(-2), toast])
     window.setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== toast.id)), 2400)
