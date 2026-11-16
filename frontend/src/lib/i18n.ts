@@ -147,8 +147,8 @@ const DICT: Record<string, Entry> = {
   },
   'auth.forgotTitle': { en: 'Use a new wallet on this device?', vi: 'Dùng ví mới trên máy này?' },
   'auth.forgotBody': {
-    en: 'The key of the old wallet ({address}) will be removed from this device. If you did not save its recovery key, that wallet cannot be recovered. A new wallet will be created for this account.',
-    vi: 'Chìa khoá của ví cũ ({address}) sẽ bị xoá khỏi máy này. Nếu bạn chưa lưu chìa khoá khôi phục, ví đó sẽ không thể lấy lại được. Một ví mới sẽ được tạo cho tài khoản này.',
+    en: 'The old wallet ({address}) will be removed from this device and a new one created for this Google account. An account that already signs in with Google keeps its scores and Arc. Anything held on-chain in the old wallet can only be recovered with its recovery key.',
+    vi: 'Ví cũ ({address}) sẽ bị xoá khỏi máy này và một ví mới được tạo cho tài khoản Google này. Tài khoản đã đăng nhập bằng Google vẫn giữ nguyên điểm và Arc. Tài sản trên chuỗi trong ví cũ (nếu có) chỉ lấy lại được bằng chìa khoá khôi phục.',
   },
   'auth.forgotConfirm': { en: 'Remove it and create a new wallet', vi: 'Xoá và tạo ví mới' },
   'auth.cancel': { en: 'Cancel', vi: 'Huỷ' },
@@ -210,7 +210,7 @@ const DICT: Record<string, Entry> = {
   'char.buy': { en: 'Buy {n}', vi: 'Mua {n}' },
   'hud.pursuit': { en: 'Danger', vi: 'Nguy hiểm' },
   'mission.distance': { en: 'Distance', vi: 'Quãng đường' },
-  'mission.coins': { en: 'Arc coins', vi: 'Coin Arc' },
+  'mission.coins': { en: 'Arc coins', vi: 'Xu Arc' },
   'mission.combo': { en: 'Best combo', vi: 'Chuỗi combo' },
   'mission.powers': { en: 'Power-ups', vi: 'Vật phẩm' },
   'mission.slides': { en: 'Slides', vi: 'Lần trượt' },
@@ -220,12 +220,12 @@ const DICT: Record<string, Entry> = {
   'over.nearMiss': { en: 'Close calls', vi: 'Suýt soát' },
   'over.busted': { en: 'Run over — too many crashes', vi: 'Hết lượt — đâm quá nhiều lần' },
   'over.revive': { en: 'Continue', vi: 'Chạy tiếp' },
-  'over.reviveCost': { en: 'coins', vi: 'coin' },
+  'over.reviveCost': { en: 'Arc', vi: 'Arc' },
   'over.reviveHint': {
-    en: 'Costs a quarter of this run’s coins — keep the run, the danger bar clears',
-    vi: 'Tốn 1/4 số coin của lượt này — giữ nguyên lượt, xoá sạch mức nguy hiểm',
+    en: 'Costs a quarter of this run’s Arc — keep the run, the danger bar clears',
+    vi: 'Tốn 1/4 số Arc của lượt này — giữ nguyên lượt, xoá sạch thanh nguy hiểm',
   },
-  'over.noCoins': { en: 'Not enough coins', vi: 'Không đủ coin' },
+  'over.noCoins': { en: 'Not enough Arc', vi: 'Không đủ Arc' },
   'set.difficulty': { en: 'Difficulty', vi: 'Độ khó' },
   'diff.easy': { en: 'Easy', vi: 'Dễ' },
   'diff.normal': { en: 'Normal', vi: 'Thường' },
@@ -253,7 +253,7 @@ const DICT: Record<string, Entry> = {
   'power.ward.label': { en: 'WARDED', vi: 'MIỄN NHIỄM' },
   'power.ward.hint': { en: 'Hazard shrugged off', vi: 'Đã chặn hiệu ứng xấu' },
   'perk.quickLane': { en: 'Close calls ×2, lanes 35% faster', vi: 'Né sát ×2 điểm, đổi làn nhanh 35%' },
-  'perk.wideMagnet': { en: 'Pulls close coins, magnet +45% reach', vi: 'Tự hút coin gần, nam châm xa +45%' },
+  'perk.wideMagnet': { en: 'Pulls close coins, magnet +45% reach', vi: 'Tự hút xu ở gần, nam châm hút xa hơn 45%' },
   'perk.longBoost': { en: 'Overdrive lasts twice as long', vi: 'Tăng tốc kéo dài gấp đôi' },
   'hud.arcCollected': { en: 'Arc collected', vi: 'Arc đã thu' },
   'hud.score': { en: 'Score', vi: 'Điểm' },
@@ -303,7 +303,7 @@ const DICT: Record<string, Entry> = {
   'over.record': { en: 'New personal record', vi: 'Kỷ lục cá nhân mới' },
   'over.arc': { en: 'Arc collected', vi: 'Arc đã thu' },
   'over.distance': { en: 'Distance', vi: 'Quãng đường' },
-  'over.topSpeed': { en: 'Top km/h', vi: 'Km/h cao nhất' },
+  'over.topSpeed': { en: 'Top km/h', vi: 'Tốc độ cao nhất' },
   'over.bestCombo': { en: 'Best combo', vi: 'Chuỗi tốt nhất' },
   'over.time': { en: 'Sprint time', vi: 'Thời gian chạy' },
   'over.rank': { en: 'Global rank', vi: 'Xếp hạng toàn cầu' },
@@ -719,9 +719,11 @@ export function useT(): (key: string, vars?: Record<string, string | number>) =>
   return useCallback((key: string, vars?: Record<string, string | number>) => translate(key, lang, vars), [lang])
 }
 
+const numberFormats: Partial<Record<Lang, Intl.NumberFormat>> = {}
 export function formatNumber(value: number, lang: Lang = current): string {
   try {
-    return new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US').format(Math.round(value))
+    const format = (numberFormats[lang] ??= new Intl.NumberFormat(lang === 'vi' ? 'vi-VN' : 'en-US'))
+    return format.format(Math.round(value))
   } catch {
     return String(Math.round(value))
   }

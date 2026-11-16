@@ -12,6 +12,7 @@ import { foundWallets, providerFor, rescanWallets, subscribeWallets, watchWallet
 import {
   chainConfig,
   createLocalWallet,
+  forgetLocalWallet,
   googleClientId,
   googleIdentity,
   hasLocalWallet,
@@ -32,6 +33,7 @@ type Step =
   | { name: 'create'; credential: string; email: string | null }
   | { name: 'reveal'; credential: string; email: string | null; address: string; privateKey: string }
   | { name: 'unlock'; credential: string; email: string | null }
+  | { name: 'forgot'; credential: string; email: string | null }
   | { name: 'busy'; what: 'google' | 'wallet' | 'link' }
 
 /** Server render: no browser, no wallets. One shared array so React sees a stable snapshot. */
@@ -70,6 +72,7 @@ function LangSwitch() {
           key={option.id}
           type="button"
           className={`ar-lang-btn ${lang === option.id ? 'is-active' : ''}`}
+          lang={option.id}
           onClick={() => setLang(option.id)}
         >
           {option.label}
@@ -158,15 +161,13 @@ export function AuthGate({
       credentialRef.current = credential
       emailRef.current = email
       setError('')
-      if (hasLocalWallet()) {
-        setStep({ name: 'unlock', credential, email })
-        return
-      }
-      // Ask the server whether this Google account already owns a wallet.
+      // Ask the server first: a Google account that already owns a wallet signs in with
+      // Google alone, so a returning player never needs the device password.
       setStep({ name: 'busy', what: 'google' })
       try {
         const result = await signInWithGoogle(credential)
         if (result.account) finish(result.account)
+        else if (hasLocalWallet()) setStep({ name: 'unlock', credential, email })
         else setStep({ name: 'create', credential, email })
       } catch (issue) {
         setError(errorText(issue))
@@ -546,6 +547,47 @@ export function AuthGate({
             <button className="ar-btn ar-btn-primary mt-3 py-3" onClick={() => void submitUnlock()} disabled={password.length < 1}>
               <KeyRound size={15} /> {t('auth.unlock')}
             </button>
+            <button
+              type="button"
+              className="ar-link ar-auth-forgot"
+              onClick={() => {
+                setError('')
+                setStep({ name: 'forgot', credential: step.credential, email: step.email })
+              }}
+            >
+              {t('auth.forgot')}
+            </button>
+          </>
+        )}
+
+        {step.name === 'forgot' && (
+          <>
+            <div className="ar-auth-step">{t('auth.forgotTitle')}</div>
+            <div className="ar-hint text-left">
+              {t('auth.forgotBody', { address: shortAddress(localWalletAddress()) })}
+            </div>
+            <div className="ar-menu-row mt-3">
+              <button
+                className="ar-btn ar-btn-primary"
+                onClick={() => {
+                  forgetLocalWallet()
+                  setPassword('')
+                  setError('')
+                  setStep({ name: 'create', credential: step.credential, email: step.email })
+                }}
+              >
+                {t('auth.forgotConfirm')}
+              </button>
+              <button
+                className="ar-btn"
+                onClick={() => {
+                  setError('')
+                  setStep({ name: 'unlock', credential: step.credential, email: step.email })
+                }}
+              >
+                {t('auth.cancel')}
+              </button>
+            </div>
           </>
         )}
 

@@ -3521,10 +3521,17 @@ a.ar-pick-card {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
   font-size: 12px;
   font-weight: 600;
+}
+@media (max-width: 420px) {
+  .ar-today-bar { width: 40px; }
+  .ar-today-reward { min-width: 38px; }
 }
 .ar-today-bar {
   flex: none;
@@ -3776,3 +3783,12 @@ html[lang='vi'] .ar-mult {
   height: 100vh;
   height: 100dvh;
 }
+
+/* Long Vietnamese labels: let names wrap instead of hiding words behind "…". */
+.ar-help-rows .ar-row-name { flex: 0 1 34%; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+.ar-help-rows .ar-row-sub { flex: 1 1 0; min-width: 0; line-height: 1.35; }
+.ar-quest .ar-row-name { white-space: normal; line-height: 1.25; }
+.ar-ach-goal { white-space: normal; line-height: 1.3; }
+.ar-auth-forgot { display: block; margin: 12px auto 0; font-size: 12.5px; letter-spacing: 0; text-transform: none; text-align: center; line-height: 1.35; }
+/* "Tiếng Việt" must render in a font with Vietnamese glyphs even while the UI is English. */
+.ar-lang-btn[lang='vi'] { font-family: 'Chakra Petch', 'Exo 2', system-ui, sans-serif; }

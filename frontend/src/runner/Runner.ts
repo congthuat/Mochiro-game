@@ -889,20 +889,24 @@ export class Runner {
   }
 
   async boot(): Promise<void> {
-    this.emitProgress(0.12, 'Contacting the Arc network')
+    this.emitProgress(0.12, translate('load.network'))
     const brand = await loadArcBrand()
     if (this.disposed) return
     this.brand = brand
     this.events.emit('brand', brand)
 
-    this.emitProgress(0.45, 'Minting coin art')
+    this.emitProgress(0.45, translate('load.coins'))
     const mark = await loadArcMark(brand)
     if (this.disposed) return
     this.arcMark = mark
     const coinTexture = await buildCoinTexture(brand, mark)
-    if (this.disposed) return
+    if (this.disposed) {
+      coinTexture.dispose()
+      return
+    }
+    this.coinTexture = coinTexture
 
-    this.emitProgress(0.7, 'Building the skyline')
+    this.emitProgress(0.7, translate('load.skyline'))
     this.pickups = new PickupManager(this.preset, coinTexture)
     this.scene.add(this.pickups.group)
     this.flyCoins = new FlyCoins(this.pickups.faceTexture, 30)
@@ -910,11 +914,11 @@ export class Runner {
     this.scenery = new Scenery(this.preset, brand, mark, 90210)
     this.scene.add(this.scenery.group)
 
-    this.emitProgress(0.86, 'Suiting up the runner')
+    this.emitProgress(0.86, translate('load.runner'))
     await this.loadCharacterModel()
     if (this.disposed) return
 
-    this.emitProgress(0.95, 'Warming the engines')
+    this.emitProgress(0.95, translate('load.engines'))
     this.audio.setVolumes(this.settings.master, this.settings.music, this.settings.sfx)
 
     this.setPhase('menu')
@@ -1102,6 +1106,8 @@ export class Runner {
     this.flyCoins?.dispose()
     this.speedLines.dispose()
     this.avatar.dispose()
+    this.coinTexture?.dispose()
+    this.coinTexture = null
     this.composer?.dispose()
     this.renderer.dispose()
     if (this.renderer.domElement.parentElement === this.container) {
@@ -1472,13 +1478,19 @@ export class Runner {
     const run = this.run
     const ground = this.groundHeight()
     if (!run.onGround) {
+      const before = run.y
       run.vy -= PHYSICS.gravity * dt
       run.y += run.vy * dt
-      if (run.y <= ground && run.vy <= 0) {
-        run.y = ground
+      // Only a roof the runner comes down onto from above is a floor. One that slid in
+      // underneath a runner already below its top edge used to pop them straight up onto
+      // it — a visible snap, and a free pass through the car's side. That case falls on
+      // to the road and the collision check decides.
+      const floor = ground > 0 && before < ground - 0.22 ? 0 : ground
+      if (run.y <= floor && run.vy <= 0) {
+        run.y = floor
         if (run.vy < -8) {
           this.audio.play('land')
-          this.sparks.burst(run.laneX, 0.05, 0, {
+          this.sparks.burst(run.laneX, floor + 0.05, 0, {
             count: 12,
             color: 0xbcd8ff,
             speed: 4.5,

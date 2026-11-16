@@ -128,6 +128,8 @@ export class ModelAvatar {
   animName = 'none'
 
   private fx = new AvatarFx(0.5, 0.85)
+  /** Geometry and textures owned by the cached original — shared by every clone, never freed here. */
+  private shared = new Set<object>()
   private mixer: THREE.AnimationMixer | null = null
   private actions = new Map<string, THREE.AnimationAction>()
   private current: THREE.AnimationAction | null = null
@@ -175,6 +177,14 @@ export class ModelAvatar {
       await preloadModel(url)
       const loaded = cache.get(url)
       if (!loaded) return false
+      loaded.scene.traverse((object) => {
+        const mesh = object as THREE.Mesh
+        if (!mesh.isMesh) return
+        this.shared.add(mesh.geometry)
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          for (const value of Object.values(material ?? {})) if ((value as THREE.Texture)?.isTexture) this.shared.add(value as object)
+        }
+      })
       const scene = cloneSkinned(loaded.scene) as THREE.Object3D
       scene.traverse((object) => {
         const mesh = object as THREE.Mesh
@@ -511,6 +521,25 @@ export class ModelAvatar {
     this.mixer = null
     this.actions.clear()
     this.model = null
+    // Free what this avatar made for itself: cloned materials, recoloured textures and
+    // any gear or persona meshes. Browsing heroes in the menu builds a new avatar per
+    // tap, and each recoloured skin is a full-size canvas texture on the GPU.
+    const textures = new Set<THREE.Texture>()
+    this.container.traverse((object) => {
+      const mesh = object as THREE.Mesh
+      if (!mesh.isMesh) return
+      if (mesh.geometry && !this.shared.has(mesh.geometry)) mesh.geometry.dispose()
+      ;(mesh as THREE.SkinnedMesh).skeleton?.dispose()
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        if (!material) continue
+        for (const value of Object.values(material)) {
+          if ((value as THREE.Texture)?.isTexture && !this.shared.has(value as object)) textures.add(value as THREE.Texture)
+        }
+        material.dispose()
+      }
+    })
+    for (const texture of textures) texture.dispose()
+    this.shared.clear()
     this.container.clear()
     this.fx.dispose()
     this.root.clear()

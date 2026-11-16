@@ -2,7 +2,7 @@
 // touch controls and transient overlays.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Pause, Gauge, Zap, Magnet, Shield, ShieldCheck, Coins, Ghost, Shuffle, CloudFog, Weight, Compass, TriangleAlert, Check } from 'lucide-react'
-import { useT } from '../../lib/i18n'
+import { formatNumber, useT } from '../../lib/i18n'
 import { POWER_BY_KIND } from '../../runner/config'
 import type { PowerKind } from '../../runner/types'
 import { formatScore, formatSpeed } from '../../runner/utils'
@@ -183,7 +183,7 @@ export function RushHud({
                 <Check size={11} />
                 <span className="ar-mission-name">{t(`mission.${mission.id}`)}</span>
                 <span className="ar-mission-count">
-                  {mission.done ? `+${mission.reward}` : `${Math.min(mission.progress, mission.target)}/${mission.target}`}
+                  {mission.done ? `+${formatNumber(mission.reward)}` : `${formatNumber(Math.min(mission.progress, mission.target))}/${formatNumber(mission.target)}`}
                 </span>
               </span>
             ))}

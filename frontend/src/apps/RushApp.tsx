@@ -156,12 +156,16 @@ function devBypass(): boolean {
 /** Where the finished run's trip to the board stands, as the game-over screen tells it. */
 type SubmitState = 'idle' | 'sending' | 'done' | 'queued' | 'rate' | 'auth' | 'rejected' | 'duplicate'
 
+/** App-side toasts count down from -1 so they never share an id with the runner's (1, 2, 3…). */
+let appToastSeq = 0
+const nextAppToastId = () => -++appToastSeq
+
 export default function RushApp() {
   const containerRef = useRef<HTMLDivElement>(null)
   const runnerRef = useRef<Runner | null>(null)
 
   const [phase, setPhase] = useState<Phase>('boot')
-  const [progress, setProgress] = useState<ProgressState>({ pct: 0.06, label: 'Booting the runner' })
+  const [progress, setProgress] = useState<ProgressState>({ pct: 0.06, label: translate('load.boot') })
   const [hud, setHud] = useState<HudState | null>(null)
   const [toasts, setToasts] = useState<ToastMsg[]>([])
   const [pickup, setPickup] = useState<PickupEvent | null>(null)
@@ -181,6 +185,8 @@ export default function RushApp() {
   const [brand, setBrand] = useState<ArcBrand | null>(null)
   const [profile, setProfile] = useState<RunnerProfile | null>(null)
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
+  /** Which board `entries` holds — the all-time list refreshes in the background too. */
+  const [entriesScope, setEntriesScope] = useState<BoardScope | null>(null)
   const [stats, setStats] = useState<GlobalStats | null>(null)
   const [submitState, setSubmitState] = useState<SubmitState>('idle')
   const [inReview, setInReview] = useState(false)
@@ -261,6 +267,7 @@ export default function RushApp() {
     void fetchRunnerLeaderboard()
       .then((board) => {
         setEntries(board.entries)
+        setEntriesScope('all')
         setStats(board.stats)
       })
       .catch(() => undefined)
@@ -298,7 +305,7 @@ export default function RushApp() {
       else if (outcome.error.kind !== 'rejected') break // still offline or signed out: try later
     }
     if (landed > 0) {
-      pushToast({ id: Date.now(), kind: 'good', text: translate('over.sentLater') })
+      pushToast({ id: nextAppToastId(), kind: 'good', text: translate('over.sentLater') })
       refreshAfterBank(clientId)
     }
   }, [deliver, pushToast, refreshAfterBank])
@@ -423,6 +430,7 @@ export default function RushApp() {
         if (cancelled) return
         if (board) {
           setEntries(board.entries)
+          setEntriesScope('all')
           setStats(board.stats)
         }
         if (existing) {
@@ -476,7 +484,7 @@ export default function RushApp() {
       setInviteFrom(null)
       const by = outcome.state?.invite?.mine?.by
       if (outcome.ok && by) {
-        pushToast({ id: Date.now(), kind: 'good', text: translate('invite.joinedToast', undefined, { name: by }) })
+        pushToast({ id: nextAppToastId(), kind: 'good', text: translate('invite.joinedToast', undefined, { name: by }) })
       }
     })
   }, [account, economy, pushToast])
@@ -490,7 +498,7 @@ export default function RushApp() {
       runner = new Runner(container, settingsRef.current, bestRef.current)
     } catch (error) {
       console.error('[arcrush] renderer init failed', error)
-      setFatal('This browser could not start WebGL. Try a recent Chrome, Edge or Firefox build.')
+      setFatal(translate('fatal.webgl'))
       return
     }
     runnerRef.current = runner
@@ -651,6 +659,7 @@ export default function RushApp() {
       .then((board) => {
         if (cancelled) return
         setEntries(board.entries)
+        setEntriesScope(boardScope)
         setStats(board.stats)
         setSeason(board.season)
       })
@@ -887,7 +896,7 @@ export default function RushApp() {
     return (
       <div className="ar-root ar-fill flex w-full items-center justify-center bg-[#04050f] p-6">
         <div className="ar-panel max-w-[520px] px-7 py-6 text-center">
-          <div className="ar-display text-[16px]">Cannot start the run</div>
+          <div className="ar-display text-[16px]">{translate('fatal.title')}</div>
           <p className="mt-3 text-[14px] leading-relaxed text-[#b9cdea]">{fatal}</p>
         </div>
       </div>
@@ -1009,7 +1018,7 @@ export default function RushApp() {
           state={shareSheet}
           text={shareMeta.text}
           link={shareMeta.link}
-          onToast={(kind, key) => pushToast({ id: Date.now(), kind, text: translate(key) })}
+          onToast={(kind, key) => pushToast({ id: nextAppToastId(), kind, text: translate(key) })}
           onClose={closeShare}
         />
       )}
@@ -1037,7 +1046,7 @@ export default function RushApp() {
       )}
       {panel === 'board' && (
         <RushLeaderboard
-          entries={entries}
+          entries={entriesScope === boardScope ? entries : null}
           stats={stats}
           highlightRank={rank}
           onClose={() => setPanel('none')}

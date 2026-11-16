@@ -211,6 +211,7 @@ export function RushMenu({
                   key={id}
                   type="button"
                   className={`ar-lang-btn ${lang === id ? 'is-active' : ''}`}
+                  lang={id}
                   onClick={() => setLang(id)}
                 >
                   {id === 'vi' ? 'Tiếng Việt' : 'English'}
@@ -540,7 +541,7 @@ export function RushGameOver({
                   {t(`mission.${mission.id}`)}
                 </span>
                 <span className="ar-over-mission-count">
-                  {mission.done ? `+${mission.reward}` : `${mission.progress}/${mission.target}`}
+                  {mission.done ? `+${formatNumber(mission.reward)}` : `${formatNumber(Math.min(mission.progress, mission.target))}/${formatNumber(mission.target)}`}
                 </span>
               </div>
             ))}
@@ -822,7 +823,7 @@ export function RushHelp({
           ))}
         </div>
 
-        <div className="ar-rows">
+        <div className="ar-rows ar-help-rows">
           <div className="ar-row">
             <span className="ar-row-name">{t('help.pickups')}</span>
             <span className="ar-row-sub">
@@ -872,7 +873,8 @@ export function RushLeaderboard({
   onScope,
   season,
 }: {
-  entries: LeaderboardEntry[]
+  /** null while the chosen board is still loading. */
+  entries: LeaderboardEntry[] | null
   stats: GlobalStats | null
   onClose: () => void
   highlightRank: number | null
@@ -942,8 +944,9 @@ export function RushLeaderboard({
         </div>
 
         <div className="ar-rows">
-          {entries.length === 0 && <div className="ar-row">{t('board.empty')}</div>}
-          {entries.map((entry, index) => (
+          {entries === null && <div className="ar-row">{t('menu.connecting')}</div>}
+          {entries?.length === 0 && <div className="ar-row">{t('board.empty')}</div>}
+          {(entries ?? []).map((entry, index) => (
             <div
               key={entry.id}
               className={`ar-row ${scope === 'all' && highlightRank === index + 1 ? 'ar-row-highlight' : ''}`}
