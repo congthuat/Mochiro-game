@@ -11,6 +11,35 @@ interface QueuedAction {
 const SWIPE_MIN = 26
 const TAP_MAX_TIME = 260
 
+/** True for anything the player can type into: inputs, textareas, selects, contenteditable. */
+function isEditableNode(node: EventTarget | null | undefined): boolean {
+  if (!node || typeof (node as Element).tagName !== 'string') return false
+  const element = node as HTMLElement
+  if (element.isContentEditable) return true
+  const tag = element.tagName
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (tag === 'INPUT') {
+    const type = ((element as HTMLInputElement).type || 'text').toLowerCase()
+    // Buttons, checkboxes and sliders are not text entry; everything else is.
+    return !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file', 'image'].includes(type)
+  }
+  return false
+}
+
+/**
+ * Keys typed into a text field (a name box, a chat, a search in an overlay) must
+ * never steer the runner, pause the game or be swallowed by preventDefault. The
+ * composed path catches fields inside shadow roots, where `event.target` is
+ * retargeted to the host.
+ */
+function isTypingEvent(event: KeyboardEvent): boolean {
+  // IME composition (Vietnamese Telex, CJK...) delivers keydowns with keyCode 229.
+  if (event.isComposing || event.keyCode === 229) return true
+  if (isEditableNode(event.target)) return true
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+  return path.length > 0 && isEditableNode(path[0])
+}
+
 export class RushInput {
   private queue: QueuedAction[] = []
   private enabled = true
@@ -98,7 +127,9 @@ export class RushInput {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (event.repeat) return
+    if (event.repeat || isTypingEvent(event)) return
+    // Browser / OS shortcuts (Ctrl+S, Cmd+D, Alt+arrows) are not game input.
+    if (event.ctrlKey || event.metaKey || event.altKey) return
     const code = event.code
     if (code === 'Escape' || code === 'KeyP') {
       for (const handler of this.pauseHandlers) handler()
@@ -140,7 +171,7 @@ export class RushInput {
     if (!this.enabled || this.activePointer !== null) return
     // Ignore presses that land on UI controls (buttons, panels).
     const element = event.target as HTMLElement | null
-    if (element?.closest('button, a, input, .ar-touch-btn')) return
+    if (element?.closest('button, a, input, textarea, select, label, [contenteditable], .ar-touch-btn')) return
     this.activePointer = event.pointerId
     this.startX = event.clientX
     this.startY = event.clientY

@@ -14,6 +14,145 @@ const DICT: Record<string, Entry> = {
   'app.name': { en: 'Mochiro', vi: 'Mochiro' },
   'lang.label': { en: 'Language', vi: 'Ngôn ngữ' },
 
+  // ------------------------------------------- shell: boot, errors, fatal --
+  'boot.failTitle': { en: 'Mochiro could not load', vi: 'Chưa tải được Mochiro' },
+  'boot.failBody': {
+    en: 'The connection dropped while the game was loading. Check your network and try again.',
+    vi: 'Kết nối bị gián đoạn trong lúc tải game. Kiểm tra mạng rồi thử lại nhé.',
+  },
+  'boot.retrying': { en: 'Trying again…', vi: 'Đang thử tải lại…' },
+  'boot.reload': { en: 'Reload', vi: 'Tải lại' },
+  'error.title': { en: 'Something went wrong', vi: 'Đã có lỗi xảy ra' },
+  'error.body': {
+    en: 'The game hit an unexpected snag. Reloading usually fixes it — your progress is safe.',
+    vi: 'Game gặp một lỗi không mong muốn. Tải lại trang thường sẽ khắc phục được — tiến độ của bạn vẫn an toàn.',
+  },
+  'error.panelTitle': { en: 'This panel could not open', vi: 'Không mở được mục này' },
+  'error.panelBody': {
+    en: 'Close it and carry on playing, or reload the page if it keeps happening.',
+    vi: 'Hãy đóng lại và chơi tiếp, hoặc tải lại trang nếu lỗi vẫn lặp lại.',
+  },
+  'error.reload': { en: 'Reload', vi: 'Tải lại' },
+  'fatal.title': { en: 'Cannot start the game', vi: 'Không khởi động được game' },
+  'fatal.webgl': {
+    en: 'This browser could not start 3D graphics (WebGL). Try an up-to-date Chrome, Edge, Firefox or Safari.',
+    vi: 'Trình duyệt này không chạy được đồ hoạ 3D (WebGL). Hãy thử Chrome, Edge, Firefox hoặc Safari bản mới nhất.',
+  },
+  'fatal.load': {
+    en: 'The game files did not finish downloading. Check your connection and reload.',
+    vi: 'Chưa tải xong dữ liệu game. Kiểm tra kết nối mạng rồi tải lại trang nhé.',
+  },
+  'load.boot': { en: 'Starting the runner', vi: 'Đang khởi động' },
+  'load.network': { en: 'Contacting the Arc network', vi: 'Đang kết nối mạng Arc' },
+  'load.coins': { en: 'Minting coin art', vi: 'Đang đúc đồng xu' },
+  'load.skyline': { en: 'Building the skyline', vi: 'Đang dựng thành phố' },
+  'load.runner': { en: 'Suiting up the runner', vi: 'Đang chuẩn bị nhân vật' },
+  'load.engines': { en: 'Warming the engines', vi: 'Sắp xong rồi' },
+  'time.dh': { en: '{d}d {h}h', vi: '{d} ngày {h} giờ' },
+  'time.hm': { en: '{h}h {m}m', vi: '{h} giờ {m} phút' },
+  'time.m': { en: '{m}m', vi: '{m} phút' },
+  'hud.multPop': { en: 'Multiplier ×{n}', vi: 'Hệ số ×{n}' },
+  'help.keySwipe': { en: 'SWIPE', vi: 'VUỐT' },
+  'help.keyTap': { en: 'TAP', vi: 'CHẠM' },
+  'toasts.label': { en: 'Notifications', vi: 'Thông báo' },
+
+  // ------------------------------------------------------- run submission --
+  'over.submitFailed': {
+    en: 'Could not reach the board. Your run is saved on this device and will be sent automatically.',
+    vi: 'Chưa gửi được lên bảng xếp hạng. Lượt chạy đã được lưu trên máy và sẽ tự gửi lại.',
+  },
+  'over.submitRetry': { en: 'Send now', vi: 'Gửi lại ngay' },
+  'over.slowDown': {
+    en: 'The server is busy — your run will be sent again in a moment.',
+    vi: 'Máy chủ đang bận — lượt chạy sẽ được gửi lại sau giây lát.',
+  },
+  'over.signedOut': {
+    en: 'Your sign-in expired. Sign in again and this run will be sent.',
+    vi: 'Phiên đăng nhập đã hết hạn. Đăng nhập lại để gửi lượt chạy này.',
+  },
+  'over.rejected': {
+    en: 'The server could not accept this run, so it was not added to the board.',
+    vi: 'Máy chủ không chấp nhận lượt chạy này nên nó không được đưa lên bảng xếp hạng.',
+  },
+  'over.duplicate': { en: 'This run was already sent.', vi: 'Lượt chạy này đã được gửi trước đó.' },
+  'over.review': {
+    en: 'Your score is being checked before it goes on the board.',
+    vi: 'Điểm đang được kiểm tra trước khi lên bảng xếp hạng.',
+  },
+  'over.sentLater': { en: 'Your saved run reached the board', vi: 'Lượt chạy đã lưu đã được gửi lên bảng xếp hạng' },
+
+  // ------------------------------------------------------ sign-in errors --
+  'auth.err.rejected': { en: 'You cancelled the request.', vi: 'Bạn đã huỷ yêu cầu.' },
+  'auth.err.noWallet': {
+    en: 'No wallet was found in this browser.',
+    vi: 'Không tìm thấy ví nào trong trình duyệt này.',
+  },
+  'auth.err.noAccount': {
+    en: 'The wallet did not share an address. Unlock it and try again.',
+    vi: 'Ví chưa chia sẻ địa chỉ. Hãy mở khoá ví rồi thử lại.',
+  },
+  'auth.err.verify': {
+    en: 'The signature could not be verified. Please try again.',
+    vi: 'Không xác minh được chữ ký. Vui lòng thử lại.',
+  },
+  'auth.err.wcConfig': {
+    en: 'WalletConnect is not available right now. Use a browser wallet or Google instead.',
+    vi: 'WalletConnect hiện chưa dùng được. Hãy dùng ví trên trình duyệt hoặc Google.',
+  },
+  'auth.err.network': {
+    en: 'Cannot reach the server. Check your connection and try again.',
+    vi: 'Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại nhé.',
+  },
+  'auth.err.server': {
+    en: 'The server is having trouble right now. Please try again in a moment.',
+    vi: 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau ít phút.',
+  },
+  'auth.err.expired': {
+    en: 'The sign-in request expired. Please try again.',
+    vi: 'Yêu cầu đăng nhập đã hết hạn. Vui lòng thử lại.',
+  },
+  'auth.err.domain': {
+    en: 'This sign-in request was made for a different website. Reload the page and try again.',
+    vi: 'Yêu cầu đăng nhập này không dành cho trang web này. Tải lại trang rồi thử lại nhé.',
+  },
+  'auth.err.chain': {
+    en: 'Switch your wallet to the Arc Testnet network, then try again.',
+    vi: 'Hãy chuyển ví sang mạng Arc Testnet rồi thử lại.',
+  },
+  'auth.err.google': {
+    en: 'Google sign-in did not go through. Please try again.',
+    vi: 'Đăng nhập Google chưa thành công. Vui lòng thử lại.',
+  },
+  'auth.err.slowDown': {
+    en: 'Too many attempts. Wait a moment, then try again.',
+    vi: 'Bạn thử quá nhiều lần. Đợi một lát rồi thử lại nhé.',
+  },
+  'auth.err.storage': {
+    en: 'This browser is blocking storage (private mode?), so a wallet cannot be kept here.',
+    vi: 'Trình duyệt đang chặn lưu dữ liệu (có thể do chế độ ẩn danh) nên không thể lưu ví trên máy này.',
+  },
+  'auth.err.walletOwned': {
+    en: 'The wallet on this device already belongs to another account. Use a new wallet on this device, or sign in with that account.',
+    vi: 'Ví trên máy này đã thuộc về một tài khoản khác. Hãy dùng ví mới trên máy này, hoặc đăng nhập bằng tài khoản đó.',
+  },
+  'auth.linkFailed': {
+    en: 'The wallet could not be linked to your Google account. Please try again.',
+    vi: 'Chưa liên kết được ví với tài khoản Google. Vui lòng thử lại.',
+  },
+  'auth.checkingGoogle': { en: 'Signing in with Google…', vi: 'Đang đăng nhập bằng Google…' },
+  'auth.unlocking': { en: 'Unlocking your wallet…', vi: 'Đang mở khoá ví…' },
+  'auth.forgot': {
+    en: 'Forgot password / use a new wallet on this device',
+    vi: 'Quên mật khẩu / dùng ví mới trên máy này',
+  },
+  'auth.forgotTitle': { en: 'Use a new wallet on this device?', vi: 'Dùng ví mới trên máy này?' },
+  'auth.forgotBody': {
+    en: 'The key of the old wallet ({address}) will be removed from this device. If you did not save its recovery key, that wallet cannot be recovered. A new wallet will be created for this account.',
+    vi: 'Chìa khoá của ví cũ ({address}) sẽ bị xoá khỏi máy này. Nếu bạn chưa lưu chìa khoá khôi phục, ví đó sẽ không thể lấy lại được. Một ví mới sẽ được tạo cho tài khoản này.',
+  },
+  'auth.forgotConfirm': { en: 'Remove it and create a new wallet', vi: 'Xoá và tạo ví mới' },
+  'auth.cancel': { en: 'Cancel', vi: 'Huỷ' },
+
   // ----------------------------------------------------------------- menu --
   'menu.best': { en: 'Best', vi: 'Kỷ lục' },
   'menu.arcTotal': { en: 'Arc collected', vi: 'Arc đã nhặt' },
@@ -42,6 +181,28 @@ const DICT: Record<string, Entry> = {
   'hud.speed': { en: 'Speed', vi: 'Tốc độ' },
   'hud.top': { en: 'Top', vi: 'Đỉnh' },
   'hud.best': { en: 'Best', vi: 'Kỷ lục' },
+  'runner.tier.warmup': { en: 'Warm-up', vi: 'Khởi động' },
+  'runner.tier.overclock': { en: 'Overclock', vi: 'Tăng tốc' },
+  'runner.tier.surge': { en: 'Surge', vi: 'Bứt phá' },
+  'runner.tier.hyperdrive': { en: 'Hyperdrive', vi: 'Siêu tốc' },
+  'runner.tier.terminal': { en: 'Terminal Velocity', vi: 'Tốc độ tối đa' },
+  'runner.toast.go': { en: 'GO!', vi: 'CHẠY!' },
+  'runner.toast.quality': { en: 'Graphics quality lowered to keep the pace', vi: 'Đã giảm đồ hoạ để game chạy mượt' },
+  'runner.toast.tier': { en: '{tier} — {speed} km/h', vi: '{tier} — {speed} km/h' },
+  'runner.toast.perfectLine': { en: 'Perfect line +{n}', vi: 'Gom trọn hàng +{n}' },
+  'runner.toast.ward': { en: 'WARD — hazard shrugged off', vi: 'KHIÊN BẢO HỘ — bỏ qua bẫy' },
+  'runner.toast.shield': { en: 'Shield up — one free hit', vi: 'Có khiên — đỡ được 1 cú va' },
+  'runner.toast.magnet': { en: 'Magnet online — {s}s', vi: 'Nam châm — {s}s' },
+  'runner.toast.double': { en: 'Double Arc — {s}s', vi: 'Nhân đôi Arc — {s}s' },
+  'runner.toast.ghost': { en: 'Phase shift — {s}s', vi: 'Xuyên vật cản — {s}s' },
+  'runner.toast.invert': { en: 'Controls jammed — {s}s', vi: 'Đảo điều khiển — {s}s' },
+  'runner.toast.fog': { en: 'Smoke screen — {s}s', vi: 'Màn khói — {s}s' },
+  'runner.toast.heavy': { en: 'Heavy load — jumps fall short', vi: 'Nặng người — nhảy thấp hơn' },
+  'runner.toast.boost': { en: 'OVERDRIVE — smash through!', vi: 'SIÊU TỐC — húc xuyên mọi thứ!' },
+  'runner.toast.absorbed': { en: 'Shield absorbed the hit', vi: 'Khiên đã đỡ cú va' },
+  'runner.toast.close': { en: 'CLOSE!', vi: 'SUÝT NỮA!' },
+  'runner.toast.close2': { en: 'CLOSE ×2!', vi: 'SUÝT NỮA ×2!' },
+  'runner.toast.mission': { en: 'MISSION!', vi: 'XONG NHIỆM VỤ!' },
   'hud.swipeLanes': { en: 'Swipe left / right to switch lanes', vi: 'Vuốt trái / phải để đổi làn' },
   'hud.swipeRest': { en: 'Swipe up to jump · down to slide · tap to jump', vi: 'Vuốt lên để nhảy · xuống để trượt · chạm để nhảy' },
   'char.ability': { en: 'Ability', vi: 'Kỹ năng' },
@@ -502,6 +663,9 @@ const DICT: Record<string, Entry> = {
 
 const listeners = new Set<() => void>()
 let current: Lang = detect()
+// The page starts as <html lang="en">; screen readers and the browser's own translate
+// offer need the real language from the first paint, not only after a manual switch.
+if (typeof document !== 'undefined') document.documentElement.lang = current
 
 function detect(): Lang {
   try {

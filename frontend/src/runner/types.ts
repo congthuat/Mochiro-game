@@ -50,6 +50,8 @@ export interface HudState {
   shieldHits: number
   fps: number
   tierName: string
+  /** i18n key for the tier, so the HUD chip follows the player's language. */
+  tierKey: string
   /** The zone the run is in — see BIOMES in config.ts. */
   biome: string
   /** Danger meter, 0 (clean) … 1 (the run is over). Crashes fill it, clean running drains it. */

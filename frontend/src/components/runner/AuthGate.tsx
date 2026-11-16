@@ -23,8 +23,7 @@ import {
   signInWithWallet,
   shortAddress,
   unlockLocalWallet,
-  type AuthAccount,
-} from '../../lib/auth'
+  type AuthAccount, authErrorKey } from '../../lib/auth'
 
 type Step =
   | { name: 'choose' }
@@ -137,6 +136,15 @@ export function AuthGate({
     }
   }, [])
 
+  /** A sign-in failure in the player's language; never the raw server or wallet text. */
+  const errorText = useCallback(
+    (issue: unknown) => {
+      const key = authErrorKey(issue)
+      return key ? t(key) : ''
+    },
+    [t]
+  )
+
   const finish = useCallback(
     (account: AuthAccount) => {
       onSignedIn(account)
@@ -161,11 +169,11 @@ export function AuthGate({
         if (result.account) finish(result.account)
         else setStep({ name: 'create', credential, email })
       } catch (issue) {
-        setError(issue instanceof Error ? issue.message : t('auth.error'))
+        setError(errorText(issue))
         setStep({ name: 'choose' })
       }
     },
-    [finish, t]
+    [errorText, finish, t]
   )
 
   useEffect(() => {
@@ -214,8 +222,7 @@ export function AuthGate({
     try {
       finish(await signInWithWallet(provider))
     } catch (issue) {
-      const message = issue instanceof Error ? issue.message : ''
-      setError(message || t('auth.error'))
+      setError(errorText(issue))
       setStep({ name: 'choose' })
     }
   }
@@ -234,13 +241,7 @@ export function AuthGate({
       finish(await signInWithWallet(provider))
     } catch (issue) {
       if (pairToken.current !== token) return
-      const message = issue instanceof Error ? issue.message : ''
-      const friendly: Record<string, string> = {
-        'wc-origin': t('pick.wcErrOrigin'),
-        'wc-timeout': t('pick.wcErrTimeout'),
-        'wc-expired': t('pick.wcErrExpired'),
-      }
-      setError(friendly[message] || message || t('auth.error'))
+      setError(errorText(issue))
     } finally {
       if (pairToken.current === token) {
         setPairing(null)
@@ -302,7 +303,7 @@ export function AuthGate({
         setStep({ name: 'unlock', credential: step.credential, email: step.email })
       }
     } catch (issue) {
-      setError(issue instanceof Error ? issue.message : t('auth.error'))
+      setError(errorText(issue))
       setStep({ name: 'unlock', credential: step.credential, email: step.email })
     }
   }
@@ -318,7 +319,7 @@ export function AuthGate({
         setStep({ name: 'choose' })
       }
     } catch (issue) {
-      setError(issue instanceof Error ? issue.message : t('auth.error'))
+      setError(errorText(issue))
       setStep({ name: 'choose' })
     }
   }

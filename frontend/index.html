@@ -33,14 +33,21 @@
       // Fallback: if React fails to render (e.g. Vite dep stubs during cold
       // start), auto-reload until deps are ready.  This fires OUTSIDE React
       // so it works even when React itself is null/undefined.
+      // Production: a slow phone on 3G can take far longer than 3 s to fetch the
+      // bundle, and reloading then only restarts the download — a reload loop. So
+      // the check waits until every script has actually loaded (window 'load'),
+      // gives React a few more seconds, and reloads at most twice a minute.
       (function(){
-        var K='__boot_reload', W=30000, M=8;
+        var K='__boot_reload', W=60000, M=2;
         function st(){try{return JSON.parse(sessionStorage.getItem(K))||{c:0,t:0}}catch(e){return{c:0,t:0}}}
-        setTimeout(function(){
+        function check(){
           if(window.__reactOk)return;
+          if(navigator.onLine===false){window.addEventListener('online',function(){setTimeout(check,1500)},{once:true});return}
           var s=st(),c=(Date.now()-s.t>W)?0:s.c;
-          if(c<M){sessionStorage.setItem(K,JSON.stringify({c:c+1,t:Date.now()}));location.reload()}
-        },3000);
+          if(c<M){try{sessionStorage.setItem(K,JSON.stringify({c:c+1,t:Date.now()}))}catch(e){}location.reload()}
+        }
+        function arm(){setTimeout(check,6000)}
+        if(document.readyState==='complete')arm();else window.addEventListener('load',arm);
       })();
     </script>
     <!-- Plaza badge: rendered only when this deployed site is shared on Surf Plaza. -->

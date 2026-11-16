@@ -42,10 +42,121 @@ interface Stored {
   account: AuthAccount
 }
 
-const SESSION_KEY = 'arcrush.session'
+/** localStorage key of the signed-in session; other tabs watch it through `storage` events. */
+export const SESSION_KEY = 'arcrush.session'
 const VAULT_KEY = 'arcrush.wallet.vault'
 const CLIENT_ID_KEY = 'arcrush.google.clientId'
 const GOOGLE_SRC = 'https://accounts.google.com/gsi/client'
+
+// ------------------------------------------------------------------ errors --
+/**
+ * A sign-in failure with a stable `code`. Codes are either our own ('network', 'server',
+ * 'no-wallet', ...) or the server's machine codes ('wallet_owned', 'link_expired',
+ * 'slow_down'); older server routes answer with an English sentence, kept in `detail`.
+ */
+export class AuthError extends Error {
+  readonly code: string
+  readonly status: number
+  readonly detail: string
+  constructor(code: string, status = 0, detail = '') {
+    super(code)
+    this.name = 'AuthError'
+    this.code = code
+    this.status = status
+    this.detail = detail
+  }
+}
+
+/** The body as JSON when it is JSON. An HTML 502 page from a proxy is not, and must not throw. */
+async function readBody<T>(response: Response): Promise<Partial<T> & { error?: string }> {
+  const type = response.headers.get('content-type') ?? ''
+  if (!type.includes('json')) return {}
+  try {
+    return ((await response.json()) ?? {}) as Partial<T> & { error?: string }
+  } catch {
+    return {}
+  }
+}
+
+/** POST JSON; a dropped connection becomes AuthError('network'), a 5xx AuthError('server'). */
+async function postAuth<T>(path: string, payload: unknown): Promise<{ status: number; data: Partial<T> & { error?: string } }> {
+  let response: Response
+  try {
+    response = await fetch(api(path), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    throw new AuthError('network')
+  }
+  const data = await readBody<T>(response)
+  if (response.status >= 500 && !data.error) throw new AuthError('server', response.status)
+  if (response.status === 429) throw new AuthError('slow_down', 429, data.error ?? '')
+  return { status: response.status, data }
+}
+
+/** Machine codes the server sends as-is (everything else is a sentence, kept as detail). */
+const SERVER_CODES = new Set(['wallet_owned', 'link_expired', 'slow_down', 'unavailable'])
+
+function serverError(status: number, error: string | undefined, fallback: string): AuthError {
+  if (error && SERVER_CODES.has(error)) return new AuthError(error, status, error)
+  if (status >= 500) return new AuthError('server', status, error ?? '')
+  return new AuthError(fallback, status, error ?? '')
+}
+
+/**
+ * The i18n key to show for a sign-in failure, or null when there is nothing to say (the
+ * player backed out of a pairing on purpose). The raw error goes to the console only.
+ */
+export function authErrorKey(error: unknown): string | null {
+  const code = error instanceof AuthError ? error.code : error instanceof Error ? error.message : ''
+  const detail = error instanceof AuthError ? error.detail : ''
+  const raw = error as { code?: unknown; message?: unknown; info?: { error?: { code?: unknown } } } | null
+  const numeric = typeof raw?.code === 'number' ? raw.code : (raw?.info?.error?.code as number | undefined)
+  const text = `${code} ${detail} ${typeof raw?.message === 'string' ? raw.message : ''}`
+
+  if (code === 'wc-cancelled') return null
+  if (
+    numeric === 4001 ||
+    raw?.code === 'ACTION_REJECTED' ||
+    /user (rejected|denied|cancel)|rejected the request|request rejected|user disapproved/i.test(text)
+  ) {
+    return 'auth.err.rejected'
+  }
+  const known: Record<string, string> = {
+    'no-wallet': 'auth.err.noWallet',
+    'no-account': 'auth.err.noAccount',
+    'verify-failed': 'auth.err.verify',
+    'walletconnect-not-configured': 'auth.err.wcConfig',
+    'walletconnect-no-window': 'auth.err.wcConfig',
+    'wc-origin': 'pick.wcErrOrigin',
+    'wc-timeout': 'pick.wcErrTimeout',
+    'wc-expired': 'pick.wcErrExpired',
+    network: 'auth.err.network',
+    server: 'auth.err.server',
+    unavailable: 'auth.err.server',
+    'challenge-failed': 'auth.err.server',
+    slow_down: 'auth.err.slowDown',
+    wallet_owned: 'auth.err.walletOwned',
+    link_expired: 'auth.err.expired',
+    'weak-password': 'auth.passwordHint',
+    'storage-unavailable': 'auth.err.storage',
+    'google-failed': 'auth.err.google',
+  }
+  const direct = known[code]
+  if (direct && code !== 'verify-failed' && code !== 'google-failed') return direct
+  // Older routes answer with a sentence; the sentence is matched, never shown.
+  if (/domain mismatch/i.test(text)) return 'auth.err.domain'
+  if (/switch your wallet to arc/i.test(text)) return 'auth.err.chain'
+  if (/expired/i.test(text)) return 'auth.err.expired'
+  if (/signature|malformed sign-in/i.test(text)) return 'auth.err.verify'
+  if (/google/i.test(text)) return 'auth.err.google'
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(text)) return 'auth.err.network'
+  if (direct) return direct
+  console.error('[auth] sign-in failed', error)
+  return 'auth.error'
+}
 
 // ------------------------------------------------------------------ session --
 export function readSession(): Stored | null {
@@ -73,19 +184,42 @@ export function authToken(): string | null {
   return readSession()?.token ?? null
 }
 
-/** Re-validate the stored token against the server (it may have expired). */
-export async function refreshSession(): Promise<AuthSession> {
+/** Forget the local session without telling the server (it already said the token is dead). */
+export function clearSession(): void {
+  writeSession(null)
+}
+
+/**
+ * Re-validate the stored token against the server (it may have expired).
+ *
+ * Only a definite answer — HTTP 200 with `authenticated: false` — ends the session. A dropped
+ * connection, a 5xx (`{error:'unavailable'}`) or a proxy's HTML error page says nothing about
+ * the token, so the cached session stays and `reachable: false` tells the caller to ask again
+ * later instead of throwing the player back to the sign-in gate.
+ */
+export async function refreshSession(): Promise<AuthSession & { reachable: boolean }> {
   const stored = readSession()
+  const cached = { authenticated: Boolean(stored), account: stored?.account ?? null, chainId: 5042002, reachable: false }
   try {
     const response = await fetch(api('auth'), {
       headers: stored ? { authorization: `Bearer ${stored.token}` } : {},
     })
-    const body = (await response.json()) as AuthSession
+    if (response.status !== 200) return cached
+    const body = await readBody<AuthSession>(response)
+    if (typeof body.authenticated !== 'boolean') return cached
+    // Another tab may have signed in as someone else while this request was out.
+    const now = readSession()
+    if (stored && now?.token !== stored.token) return { ...cached, authenticated: Boolean(now), account: now?.account ?? null }
     if (body.authenticated && body.account && stored) writeSession({ token: stored.token, account: body.account })
     if (!body.authenticated) writeSession(null)
-    return body
+    return {
+      authenticated: body.authenticated,
+      account: body.authenticated ? (body.account ?? stored?.account ?? null) : null,
+      chainId: body.chainId ?? 5042002,
+      reachable: true,
+    }
   } catch {
-    return { authenticated: Boolean(stored), account: stored?.account ?? null, chainId: 5042002 }
+    return cached
   }
 }
 
@@ -96,7 +230,7 @@ export async function signOut(): Promise<void> {
   try {
     await fetch(api('auth/logout'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${stored.token}` },
       body: JSON.stringify({ token: stored.token }),
     })
   } catch {
@@ -111,11 +245,15 @@ export async function chainConfig(): Promise<ChainConfig> {
   if (cachedConfig) return cachedConfig
   try {
     const response = await fetch(api('auth/config'))
-    cachedConfig = (await response.json()) as ChainConfig
+    const body: Partial<ChainConfig> = response.ok ? await readBody<ChainConfig>(response) : {}
+    if (typeof body.chainId !== 'number' || typeof body.chainHex !== 'string') throw new Error('config-unavailable')
+    cachedConfig = body as ChainConfig
     const served = cachedConfig.googleClientId?.trim()
     if (served?.endsWith('.apps.googleusercontent.com')) remoteClientId = served
   } catch {
-    cachedConfig = {
+    // Not cached: the next sign-in attempt asks the server again instead of living with the
+    // fallback for the rest of the visit.
+    return {
       chainId: 5042002,
       chainHex: '0x4cef52',
       chainName: 'Arc Testnet',
@@ -215,28 +353,30 @@ export async function signInWithWallet(external?: Eip1193): Promise<AuthAccount>
   const accounts = (await injected.request({ method: 'eth_requestAccounts' })) as string[]
   const address = Array.isArray(accounts) ? accounts[0] : null
   if (typeof address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error('no-account')
-  await ensureArcNetwork(injected, config)
+  // Best effort only. The sign-in message is built by the server and carries Arc's chain id
+  // itself, and personal_sign does not depend on the wallet's active network — so a wallet
+  // that refuses (or does not support) switching must not stop the player signing in.
+  try {
+    await ensureArcNetwork(injected, config)
+  } catch (error) {
+    console.warn('[auth] could not switch the wallet to Arc; signing in anyway', error)
+  }
 
-  const challenge = await fetch(api('auth/nonce'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ address }),
-  }).then((response) => response.json() as Promise<{ message?: string; error?: string }>)
-  if (!challenge.message) throw new Error(challenge.error || 'challenge-failed')
+  const challenge = await postAuth<{ message: string }>('auth/nonce', { address })
+  if (!challenge.data.message) throw serverError(challenge.status, challenge.data.error, 'challenge-failed')
 
+  const message = challenge.data.message
   const { BrowserProvider } = await loadEthers()
   const provider = new BrowserProvider(injected as never)
   const signer = await provider.getSigner()
-  const signature = await signer.signMessage(challenge.message)
+  const signature = await signer.signMessage(message)
 
-  const verified = await fetch(api('auth/verify'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ message: challenge.message, signature }),
-  }).then((response) => response.json() as Promise<{ token?: string; account?: AuthAccount; error?: string }>)
-  if (!verified.token || !verified.account) throw new Error(verified.error || 'verify-failed')
-  writeSession({ token: verified.token, account: verified.account })
-  return verified.account
+  const verified = await postAuth<{ token: string; account: AuthAccount }>('auth/verify', { message, signature })
+  if (!verified.data.token || !verified.data.account) {
+    throw serverError(verified.status, verified.data.error, 'verify-failed')
+  }
+  writeSession({ token: verified.data.token, account: verified.data.account })
+  return verified.data.account
 }
 
 // ------------------------------------------------------------- google sign-in --
@@ -284,18 +424,14 @@ export async function signInWithGoogle(
   credential: string,
   wallet?: { address: string; message: string; signature: string }
 ): Promise<{ account: AuthAccount | null; needsWallet: boolean; email?: string }> {
-  const response = await fetch(api('auth/google'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ credential, wallet, clientId: googleClientId() }),
-  })
-  const body = (await response.json()) as {
-    token?: string | null
-    account?: AuthAccount | null
-    needsWallet?: boolean
-    error?: string
-  }
-  if (body.error) throw new Error(body.error)
+  const { status, data: body } = await postAuth<{
+    token: string | null
+    account: AuthAccount | null
+    needsWallet: boolean
+  }>('auth/google', { credential, wallet, clientId: googleClientId() })
+  // 409 wallet_owned: the device wallet is another account's. 401 link_expired: the link
+  // message is stale. Both arrive as codes; anything else is a sentence matched for its meaning.
+  if (body.error || status >= 400) throw serverError(status, body.error, 'google-failed')
   if (body.token && body.account) {
     writeSession({ token: body.token, account: body.account })
     return { account: body.account, needsWallet: false }

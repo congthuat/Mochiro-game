@@ -482,6 +482,8 @@ export function RushPause({
 export function RushGameOver({
   summary,
   submitState,
+  inReview = false,
+  onResend,
   rank,
   offBoard,
   onSignIn,
@@ -497,7 +499,9 @@ export function RushGameOver({
   onShare: () => void
   sharing: boolean
   summary: RunSummary
-  submitState: 'idle' | 'sending' | 'done' | 'error'
+  submitState: 'idle' | 'sending' | 'done' | 'queued' | 'rate' | 'auth' | 'rejected' | 'duplicate'
+  inReview?: boolean
+  onResend?: () => void
   rank: number | null
   offBoard: 'guest' | 'unverified' | null
   onSignIn: () => void
@@ -558,7 +562,8 @@ export function RushGameOver({
         )}
         <div className="ar-hint mt-4">
           {submitState === 'sending' && t('over.submitting')}
-          {submitState === 'done' && !offBoard && (rank ? `${t('over.submitted')} #${rank}` : t('over.submitted'))}
+          {submitState === 'done' && !offBoard && inReview && t('over.review')}
+          {submitState === 'done' && !offBoard && !inReview && (rank ? `${t('over.submitted')} #${rank}` : t('over.submitted'))}
           {submitState === 'done' && offBoard === 'guest' && (
             <>
               {t('over.guestSaved')}{' '}
@@ -568,7 +573,27 @@ export function RushGameOver({
             </>
           )}
           {submitState === 'done' && offBoard === 'unverified' && t('over.unverified')}
-          {submitState === 'error' && t('menu.connecting')}
+          {submitState === 'rate' && t('over.slowDown')}
+          {submitState === 'duplicate' && t('over.duplicate')}
+          {submitState === 'rejected' && t('over.rejected')}
+          {submitState === 'queued' && (
+            <>
+              {t('over.submitFailed')}{' '}
+              {onResend && (
+                <button type="button" className="ar-link" onClick={onResend}>
+                  {t('over.submitRetry')}
+                </button>
+              )}
+            </>
+          )}
+          {submitState === 'auth' && (
+            <>
+              {t('over.signedOut')}{' '}
+              <button type="button" className="ar-link" onClick={onSignIn}>
+                {t('over.guestSignIn')}
+              </button>
+            </>
+          )}
         </div>
         <div className="ar-menu-actions">
           {!summary.revived && summary.coins >= summary.reviveCost && (

@@ -35,6 +35,13 @@ export class RushAudio {
   private musicBus: GainNode | null = null
   private sfxBus: GainNode | null = null
   private musicFilter: BiquadFilterNode | null = null
+  /**
+   * Per-session gate between the music voices and the filter. Notes are scheduled
+   * up to 160 ms ahead and pads ring for a whole bar, so clearing the scheduler alone
+   * leaves seconds of music playing after a stop or a pause. Fading and dropping this
+   * node silences everything already queued, at once and without a click.
+   */
+  private voice: GainNode | null = null
   private noise: AudioBuffer | null = null
 
   private masterVol = 0.85
@@ -47,6 +54,8 @@ export class RushAudio {
   private bar = 0
   private intensity = 0
   private playing = false
+  /** Paused mid-run: the loop resumes from the same bar instead of restarting. */
+  private held = false
 
   get ready(): boolean {
     return this.ctx !== null
@@ -85,7 +94,10 @@ export class RushAudio {
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
       this.noise = buffer
     }
-    if (this.ctx.state === 'suspended') {
+    // iOS Safari reports 'interrupted' after a call, Siri or another app taking the
+    // audio session; it needs the same resume() as 'suspended'.
+    const state = this.ctx.state as string
+    if (state === 'suspended' || state === 'interrupted') {
       try {
         await this.ctx.resume()
       } catch {
@@ -116,19 +128,79 @@ export class RushAudio {
 
   startMusic(): void {
     if (!this.ctx || this.playing) return
-    this.playing = true
+    this.held = false
     this.step = 0
     this.bar = 0
-    this.nextTime = this.ctx.currentTime + 0.08
+    this.beginLoop(0.08)
+  }
+
+  /** Stops the loop and silences every note already scheduled. */
+  stopMusic(): void {
+    this.held = false
+    this.endLoop(0.12)
+  }
+
+  /** Pause: duck the music out quickly and stop the sequencer; `resumeMusic` picks it up. */
+  pauseMusic(): void {
+    if (!this.playing) return
+    this.endLoop(0.05)
+    this.held = true
+  }
+
+  /** Resumes a paused loop from the top of the bar it was in. No-op unless paused. */
+  resumeMusic(): void {
+    if (!this.ctx || !this.held || this.playing) return
+    this.held = false
+    this.step = 0
+    this.beginLoop(0.06)
+  }
+
+  /** Hidden tab: stop the audio clock entirely (saves battery, no stray sfx). */
+  suspend(): void {
+    const ctx = this.ctx
+    if (!ctx || ctx.state !== 'running') return
+    void ctx.suspend().catch(() => undefined)
+  }
+
+  private beginLoop(lead: number): void {
+    const ctx = this.ctx
+    if (!ctx || !this.musicFilter) return
+    if (this.voice) this.endLoop(0.03)
+    this.playing = true
+    const voice = ctx.createGain()
+    voice.gain.value = 1
+    voice.connect(this.musicFilter)
+    this.voice = voice
+    this.nextTime = ctx.currentTime + lead
+    if (this.scheduler !== null) window.clearInterval(this.scheduler)
     this.scheduler = window.setInterval(() => this.schedule(), 25)
   }
 
-  stopMusic(): void {
+  private endLoop(fade: number): void {
     this.playing = false
     if (this.scheduler !== null) {
       window.clearInterval(this.scheduler)
       this.scheduler = null
     }
+    const voice = this.voice
+    this.voice = null
+    const ctx = this.ctx
+    if (!voice || !ctx) return
+    try {
+      voice.gain.cancelScheduledValues(ctx.currentTime)
+      voice.gain.setValueAtTime(voice.gain.value, ctx.currentTime)
+      voice.gain.setTargetAtTime(0, ctx.currentTime, fade)
+    } catch {
+      /* context closing */
+    }
+    // Five time constants is silence; then let the queued voices be collected.
+    window.setTimeout(() => {
+      try {
+        voice.disconnect()
+      } catch {
+        /* already gone */
+      }
+    }, fade * 5000 + 60)
   }
 
   dispose(): void {
@@ -141,6 +213,7 @@ export class RushAudio {
     this.musicBus = null
     this.sfxBus = null
     this.musicFilter = null
+    this.voice = null
     this.noise = null
   }
 
@@ -150,6 +223,10 @@ export class RushAudio {
     if (!ctx || !this.playing) return
     const bpm = 118 + this.intensity * 26
     const stepDur = 60 / bpm / 2 // eighth notes
+    // Background tabs throttle timers to 1 Hz or worse. Without this the loop would
+    // fire every missed step at once when the timer comes back — a burst of stacked
+    // kicks and bass. Skip what was missed and pick the groove up from now.
+    if (this.nextTime < ctx.currentTime - 0.05) this.nextTime = ctx.currentTime + 0.02
     while (this.nextTime < ctx.currentTime + 0.16) {
       this.playStep(this.step, this.nextTime, stepDur)
       this.nextTime += stepDur
@@ -186,7 +263,7 @@ export class RushAudio {
 
   private kick(time: number): void {
     const ctx = this.ctx
-    if (!ctx || !this.musicFilter) return
+    if (!ctx || !this.voice) return
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.type = 'sine'
@@ -195,14 +272,14 @@ export class RushAudio {
     gain.gain.setValueAtTime(0.0001, time)
     gain.gain.linearRampToValueAtTime(0.9, time + 0.006)
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.3)
-    osc.connect(gain).connect(this.musicFilter)
+    osc.connect(gain).connect(this.voice)
     osc.start(time)
     osc.stop(time + 0.34)
   }
 
   private snare(time: number): void {
     const ctx = this.ctx
-    if (!ctx || !this.noise || !this.musicFilter) return
+    if (!ctx || !this.noise || !this.voice) return
     const src = ctx.createBufferSource()
     src.buffer = this.noise
     const filter = ctx.createBiquadFilter()
@@ -213,14 +290,14 @@ export class RushAudio {
     gain.gain.setValueAtTime(0.0001, time)
     gain.gain.linearRampToValueAtTime(0.34, time + 0.004)
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.17)
-    src.connect(filter).connect(gain).connect(this.musicFilter)
+    src.connect(filter).connect(gain).connect(this.voice)
     src.start(time)
     src.stop(time + 0.2)
   }
 
   private hat(time: number, level: number): void {
     const ctx = this.ctx
-    if (!ctx || !this.noise || !this.musicFilter) return
+    if (!ctx || !this.noise || !this.voice) return
     const src = ctx.createBufferSource()
     src.buffer = this.noise
     const filter = ctx.createBiquadFilter()
@@ -229,14 +306,14 @@ export class RushAudio {
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(level, time)
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05)
-    src.connect(filter).connect(gain).connect(this.musicFilter)
+    src.connect(filter).connect(gain).connect(this.voice)
     src.start(time)
     src.stop(time + 0.07)
   }
 
   private bass(freq: number, time: number, dur: number): void {
     const ctx = this.ctx
-    if (!ctx || !this.musicFilter) return
+    if (!ctx || !this.voice) return
     const osc = ctx.createOscillator()
     osc.type = 'sawtooth'
     osc.frequency.value = freq
@@ -249,19 +326,19 @@ export class RushAudio {
     gain.gain.setValueAtTime(0.0001, time)
     gain.gain.linearRampToValueAtTime(0.26, time + 0.012)
     gain.gain.exponentialRampToValueAtTime(0.0001, time + dur)
-    osc.connect(filter).connect(gain).connect(this.musicFilter)
+    osc.connect(filter).connect(gain).connect(this.voice)
     osc.start(time)
     osc.stop(time + dur + 0.05)
   }
 
   private pad(chord: number[], time: number, dur: number): void {
     const ctx = this.ctx
-    if (!ctx || !this.musicFilter) return
+    if (!ctx || !this.voice) return
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.0001, time)
     gain.gain.linearRampToValueAtTime(0.055, time + dur * 0.35)
     gain.gain.linearRampToValueAtTime(0.0001, time + dur)
-    gain.connect(this.musicFilter)
+    gain.connect(this.voice)
     chord.forEach((note, index) => {
       const osc = ctx.createOscillator()
       osc.type = index === 0 ? 'triangle' : 'sawtooth'
@@ -275,7 +352,7 @@ export class RushAudio {
 
   private pluck(freq: number, time: number, dur: number): void {
     const ctx = this.ctx
-    if (!ctx || !this.musicFilter) return
+    if (!ctx || !this.voice) return
     const osc = ctx.createOscillator()
     osc.type = 'square'
     osc.frequency.value = freq
@@ -287,7 +364,7 @@ export class RushAudio {
     gain.gain.setValueAtTime(0.0001, time)
     gain.gain.linearRampToValueAtTime(0.075, time + 0.006)
     gain.gain.exponentialRampToValueAtTime(0.0001, time + dur)
-    osc.connect(filter).connect(gain).connect(this.musicFilter)
+    osc.connect(filter).connect(gain).connect(this.voice)
     osc.start(time)
     osc.stop(time + dur + 0.03)
   }

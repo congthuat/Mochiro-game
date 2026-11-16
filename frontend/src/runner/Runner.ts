@@ -11,6 +11,7 @@ import { RushInput, type RushAction } from './input'
 import { RunnerAvatar } from './player'
 import { ModelAvatar, preloadModel } from './model'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { translate } from '../lib/i18n'
 import {
   BIOMES,
   CHARACTERS,
@@ -43,6 +44,7 @@ import {
   QUALITY_PRESETS,
   RUN,
   gapTimeAt,
+  guessDeviceQuality,
   resolveQuality,
   speedAt,
   tierFor,
@@ -73,6 +75,23 @@ const SKY_TOP = new THREE.Color()
 const SKY_MID = new THREE.Color()
 const SKY_HORIZON = new THREE.Color()
 const SKY_CLOUD = new THREE.Color()
+
+/**
+ * The GPU's name, for the auto-quality guess. Firefox already reports the real name
+ * through RENDERER (and warns that the debug extension is deprecated), so the
+ * extension is only asked for when RENDERER is the generic browser string.
+ */
+function gpuName(renderer: THREE.WebGLRenderer): string {
+  try {
+    const gl = renderer.getContext()
+    const plain = String(gl.getParameter(gl.RENDERER) ?? '')
+    if (plain && !/^(webkit webgl|mozilla|webgl)$/i.test(plain.trim())) return plain
+    const info = gl.getExtension('WEBGL_debug_renderer_info')
+    return info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) ?? plain) : plain
+  } catch {
+    return ''
+  }
+}
 
 function blendColor(from: string, to: string, t: number, into: THREE.Color): THREE.Color {
   return into.copy(BIOME_OUT.copy(BIOME_A.set(from)).lerp(BIOME_B.set(to), t))
@@ -238,6 +257,8 @@ export class Runner {
 
   private run: RunState = this.freshRun()
   private lineTrackers = new Map<number, LineTracker>()
+  /** Hazards that passed within a hair this run; paid as close calls once they clear. */
+  private grazed = new Set<Obstacle>()
   private target = new THREE.Vector3()
 
   constructor(container: HTMLElement, settings: Settings, bestScore = 0) {
@@ -246,7 +267,10 @@ export class Runner {
     this.bestScore = bestScore
     this.rng = makeRng(Math.floor(Math.random() * 0xffffffff))
 
-    this.quality = resolveQuality(settings.quality, 60)
+    // Auto starts from a device guess (it used to start at High everywhere and make
+    // phones crawl until the frame-rate watchdog caught up); the watchdog still adapts.
+    this.autoTier = guessDeviceQuality()
+    this.quality = settings.quality === 'auto' ? this.autoTier : resolveQuality(settings.quality, 60)
     this.preset = QUALITY_PRESETS[this.quality]
 
     this.renderer = new THREE.WebGLRenderer({
@@ -254,6 +278,12 @@ export class Runner {
       powerPreference: 'high-performance',
       alpha: false,
     })
+    // Refine the guess with the GPU name now that there is a context to ask.
+    this.autoTier = guessDeviceQuality(gpuName(this.renderer))
+    if (settings.quality === 'auto' && this.autoTier !== this.quality) {
+      this.quality = this.autoTier
+      this.preset = QUALITY_PRESETS[this.quality]
+    }
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.preset.pixelRatio))
     this.renderer.setSize(container.clientWidth || 1280, container.clientHeight || 720, false)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -302,6 +332,25 @@ export class Runner {
     this.input.onAction((action) => this.events.emit('action', action))
 
     window.addEventListener('resize', this.onResize)
+    document.addEventListener('visibilitychange', this.onVisibility)
+  }
+
+  /**
+   * Hidden tab: the shell pauses the run, and the audio clock is suspended so no
+   * stray note or effect plays in the background. Back in view the context comes
+   * back; the music itself only restarts when the run is resumed.
+   */
+  private onVisibility = (): void => {
+    if (document.hidden) {
+      this.audio.pauseMusic()
+      this.audio.suspend()
+      this.fpsSamples.length = 0
+      return
+    }
+    this.lastTime = performance.now()
+    void this.audio.unlock().then(() => {
+      if (!this.disposed && this.phase === 'playing' && !document.hidden) this.audio.resumeMusic()
+    })
   }
 
   // ------------------------------------------------------------------ setup --
@@ -325,6 +374,12 @@ export class Runner {
   private missionRolls: MissionRoll[] = []
 
   private envDispose: (() => void) | null = null
+  /** Prefiltered room lighting; built on first need and kept across quality changes. */
+  private envTexture: THREE.Texture | null = null
+  /** What "Auto" resolves to before the frame-rate watchdog has a say. */
+  private autoTier: ResolvedQuality = 'medium'
+  /** The minted coin face; owned here, shared by the pickups and the fly-to-HUD coins. */
+  private coinTexture: THREE.Texture | null = null
 
   private setupLights(): void {
     // Bright midday rig: warm sun + sky/ground bounce.
@@ -334,14 +389,8 @@ export class Runner {
 
     // Image-based lighting so PBR assets (the rigged character, glTF materials)
     // pick up ambient colour instead of reading flat and dark in the sun.
-    if (this.preset.environment) {
-      const pmrem = new THREE.PMREMGenerator(this.renderer)
-      const envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-      this.scene.environment = envTexture
-      this.scene.environmentIntensity = 0.3
-      this.envDispose = () => envTexture.dispose()
-      pmrem.dispose()
-    }
+    this.scene.environmentIntensity = 0.3
+    this.applyEnvironment()
 
     const sun = new THREE.DirectionalLight(0xfff3d6, 1.0)
     sun.position.set(14, 26, 12)
@@ -364,6 +413,29 @@ export class Runner {
     fill.position.set(-10, 8, -14)
     this.scene.add(fill)
     this.fillLight = fill
+  }
+
+  /**
+   * Turns image-based lighting on or off to match the preset. Before, it was decided
+   * once at construction, so a session that started on Low never got it back after
+   * moving up to Medium or High. Returns whether the scene changed.
+   */
+  private applyEnvironment(): boolean {
+    const want = this.preset.environment
+    if (want && !this.envTexture) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer)
+      const room = new RoomEnvironment()
+      const envTexture = pmrem.fromScene(room, 0.04).texture
+      // The room is only a light source for the prefilter; free its meshes now.
+      room.dispose()
+      pmrem.dispose()
+      this.envTexture = envTexture
+      this.envDispose = () => envTexture.dispose()
+    }
+    const next = want ? this.envTexture : null
+    if (this.scene.environment === next) return false
+    this.scene.environment = next
+    return true
   }
 
   /** Keeps the shadow volume centred on the runner. */
@@ -770,8 +842,27 @@ export class Runner {
     this.swapAvatar(model)
   }
 
-  private buildComposer(): void {
+  /**
+   * EffectComposer.dispose() frees only its own two render targets; each pass owns
+   * more (bloom keeps a mip chain of targets and four shader materials), so those
+   * have to go first or every quality change leaked them on the GPU.
+   */
+  private disposeComposer(): void {
+    this.renderPass?.dispose()
+    this.bloom?.dispose()
+    this.outputPass?.dispose()
     this.composer?.dispose()
+    // debugNoFx parks the composer here; its passes are the ones disposed above.
+    this.stashedComposer?.dispose()
+    this.stashedComposer = null
+    this.composer = null
+    this.bloom = null
+    this.renderPass = null
+    this.outputPass = null
+  }
+
+  private buildComposer(): void {
+    this.disposeComposer()
     this.composer = null
     this.bloom = null
     this.renderPass = null
@@ -901,6 +992,7 @@ export class Runner {
     this.run.shield = this.perkScale('shieldStart', 0)
     if (this.run.shield > 0) this.avatar.setShieldLevel(this.run.shield)
     this.lineTrackers.clear()
+    this.grazed.clear()
     this.rng = makeRng(Math.floor(Math.random() * 0xffffffff))
     this.obstacles.reset()
     this.pickups?.reset()
@@ -916,7 +1008,7 @@ export class Runner {
       this.audio.play('start')
     })
     this.beginIntro()
-    this.toast('GO!', 'good')
+    this.toast(translate('runner.toast.go'), 'good')
     this.setPhase('playing')
     this.emitHud(true)
   }
@@ -944,13 +1036,17 @@ export class Runner {
     if (this.phase !== 'playing') return
     this.setPhase('paused')
     this.audio.setIntensity(0)
+    // The music used to play on under the pause menu.
+    this.audio.pauseMusic()
   }
 
   resume(): void {
     if (this.phase !== 'paused') return
     this.setPhase('playing')
     this.lastTime = performance.now()
-    void this.audio.unlock()
+    void this.audio.unlock().then(() => {
+      if (!this.disposed && this.phase === 'playing') this.audio.resumeMusic()
+    })
   }
 
   restartRun(): void {
@@ -964,6 +1060,7 @@ export class Runner {
     this.avatar.root.rotation.set(0, 0, 0)
     this.setPhase('menu')
     this.audio.setIntensity(0)
+    this.audio.stopMusic()
     this.emitHud(true)
   }
 
@@ -1091,7 +1188,7 @@ export class Runner {
       this.setQuality(this.quality === 'high' ? 'medium' : 'low')
       this.lowFpsTime = 0
       this.adaptiveCooldown = 6
-      this.toast('Graphics quality lowered to keep the pace', 'warn')
+      this.toast(translate('runner.toast.quality'), 'warn')
     } else if (this.highFpsTime > 6 && this.quality !== 'high') {
       this.setQuality(this.quality === 'low' ? 'medium' : 'high')
       this.highFpsTime = 0
@@ -1106,6 +1203,7 @@ export class Runner {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.preset.pixelRatio))
     this.scene.fog = new THREE.Fog(new THREE.Color(PALETTE.fog).getHex(), this.preset.fogNear, this.preset.fogFar)
     this.buildComposer()
+    this.applyEnvironment()
     this.track.setQuality(this.preset)
     this.scenery?.setQuality(this.preset)
     this.obstacles.setQuality(this.preset)
@@ -1197,7 +1295,7 @@ export class Runner {
     const tierIndex = tier.at
     if (tierIndex > run.tierIndex) {
       run.tierIndex = tierIndex
-      this.toast(`${tier.name} — ${Math.round(baseSpeed * 3.6)} km/h`, 'info')
+      this.toast(translate('runner.toast.tier', undefined, { tier: translate(tier.key), speed: Math.round(baseSpeed * 3.6) }), 'info')
     }
 
     // The collision sweep needs the height the runner had when the step began. At
@@ -1584,8 +1682,7 @@ export class Runner {
     const spawn = (type: ObstacleKind, lane: number, at: number) => this.obstacles.spawn(type, lane, at)
     const line = (lane: number, at: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof') => {
       const id = this.run.lineCounter++
-      this.lineTrackers.set(id, { total: count, collected: 0 })
-      this.pickups?.spawnLine(lane, at, count, style, id)
+      this.trackLine(id, count, this.pickups?.spawnLine(lane, at, count, style, id) ?? 0)
     }
 
     switch (kind) {
@@ -1738,9 +1835,10 @@ export class Runner {
     if (tracker) {
       tracker.collected += 1
       if (tracker.collected >= tracker.total) {
-        run.score += RUN.perfectLineBonus * run.multiplier * this.diff.score
+        const bonus = RUN.perfectLineBonus * run.multiplier * this.diff.score
+        run.score += bonus
         this.lineTrackers.delete(coin.line)
-        this.toast(`Perfect line +${formatScore(RUN.perfectLineBonus * run.multiplier)}`, 'good')
+        this.toast(translate('runner.toast.perfectLine', undefined, { n: formatScore(Math.round(bonus)) }), 'good')
         this.audio.play('power')
       }
     }
@@ -1822,7 +1920,7 @@ export class Runner {
         life: 0.62,
         spin: -3.4,
       })
-      this.toast('WARD — hazard shrugged off', 'power')
+      this.toast(translate('runner.toast.ward'), 'power')
       return
     }
     // Bobbilee's perk stretches everything helpful; the hazards stay as nasty.
@@ -1832,35 +1930,35 @@ export class Runner {
       : spec.duration * this.powerScale * (kind === 'boost' ? this.boostScale : 1) * this.upgradeScale(kind)
     if (kind === 'shield') {
       run.shield = Math.min(RUN.maxShields, run.shield + 1)
-      this.toast('Shield up — one free hit', 'power')
+      this.toast(translate('runner.toast.shield'), 'power')
     } else if (kind === 'magnet') {
       const magnetTime = RUN.magnetTime * this.powerScale * this.upgradeScale('magnet')
       run.magnetUntil = run.elapsed + magnetTime
       this.audio.play('boost')
-      this.toast(`Magnet online — ${magnetTime.toFixed(0)}s`, 'power')
+      this.toast(translate('runner.toast.magnet', undefined, { s: magnetTime.toFixed(0) }), 'power')
     } else if (kind === 'double') {
       run.doubleUntil = run.elapsed + duration
-      this.toast(`Double Arc — ${duration.toFixed(0)}s`, 'power')
+      this.toast(translate('runner.toast.double', undefined, { s: duration.toFixed(0) }), 'power')
     } else if (kind === 'ghost') {
       run.ghostUntil = run.elapsed + duration
-      this.toast(`Phase shift — ${duration.toFixed(0)}s`, 'power')
+      this.toast(translate('runner.toast.ghost', undefined, { s: duration.toFixed(0) }), 'power')
     } else if (kind === 'invert') {
       run.invertUntil = run.elapsed + duration
       this.audio.play('hit')
       this.shake = Math.min(1.2, this.shake + 0.5)
-      this.toast(`Controls jammed — ${spec.duration}s`, 'warn')
+      this.toast(translate('runner.toast.invert', undefined, { s: spec.duration }), 'warn')
     } else if (kind === 'fog') {
       run.fogUntil = run.elapsed + duration
-      this.toast(`Smoke screen — ${spec.duration}s`, 'warn')
+      this.toast(translate('runner.toast.fog', undefined, { s: spec.duration }), 'warn')
     } else if (kind === 'heavy') {
       run.heavyUntil = run.elapsed + duration
-      this.toast(`Heavy load — jumps fall short`, 'warn')
+      this.toast(translate('runner.toast.heavy'), 'warn')
     } else {
       run.boostUntil = run.elapsed + duration
       run.invulnUntil = Math.max(run.invulnUntil, run.boostUntil)
       this.audio.play('boost')
       this.shake = Math.min(1, this.shake + 0.4)
-      this.toast('OVERDRIVE — smash through!', 'power')
+      this.toast(translate('runner.toast.boost'), 'power')
     }
   }
 
@@ -1913,9 +2011,17 @@ export class Runner {
       const reach = spec.depth / 2 + 0.55
       const previousZ = obstacle.z - dz
       const alongside = Math.abs(obstacle.z) <= reach
-      const crossed = previousZ > reach && obstacle.z < -reach
-      if (!alongside && !crossed) continue
-      const y = crossed ? run.previousY : run.y
+      // Traffic comes down the road towards +z. `swept` is a hazard that jumped the
+      // whole contact window in one frame (a long frame at full speed); `leaving` is
+      // the frame it clears the runner. The old test looked for -z travel, so neither
+      // ever fired and no close call was ever awarded.
+      const swept = previousZ < -reach && obstacle.z > reach
+      const leaving = previousZ <= reach && obstacle.z > reach
+      if (!alongside && !swept) {
+        if (leaving && this.grazed.delete(obstacle)) this.awardNearMiss(obstacle)
+        continue
+      }
+      const y = swept ? run.previousY : run.y
       // Surface-to-surface air on the lateral axis. Negative means the two boxes
       // overlap; the forgiveness band is what stops a graze counting as a hit.
       const lateralGap = Math.abs(obstacle.mesh.position.x - run.laneX) - (spec.width / 2 + BODY.halfWidth)
@@ -1923,7 +2029,7 @@ export class Runner {
         // Out of reach — but a hazard that swept past with almost nothing between the
         // boxes is a close call, and it is worth points. A clean pass in the next lane
         // leaves about 0.9 m, so only a deliberate graze earns this.
-        if (crossed && lateralGap < BODY.nearMiss) this.awardNearMiss(obstacle)
+        if (lateralGap < BODY.nearMiss) this.graze(obstacle, swept)
         continue
       }
       // Ramps never hit: they kick the runner skyward instead.
@@ -1955,7 +2061,7 @@ export class Runner {
       const bottom = spec.bottom
       const top = spec.bottom + spec.height
       if (y + height <= bottom + BODY.forgiveness) {
-        if (crossed && bottom - (y + height) < BODY.nearMiss) this.awardNearMiss(obstacle)
+        if (bottom - (y + height) < BODY.nearMiss) this.graze(obstacle, swept)
         continue
       }
       // No forgiveness on this edge. A runner whose feet are still below the top of
@@ -1964,9 +2070,11 @@ export class Runner {
       // let a runner pass through a low wall while barely off the ground.
       if (y >= top) {
         // A jump that barely clears: the satisfying one.
-        if (crossed && y - top < BODY.nearMiss) this.awardNearMiss(obstacle)
+        if (y - top < BODY.nearMiss) this.graze(obstacle, swept)
         continue
       }
+      // Inside the hazard's box from here on: whatever happens, it was no close call.
+      this.grazed.delete(obstacle)
       // Phase shift: traffic passes straight through the runner.
       if (run.ghostUntil > run.elapsed) {
         this.sparks.burst(run.laneX, run.y + 0.8, 0, {
@@ -2022,7 +2130,7 @@ export class Runner {
         gravity: 4,
       })
       this.obstacles.smash(obstacle)
-      this.toast('Shield absorbed the hit', 'warn')
+      this.toast(translate('runner.toast.absorbed'), 'warn')
       this.events.emit('damage', { shield: true, hits: run.hits })
       return
     }
@@ -2042,12 +2150,21 @@ export class Runner {
     this.finishRun()
   }
 
+  /**
+   * A close pass is only a close call once the hazard has cleared the runner without
+   * touching: mark it while it is alongside, pay it out on the frame it leaves.
+   */
+  private graze(obstacle: Obstacle, swept: boolean): void {
+    if (swept) this.awardNearMiss(obstacle)
+    else this.grazed.add(obstacle)
+  }
+
   /** A hazard swept past with almost no air between the boxes. */
   private awardNearMiss(obstacle: Obstacle): void {
     const run = this.run
     run.nearMisses += 1
     run.score += RUN.nearMissBonus * this.closeCallScale * run.multiplier * this.diff.score
-    this.toast(this.closeCallScale > 1 ? 'CLOSE ×2!' : 'CLOSE!', 'good')
+    this.toast(translate(this.closeCallScale > 1 ? 'runner.toast.close2' : 'runner.toast.close'), 'good')
     this.audio.play('coin')
     this.sparks.burst(obstacle.mesh.position.x, run.y + 0.9, obstacle.z, {
       count: 10,
@@ -2111,7 +2228,7 @@ export class Runner {
         mission.done = true
         run.coins += mission.reward
         run.missionCoins += mission.reward
-        this.toast('MISSION!', 'good')
+        this.toast(translate('runner.toast.mission'), 'good')
         this.audio.play('coin')
       }
     }
@@ -2144,7 +2261,7 @@ export class Runner {
       this.audio.play('start')
       this.audio.startMusic()
     })
-    this.toast('GO!', 'good')
+    this.toast(translate('runner.toast.go'), 'good')
     this.setPhase('playing')
     this.emitHud(true)
     return true
@@ -2305,6 +2422,7 @@ export class Runner {
       heavy: Math.max(0, run.heavyUntil - run.elapsed),
       fps: Math.round(this.fps),
       tierName: tier.name,
+      tierKey: tier.key,
       biome: this.biomeNow,
       heat: this.run.heat,
       canRevive: !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
@@ -2490,8 +2608,22 @@ export class Runner {
   /** QA helper: drop a straight coin line just ahead of the runner. */
   debugSpawnCoins(count = 5, lane?: number): void {
     const line = this.run.lineCounter++
-    this.lineTrackers.set(line, { total: count, collected: 0 })
-    this.pickups?.spawnLine(lane ?? this.run.lane, -14, count, 'flat', line)
+    this.trackLine(line, count, this.pickups?.spawnLine(lane ?? this.run.lane, -14, count, 'flat', line) ?? 0)
+  }
+
+  /**
+   * Registers a coin line for the perfect-line bonus. The tracker is sized by the
+   * coins that actually spawned: when the coin pool (smaller on Low) truncated a
+   * line, the old tracker waited for coins that never existed and the bonus could
+   * not be earned. Lines missed or left half-collected used to stay in the map for
+   * the whole run; anything 40 lines old has long since scrolled past and is pruned.
+   */
+  private trackLine(id: number, requested: number, spawned: number): void {
+    if (spawned >= Math.min(2, requested) && spawned > 0) this.lineTrackers.set(id, { total: spawned, collected: 0 })
+    for (const key of this.lineTrackers.keys()) {
+      if (key >= id - 40) break
+      this.lineTrackers.delete(key)
+    }
   }
 
   /** QA helper: place an obstacle directly in front of the runner. */

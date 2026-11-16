@@ -63,10 +63,15 @@ export class PickupManager {
   private glowGeo: THREE.PlaneGeometry
   private disposables: Array<{ dispose: () => void }> = []
   private powerMaterials: Record<PowerKind, THREE.MeshStandardMaterial>
+  /** GPU resources owned by each power-up's visual (collar, spikes, glow clone). */
+  private powerOwned = new Map<PowerUp, Array<{ dispose: () => void }>>()
 
   constructor(preset: QualityPreset, coinTexture: THREE.Texture) {
     this.coinCap = preset.maxCoins
-    this.powerCap = 6
+    // Room for one of every kind plus a couple of repeats on screen at once. With a
+    // cap below the number of kinds, the first six kinds spawned filled the pool and
+    // every other kind could never appear again for the rest of the session.
+    this.powerCap = POWERS.length + 2
 
     this.coinGeometry = new THREE.CylinderGeometry(COIN_RADIUS, COIN_RADIUS, 0.08, 36, 1)
     this.coinRim = new THREE.MeshStandardMaterial({
@@ -184,11 +189,14 @@ export class PickupManager {
    *  - arc:  a jump arc (rewards clearing a low obstacle)
    *  - wave: sine wave across the lane (keeps the player weaving)
    */
-  spawnLine(lane: number, z: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof', line: number): void {
+  spawnLine(lane: number, z: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof', line: number): number {
     const baseX = LANES[Math.max(0, Math.min(LANES.length - 1, lane))]
+    let spawned = 0
     for (let i = 0; i < count; i++) {
       const coin = this.acquireCoin()
-      if (!coin) return
+      // Out of pooled coins: the caller sizes the perfect-line tracker by the return.
+      if (!coin) return spawned
+      spawned++
       const t = count > 1 ? i / (count - 1) : 0
       let y = 0.95
       let x = baseX
@@ -206,6 +214,7 @@ export class PickupManager {
       coin.mesh.visible = true
       coin.mesh.position.set(coin.x, coin.y, coin.z)
     }
+    return spawned
   }
 
   spawnPower(kind: PowerKind, lane: number, z: number): void {
@@ -282,6 +291,8 @@ export class PickupManager {
 
   dispose(): void {
     for (const item of this.disposables) item.dispose()
+    for (const owned of this.powerOwned.values()) for (const item of owned) item.dispose()
+    this.powerOwned.clear()
     this.group.clear()
     this.coins.length = 0
     this.powers.length = 0
@@ -302,8 +313,27 @@ export class PickupManager {
     for (const power of this.powers) {
       if (!power.active && power.kind === kind) return power
     }
-    if (this.powers.length >= this.powerCap) return null
+    if (this.powers.length < this.powerCap) {
+      const built = this.buildPowerVisual(kind)
+      const power: PowerUp = { mesh: built.group, kind, active: false, x: 0, y: 1.15, z: 0, spin: 0 }
+      this.powerOwned.set(power, built.owned)
+      this.powers.push(power)
+      return power
+    }
+    // Pool full: re-dress an idle slot of another kind rather than refusing the spawn.
+    const idle = this.powers.find((power) => !power.active && !power.mesh.visible)
+    if (!idle) return null
+    this.group.remove(idle.mesh)
+    for (const item of this.powerOwned.get(idle) ?? []) item.dispose()
+    const built = this.buildPowerVisual(kind)
+    this.powerOwned.set(idle, built.owned)
+    idle.mesh = built.group
+    idle.kind = kind
+    return idle
+  }
 
+  private buildPowerVisual(kind: PowerKind): { group: THREE.Group; owned: Array<{ dispose: () => void }> } {
+    const owned: Array<{ dispose: () => void }> = []
     const group = new THREE.Group()
     const spinner = new THREE.Group()
     group.add(spinner)
@@ -328,7 +358,7 @@ export class PickupManager {
     })
     const ring = new THREE.Mesh(ringGeo, ringMat)
     spinner.add(ring)
-    this.disposables.push(ringGeo, ringMat)
+    owned.push(ringGeo, ringMat)
 
     if (harmful) {
       const spikeGeo = new THREE.ConeGeometry(0.075, 0.26, 6)
@@ -341,19 +371,18 @@ export class PickupManager {
         spinner.add(spike)
         spikes.push(spike)
       }
-      this.disposables.push(spikeGeo)
+      owned.push(spikeGeo)
     }
 
     const glow = new THREE.Mesh(this.glowGeo, this.glowMat.clone())
     ;(glow.material as THREE.MeshBasicMaterial).color = new THREE.Color(harmful ? HAZARD_COLOUR : tint)
     ;(glow.material as THREE.MeshBasicMaterial).opacity = harmful ? 0.6 : 0.75
+    owned.push(glow.material as THREE.MeshBasicMaterial)
     glow.position.z = 0.05
     group.add(glow)
 
     group.visible = false
     this.group.add(group)
-    const power: PowerUp = { mesh: group, kind, active: false, x: 0, y: 1.15, z: 0, spin: 0 }
-    this.powers.push(power)
-    return power
+    return { group, owned }
   }
 }

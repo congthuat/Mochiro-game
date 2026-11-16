@@ -139,15 +139,18 @@ export const POWER_BY_KIND: Record<PowerKind, PowerSpec> = POWERS.reduce(
 /** Difficulty tiers, used for HUD flavour and spawn table gating. */
 export interface Tier {
   at: number
+  /** English name, for logs and tooling. The player sees `translate(key)`. */
   name: string
+  /** i18n key (src/lib/i18n.ts) of the name shown in the HUD and the call-out. */
+  key: string
 }
 
 export const TIERS: Tier[] = [
-  { at: 0, name: 'Warm-up' },
-  { at: 18, name: 'Overclock' },
-  { at: 26, name: 'Surge' },
-  { at: 32, name: 'Hyperdrive' },
-  { at: 37, name: 'Terminal Velocity' },
+  { at: 0, name: 'Warm-up', key: 'runner.tier.warmup' },
+  { at: 18, name: 'Overclock', key: 'runner.tier.overclock' },
+  { at: 26, name: 'Surge', key: 'runner.tier.surge' },
+  { at: 32, name: 'Hyperdrive', key: 'runner.tier.hyperdrive' },
+  { at: 37, name: 'Terminal Velocity', key: 'runner.tier.terminal' },
 ]
 
 export function tierFor(speed: number): Tier {
@@ -242,6 +245,53 @@ export function resolveQuality(setting: Quality, measuredFps: number): ResolvedQ
   if (measuredFps >= 55) return 'high'
   if (measuredFps >= 36) return 'medium'
   return 'low'
+}
+
+/**
+ * Where "Auto" starts, before a single frame has been timed.
+ *
+ * Auto used to start at High on every device and wait for the frame-rate watchdog to
+ * notice — which on a phone meant the first seconds of every session ran at a crawl,
+ * with shadows and bloom on, until the drop. This is a cheap guess from what the
+ * browser will tell us; the watchdog still corrects it either way once the run is
+ * going. `gpu` is the (unmasked, when available) WebGL renderer string.
+ */
+export function guessDeviceQuality(gpu = ''): ResolvedQuality {
+  if (typeof navigator === 'undefined') return 'medium'
+  const nav = navigator as Navigator & { deviceMemory?: number }
+  const ua = nav.userAgent || ''
+  const cores = nav.hardwareConcurrency || 4
+  const memory = typeof nav.deviceMemory === 'number' ? nav.deviceMemory : undefined
+  const coarse =
+    typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches
+  // iPadOS reports itself as a Mac; the touch points give it away.
+  const mobile = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1) || coarse
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+  const screenPixels =
+    typeof screen !== 'undefined' ? Math.max(1, screen.width) * Math.max(1, screen.height) * dpr * dpr : 1920 * 1080
+  const g = gpu.toLowerCase()
+
+  // Software rasterisers: nothing but Low is playable.
+  if (/swiftshader|llvmpipe|softpipe|software|basic render|mesa offscreen/.test(g)) return 'low'
+
+  if (mobile) {
+    // Safari caps hardwareConcurrency (and hides deviceMemory) on every iPhone and iPad,
+    // so the core count says nothing there; Apple's GPUs all carry Medium comfortably.
+    if (/apple gpu|apple a\d/.test(g) || /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && nav.maxTouchPoints > 1)) return 'medium'
+    if (cores <= 4 || (memory !== undefined && memory <= 3)) return 'low'
+    // Older mobile GPUs struggle with bloom at native resolution.
+    if (/mali-(4|t)|adreno \(tm\) [3-5]\d\d|powervr sgx/.test(g)) return 'low'
+    return 'medium'
+  }
+
+  if (cores <= 2 || (memory !== undefined && memory <= 2)) return 'low'
+  const discrete = /nvidia|geforce|quadro|rtx|gtx|radeon (rx|pro|vii)|radeon\(tm\) rx|arc\(tm\) a|intel\(r\) arc|apple m\d|apple gpu/.test(g)
+  const integrated = /intel|uhd|iris|hd graphics|radeon\(tm\) graphics|vega \d|mali|adreno/.test(g) && !discrete
+  if (cores <= 4 || (memory !== undefined && memory <= 4)) return discrete ? 'medium' : 'low'
+  if (integrated) return 'medium'
+  // A big screen on an unknown GPU: the shadow pass at 1.6× resolution is the risk.
+  if (!discrete && screenPixels > 2560 * 1600) return 'medium'
+  return discrete || !g ? 'high' : 'medium'
 }
 
 export const PALETTE = {

@@ -32,6 +32,13 @@ import {
   storeRunnerName,
   startRunnerTicket,
   submitRunnerRun,
+  SubmitError,
+  addPendingRun,
+  bumpPendingRun,
+  loadPendingRuns,
+  removePendingRun,
+  type PendingRun,
+  type SubmitResult,
   type OffBoardReason,
   cachedEconomy,
   economyAction,
@@ -145,6 +152,10 @@ function devBypass(): boolean {
   }
 }
 
+
+/** Where the finished run's trip to the board stands, as the game-over screen tells it. */
+type SubmitState = 'idle' | 'sending' | 'done' | 'queued' | 'rate' | 'auth' | 'rejected' | 'duplicate'
+
 export default function RushApp() {
   const containerRef = useRef<HTMLDivElement>(null)
   const runnerRef = useRef<Runner | null>(null)
@@ -171,7 +182,8 @@ export default function RushApp() {
   const [profile, setProfile] = useState<RunnerProfile | null>(null)
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [stats, setStats] = useState<GlobalStats | null>(null)
-  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
+  const [submitState, setSubmitState] = useState<SubmitState>('idle')
+  const [inReview, setInReview] = useState(false)
   const [rank, setRank] = useState<number | null>(null)
   const [hitCount, setHitCount] = useState(0)
   const [hintSeen, setHintSeen] = useState(false)
@@ -231,6 +243,144 @@ export default function RushApp() {
     setToasts((prev) => [...prev.slice(-2), toast])
     window.setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== toast.id)), 2400)
   }, [])
+
+  // ------------------------------------------------------- run delivery --
+  // Every finished run is written to the device first and only then sent, so a dropped
+  // connection, a server hiccup or a reload never loses its coins. The game-over screen
+  // retries the run on screen a few times; anything still unsent goes out later, when
+  // the browser is back online, the tab returns, the player signs in or the app opens.
+  /** The run the game-over screen is reporting on; a newer run takes the screen over. */
+  const liveRunRef = useRef<string | null>(null)
+  /** Runs with a request in flight, so the background flush never doubles one up. */
+  const inFlight = useRef(new Set<string>())
+
+  const refreshAfterBank = useCallback((clientId: string) => {
+    void fetchEconomy(clientId).then((state) => {
+      if (state) setEconomy(state)
+    })
+    void fetchRunnerLeaderboard()
+      .then((board) => {
+        setEntries(board.entries)
+        setStats(board.stats)
+      })
+      .catch(() => undefined)
+  }, [])
+
+  const deliver = useCallback(
+    async (item: PendingRun): Promise<{ ok: true; response: SubmitResult } | { ok: false; error: SubmitError }> => {
+      inFlight.current.add(item.id)
+      try {
+        const response = await submitRunnerRun(item.clientId, item.name, item.run, item.ticket)
+        removePendingRun(item.clientId, item.id)
+        return { ok: true, response }
+      } catch (issue) {
+        const error = issue instanceof SubmitError ? issue : new SubmitError('network', 0, null)
+        // 409 "already counted" and 422 "implausible" will never succeed: drop them.
+        if (error.kind === 'rejected') removePendingRun(item.clientId, item.id)
+        else bumpPendingRun(item.clientId, item.id)
+        return { ok: false, error }
+      } finally {
+        inFlight.current.delete(item.id)
+      }
+    },
+    []
+  )
+
+  /** Sends whatever is still waiting on this device, oldest first. Quiet unless it lands. */
+  const flushPending = useCallback(async () => {
+    const clientId = clientIdRef.current || getRunnerClientId()
+    if (!readSession() || (typeof navigator !== 'undefined' && navigator.onLine === false)) return
+    let landed = 0
+    for (const item of loadPendingRuns(clientId)) {
+      if (inFlight.current.has(item.id) || item.id === liveRunRef.current) continue
+      const outcome = await deliver(item)
+      if (outcome.ok) landed += 1
+      else if (outcome.error.kind !== 'rejected') break // still offline or signed out: try later
+    }
+    if (landed > 0) {
+      pushToast({ id: Date.now(), kind: 'good', text: translate('over.sentLater') })
+      refreshAfterBank(clientId)
+    }
+  }, [deliver, pushToast, refreshAfterBank])
+  const flushRef = useRef(flushPending)
+  flushRef.current = flushPending
+
+  /** The game-over screen's own send: a few quick retries, then hand it to the queue. */
+  const sendLiveRun = useCallback(
+    async (item: PendingRun, summaryCoins: number) => {
+      liveRunRef.current = item.id
+      setSubmitState('sending')
+      const waits = [1500, 4000, 9000]
+      for (let attempt = 0; ; attempt++) {
+        const outcome = await deliver(item)
+        if (liveRunRef.current !== item.id) return
+        if (outcome.ok) {
+          const response = outcome.response
+          if (response.profile) setProfile(response.profile)
+          setRank(response.rank)
+          setOffBoard(response.offBoard)
+          setInReview(response.review)
+          // Coins from a run the server stamped go straight into the wallet.
+          setBanked(response.banked ?? (response.offBoard === 'unverified' ? 0 : summaryCoins))
+          setSubmitState('done')
+          liveRunRef.current = null
+          refreshAfterBank(item.clientId)
+          void flushRef.current()
+          return
+        }
+        const { kind, status } = outcome.error
+        if (kind === 'rejected') {
+          setSubmitState(status === 409 ? 'duplicate' : 'rejected')
+          liveRunRef.current = null
+          return
+        }
+        if (kind === 'auth') {
+          setSubmitState('auth')
+          liveRunRef.current = null
+          return
+        }
+        if (attempt >= waits.length) {
+          setSubmitState('queued')
+          liveRunRef.current = null
+          return
+        }
+        setSubmitState(kind === 'rate' ? 'rate' : 'sending')
+        await new Promise((resolve) => window.setTimeout(resolve, waits[attempt] * (kind === 'rate' ? 2 : 1)))
+        if (liveRunRef.current !== item.id) return
+      }
+    },
+    [deliver, refreshAfterBank]
+  )
+  const sendLiveRef = useRef(sendLiveRun)
+  sendLiveRef.current = sendLiveRun
+
+  /** "Send now" on the game-over screen: everything waiting, immediately. */
+  const resendNow = useCallback(() => {
+    setSubmitState('sending')
+    void flushRef.current().then(() => {
+      const left = loadPendingRuns(clientIdRef.current || getRunnerClientId()).length
+      setSubmitState(left === 0 ? 'done' : 'queued')
+    })
+  }, [])
+
+  useEffect(() => {
+    const kick = () => {
+      if (document.visibilityState === 'visible') void flushRef.current()
+    }
+    window.addEventListener('online', kick)
+    document.addEventListener('visibilitychange', kick)
+    const first = window.setTimeout(kick, 2500)
+    return () => {
+      window.removeEventListener('online', kick)
+      document.removeEventListener('visibilitychange', kick)
+      window.clearTimeout(first)
+    }
+  }, [])
+
+  // A sign-in (or a different account) is the moment a run held for "auth" can go out.
+  useEffect(() => {
+    if (account) void flushRef.current()
+  }, [account])
 
   // Re-check the stored session against the server (it may have expired).
   useEffect(() => {
@@ -354,6 +504,7 @@ export default function RushApp() {
           setRank(null)
           setSubmitState('idle')
           setPanel('none')
+          liveRunRef.current = null
         }
       }),
       runner.events.on('progress', (state) => setProgress(state)),
@@ -380,8 +531,11 @@ export default function RushApp() {
         setPanel('none')
         if (result.record) storeBest(result.score)
         setSubmitState('sending')
+        setInReview(false)
         const clientId = clientIdRef.current || getRunnerClientId()
-        void ticketRef.current.then((ticket) => submitRunnerRun(clientId, nameRef.current, {
+        const runName = nameRef.current
+        void ticketRef.current.then((ticket) => {
+          const item = addPendingRun({ clientId, name: runName, ticket, run: {
           score: result.score,
           coins: result.coins,
           distance_m: result.distance,
@@ -392,26 +546,9 @@ export default function RushApp() {
           best_combo: result.bestCombo,
           duration_s: Math.round(result.duration),
           difficulty: result.difficulty,
-        }, ticket))
-          .then(async (response) => {
-            if (response.profile) setProfile(response.profile)
-            setRank(response.rank)
-            setOffBoard(response.offBoard)
-            // Coins from a run the server stamped go straight into the wallet.
-            setBanked(response.banked ?? (response.offBoard === 'unverified' ? 0 : result.coins))
-            setSubmitState('done')
-            void fetchEconomy(clientId).then((state) => {
-              if (state) setEconomy(state)
-            })
-            try {
-              const board = await fetchRunnerLeaderboard()
-              setEntries(board.entries)
-              setStats(board.stats)
-            } catch {
-              /* board refresh is best effort */
-            }
-          })
-          .catch(() => setSubmitState('error'))
+          } })
+          return sendLiveRef.current(item, result.coins)
+        })
       }),
     ]
 
@@ -712,6 +849,8 @@ export default function RushApp() {
     setHintSeen(false)
     setOffBoard(null)
     setBanked(null)
+    setInReview(false)
+    liveRunRef.current = null
     ticketRef.current = startRunnerTicket(clientIdRef.current || getRunnerClientId())
     runnerRef.current?.uiSound('click')
     runnerRef.current?.startRun()
@@ -724,6 +863,8 @@ export default function RushApp() {
     setHintSeen(false)
     setOffBoard(null)
     setBanked(null)
+    setInReview(false)
+    liveRunRef.current = null
     ticketRef.current = startRunnerTicket(clientIdRef.current || getRunnerClientId())
     runnerRef.current?.restartRun()
   }, [])
@@ -744,7 +885,7 @@ export default function RushApp() {
 
   if (fatal) {
     return (
-      <div className="ar-root flex h-screen w-full items-center justify-center bg-[#04050f] p-6">
+      <div className="ar-root ar-fill flex w-full items-center justify-center bg-[#04050f] p-6">
         <div className="ar-panel max-w-[520px] px-7 py-6 text-center">
           <div className="ar-display text-[16px]">Cannot start the run</div>
           <p className="mt-3 text-[14px] leading-relaxed text-[#b9cdea]">{fatal}</p>
@@ -757,7 +898,7 @@ export default function RushApp() {
 
   if (gated && phase !== 'boot' && phase !== 'loading') {
     return (
-      <div className="ar-root relative h-screen w-full overflow-hidden bg-[#04050f]">
+      <div className="ar-root ar-fill relative w-full overflow-hidden bg-[#04050f]">
         <div ref={containerRef} className="absolute inset-0" />
         <AuthGate onSignedIn={handleSignedIn} inviteFrom={account ? null : inviteFrom} />
       </div>
@@ -765,7 +906,7 @@ export default function RushApp() {
   }
 
   return (
-    <div className="ar-root relative h-screen w-full overflow-hidden bg-[#04050f]">
+    <div className="ar-root ar-fill relative w-full overflow-hidden bg-[#04050f]">
       <div ref={containerRef} className="absolute inset-0" />
 
       {inRun && hud && (
@@ -848,6 +989,8 @@ export default function RushApp() {
         <RushGameOver
           summary={summary}
           submitState={submitState}
+          inReview={inReview}
+          onResend={resendNow}
           rank={rank}
           offBoard={offBoard}
           onSignIn={() => setPanel('auth')}

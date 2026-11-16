@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@500;600;700;800;900&family=Chakra+Petch:wght@400;500;600;700&display=swap');
 
 :root {
   --ar-ink: #dff1ff;
@@ -3657,4 +3657,122 @@ a.ar-pick-card {
   /* Out of flow, so the canvas's own pixel size can never feed back into the height
      it is being sized to. */
   .ar-menu .ar-menu-heroes .ar-stage canvas { position: absolute; inset: 0; }
+}
+
+
+/* ===================== Vietnamese type =====================
+   Orbitron and Rajdhani have no Vietnamese glyphs, so "Điểm" or "Chuỗi" was drawn
+   letter by letter from whatever font the phone had: a different face, weight and
+   baseline inside one word. In Vietnamese the interface uses two faces that carry
+   every tone mark and keep the same squared, technical feel. Numbers stay Orbitron. */
+html[lang='vi'] {
+  --ar-display: 'Exo 2', 'Chakra Petch', system-ui, sans-serif;
+  --ar-body: 'Chakra Petch', 'Exo 2', system-ui, sans-serif;
+}
+html[lang='vi'] .ar-score,
+html[lang='vi'] .ar-coin-count,
+html[lang='vi'] .ar-speed-value,
+html[lang='vi'] .ar-mult {
+  font-family: 'Orbitron', 'Exo 2', system-ui, sans-serif;
+}
+
+/* ===================== Phone HUD during a run =====================
+   The touch pad (four 62–74 px buttons) sat on the same 18 px baseline as the Arc
+   counter and the speedometer, so the arrows covered the counter and Jump covered the
+   speed bar. On a touch screen the bottom HUD now rides above the pad, slimmer, and the
+   top keeps only what you read mid-jump: score, best, speed tier, combo, missions. */
+.ar-hud.is-touch .ar-touch {
+  padding: 0 max(12px, env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+.ar-hud.is-touch .ar-hud-bottom {
+  bottom: calc(104px + env(safe-area-inset-bottom));
+  align-items: flex-end;
+}
+@media (max-width: 760px), (max-height: 500px) {
+  .ar-hud.is-touch {
+    padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  }
+  .ar-hud.is-touch .ar-hud-top { gap: 8px; }
+  .ar-hud.is-touch .ar-score { font-size: 30px; }
+  .ar-hud.is-touch .ar-score-label { font-size: 9.5px; letter-spacing: 0.2em; }
+  .ar-hud.is-touch .ar-hud-top .ar-chip {
+    padding: 3px 8px;
+    gap: 5px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  .ar-hud.is-touch .ar-hud-zone { display: none; }
+  .ar-hud.is-touch .ar-mult { font-size: 21px; }
+  .ar-hud.is-touch .ar-hud-btn { padding: 6px 10px; font-size: 11px; }
+
+  .ar-hud.is-touch .ar-hud-track { gap: 5px; margin-top: 6px; }
+  .ar-hud.is-touch .ar-mission-strip { gap: 4px; max-width: 100%; }
+  .ar-hud.is-touch .ar-mission {
+    padding: 3px 8px;
+    gap: 4px;
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+  }
+  .ar-hud.is-touch .ar-mission-name {
+    max-width: 8.5em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .ar-hud.is-touch .ar-pursuit { padding: 3px 9px; font-size: 9.5px; }
+  .ar-hud.is-touch .ar-pursuit-bar { width: 64px; }
+
+  .ar-hud.is-touch .ar-hud-bottom {
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+  .ar-hud.is-touch .ar-hud-trip { display: none; }
+  .ar-hud.is-touch .ar-coin-counter { gap: 7px; padding: 4px 12px 4px 4px; }
+  .ar-hud.is-touch .ar-coin-icon { width: 28px !important; height: 28px !important; }
+  .ar-hud.is-touch .ar-coin-count { font-size: 17px; line-height: 1.05; }
+  .ar-hud.is-touch .ar-coin-unit { font-size: 8.5px; letter-spacing: 0.14em; }
+  .ar-hud.is-touch .ar-power-row { flex-wrap: wrap; gap: 4px; max-width: 62vw; }
+  .ar-hud.is-touch .ar-power-pill { padding: 3px 8px; gap: 5px; font-size: 9.5px; letter-spacing: 0.08em; }
+  .ar-hud.is-touch .ar-power-bar { width: 30px; }
+  .ar-hud.is-touch .ar-speed {
+    padding: 5px 11px 7px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--ar-line);
+  }
+  .ar-hud.is-touch .ar-speed-label { font-size: 8.5px; }
+  .ar-hud.is-touch .ar-speed-value { font-size: 18px; line-height: 1.1; }
+  .ar-hud.is-touch .ar-speed-unit { font-size: 9px; }
+  .ar-hud.is-touch .ar-meter { width: 84px; height: 4px; margin-top: 4px; }
+
+  .ar-hud.is-touch .ar-touch-btn { width: 58px; height: 58px; }
+  .ar-hud.is-touch .ar-touch-btn-primary { width: 70px; height: 70px; }
+  .ar-hud.is-touch .ar-touch-group { gap: 8px; }
+}
+/* A phone on its side has ~360 px of height: the pad goes to the corners and the
+   bottom HUD sits between the two groups instead of above them. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .ar-hud.is-touch .ar-hud-bottom {
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    left: 150px;
+    right: 160px;
+  }
+  .ar-hud.is-touch .ar-hud-track { flex-direction: row; flex-wrap: wrap; }
+}
+
+/* Transient call-outs ("Chuỗi ×3", "SUÝT NỮA!", power banners) sat at 14 and 92 px —
+   on a phone that is on top of the score and the mission chips. They drop just below
+   the mission row there. */
+@media (max-width: 760px) and (pointer: coarse) {
+  .ar-hud.is-touch .ar-badge-row { top: calc(136px + env(safe-area-inset-top)); }
+  .ar-toasts { top: calc(164px + env(safe-area-inset-top)); width: max-content; max-width: 92vw; }
+  .ar-toast { font-size: 12px; padding: 6px 14px; }
+}
+
+/* The game fills the *visible* viewport. 100vh on iOS Safari is the height with the
+   toolbars collapsed, so with them showing the bottom ~80 px — the touch pad — sat under
+   the address bar. dvh tracks the toolbars; browsers without it keep 100vh. */
+.ar-fill {
+  height: 100vh;
+  height: 100dvh;
 }

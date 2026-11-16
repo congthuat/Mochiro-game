@@ -126,7 +126,7 @@ export function RushHud({
   const speedPct = Math.min(100, Math.max(0, ((hud.speed - 12) / 34) * 100))
 
   return (
-    <div className="ar-hud">
+    <div className={`ar-hud${isTouch ? ' is-touch' : ''}`}>
       {/* Overdrive: wind streaks rushing out from the vanishing point plus a hot edge glow. */}
       <div className={`ar-rush${hud.boost > 0 ? ' is-on' : ''}`} aria-hidden />
       <div className="ar-hud-top">
@@ -138,9 +138,9 @@ export function RushHud({
               {t('hud.best')} <strong>{formatScore(Math.max(hud.best, hud.score))}</strong>
             </span>
             <span className="ar-chip">
-              <Gauge size={13} /> {hud.tierName}
+              <Gauge size={13} /> {hud.tierKey ? t(hud.tierKey) : hud.tierName}
             </span>
-            <span className="ar-chip ar-chip-zone">
+            <span className="ar-chip ar-chip-zone ar-hud-zone">
               <Compass size={13} /> {t(`biome.${hud.biome}`)}
             </span>
             {showFps && (
@@ -192,7 +192,7 @@ export function RushHud({
       </div>
 
       <div className="ar-badge-row">
-        {pop && <span className="ar-toast ar-toast-good ar-mult-pop">Multiplier ×{hud.multiplier}</span>}
+        {pop && <span className="ar-toast ar-toast-good ar-mult-pop">{t('hud.combo')} ×{hud.multiplier}</span>}
       </div>
 
       {banner && (
@@ -237,7 +237,7 @@ export function RushHud({
               </span>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="ar-hud-trip flex gap-2">
             <span className="ar-chip">
               <strong>{hud.distance}</strong> m
             </span>
@@ -256,7 +256,7 @@ export function RushHud({
             <div className="ar-power-row">
               {hud.shield && (
                 <span className="ar-power-pill" style={{ '--ar-power': POWER_GLOW.shield } as CSSProperties}>
-                  <Shield size={12} /> {t('power.shield.pill')} ×hud.shieldHits
+                  <Shield size={12} /> {t('power.shield.pill')}{hud.shieldHits > 1 ? ` ×${hud.shieldHits}` : ''}
                 </span>
               )}
               {hud.magnet > 0 && (
