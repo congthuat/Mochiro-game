@@ -95,7 +95,7 @@ export function BankChip({ bank, onClick }: { bank: number | null; onClick?: () 
   )
 }
 
-function Backdrop({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+export function Backdrop({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   return (
     <div
       className="ar-screen"
@@ -108,7 +108,7 @@ function Backdrop({ onClose, children }: { onClose: () => void; children: ReactN
   )
 }
 
-function PanelHead({ icon, title, onClose }: { icon: ReactNode; title: string; onClose: () => void }) {
+export function PanelHead({ icon, title, onClose }: { icon: ReactNode; title: string; onClose: () => void }) {
   const t = useT()
   return (
     <div className="flex items-center justify-between gap-3">

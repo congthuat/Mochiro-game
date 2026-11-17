@@ -68,6 +68,7 @@ import {
   type CoachStep,
   type EcoNote,
 } from '../components/runner/RushEconomy'
+import { RushWallet } from '../components/runner/RushWallet'
 
 const SETTINGS_KEY = 'arcrush.settings'
 const BEST_KEY = 'arcrush.best'
@@ -136,7 +137,7 @@ function storeBest(value: number): void {
   }
 }
 
-type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install'
+type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet'
 
 /**
  * Dev-server only: the browser checks in `scripts/` drive the menu and the run without a
@@ -1065,6 +1066,19 @@ export default function RushApp() {
           onPick={(id) => {
             setSettings((prev) => ({ ...prev, character: id }))
             setPanel('none')
+          }}
+          onClose={() => setPanel('none')}
+        />
+      )}
+      {panel === 'wallet' && (
+        <RushWallet
+          account={account}
+          clientId={getRunnerClientId()}
+          bank={economy ? economy.bank : null}
+          onSignIn={() => setPanel('auth')}
+          onEconomyChanged={() => {
+            const id = getRunnerClientId()
+            void fetchEconomy(id).then((state) => state && setEconomy(state))
           }}
           onClose={() => setPanel('none')}
         />

@@ -3794,3 +3794,165 @@ html[lang='vi'] .ar-mult {
 .ar-lang-btn[lang='vi'] { font-family: 'Chakra Petch', 'Exo 2', system-ui, sans-serif; }
 /* Two wallet cards per row on a phone: a long name ("Coinbase Wallet") wraps instead of "…". */
 .ar-pick-card .ar-pick-name { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.15; overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------- wallet -- */
+.ar-modal.ar-wallet { width: min(480px, 100%); }
+.ar-wal-card {
+  margin-top: 14px;
+  padding: 14px 16px 12px;
+  border-radius: 16px;
+  color: #eaf4ff;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(10, 169, 255, 0.35), transparent 55%),
+    linear-gradient(135deg, #12264a 0%, #0d1b33 60%, #18233f 100%);
+  box-shadow: 0 10px 26px rgba(13, 27, 51, 0.22);
+}
+.ar-wal-card-top { display: flex; align-items: center; justify-content: space-between; }
+.ar-wal-net {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em;
+}
+.ar-wal-dot { width: 7px; height: 7px; border-radius: 50%; background: #3ee08f; box-shadow: 0 0 0 3px rgba(62, 224, 143, 0.2); }
+.ar-wal-icon-btn {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+  border: 0; background: rgba(255, 255, 255, 0.1); color: inherit; cursor: pointer;
+}
+.ar-wal-icon-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.ar-wal-icon-btn:disabled { opacity: 0.6; cursor: default; }
+.ar-wal-balance-label { margin-top: 10px; font-size: 12px; color: rgba(234, 244, 255, 0.7); }
+.ar-wal-balance {
+  display: flex; align-items: baseline; gap: 8px; min-height: 40px;
+  font-family: var(--ar-display); font-size: 30px; font-weight: 800; letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.ar-wal-unit { font-family: var(--ar-body); font-size: 14px; font-weight: 700; color: rgba(234, 244, 255, 0.72); }
+.ar-wal-offline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 6px 0; font-size: 13px; color: #ffd2cc; }
+.ar-wal-card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; font-size: 12.5px; }
+.ar-wal-addr {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 8px;
+  border: 0; background: rgba(255, 255, 255, 0.1); color: inherit; cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+}
+.ar-wal-addr:hover { background: rgba(255, 255, 255, 0.18); }
+.ar-wal-card .ar-wal-link { color: #9fd8ff; }
+.ar-wal-ingame { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #ffd36b; font-weight: 700; }
+
+.ar-wal-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 12px; }
+.ar-wal-tabs > .ar-btn { padding-left: 4px; padding-right: 4px; white-space: nowrap; }
+.ar-wal-body { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.ar-wal-body > .ar-hint { margin: 0; }
+.ar-wal-loading { display: grid; place-items: center; padding: 26px 0; color: var(--ar-dim); }
+
+.ar-wal-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 700; color: #1f6fd1; text-decoration: none;
+}
+.ar-wal-link:hover { text-decoration: underline; }
+.ar-wal-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+.ar-wal-label { margin: 0; font-size: 13px; font-weight: 800; color: var(--ar-text); }
+.ar-wal-label-sm { margin-top: 6px; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #5b6b85; }
+.ar-wal-warn {
+  display: flex; align-items: flex-start; gap: 7px; margin: 0;
+  padding: 8px 11px; border-radius: 10px;
+  background: rgba(245, 159, 11, 0.12); color: #8a5300; font-size: 12.5px; line-height: 1.4;
+}
+.ar-wal-warn > svg { flex: none; margin-top: 2px; }
+
+/* packs */
+.ar-wal-packs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ar-wal-pack {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 14px 12px 12px; border-radius: 14px; cursor: pointer; text-align: left;
+  border: 1px solid rgba(40, 70, 120, 0.14); background: rgba(255, 255, 255, 0.8);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.ar-wal-pack:hover { transform: translateY(-1px); border-color: var(--ar-line-strong); box-shadow: 0 6px 16px rgba(31, 111, 209, 0.12); }
+.ar-wal-pack:active { transform: translateY(0); }
+.ar-wal-pack-arc { display: inline-flex; align-items: center; gap: 6px; font-family: var(--ar-display); font-size: 19px; font-weight: 800; color: #16233d; }
+.ar-wal-pack-arc > svg { color: var(--ar-amber); }
+.ar-wal-pack-usdc { font-size: 13px; font-weight: 700; color: #1f6fd1; }
+.ar-wal-pack-bonus {
+  position: absolute; top: 8px; right: 8px; padding: 2px 7px; border-radius: 999px;
+  background: rgba(18, 185, 129, 0.14); color: #0b7a55; font-size: 11px; font-weight: 800;
+}
+
+/* confirm */
+.ar-wal-confirm, .ar-wal-sign, .ar-wal-send, .ar-wal-receive { display: flex; flex-direction: column; gap: 10px; }
+.ar-wal-back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 4px; border: 0; background: none; color: #5b6b85; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.ar-wal-summary { padding: 4px 14px; border-radius: 14px; border: 1px solid rgba(40, 70, 120, 0.14); background: rgba(255, 255, 255, 0.8); }
+.ar-wal-sum-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 14px; color: var(--ar-text); }
+.ar-wal-sum-row + .ar-wal-sum-row { border-top: 1px dashed rgba(40, 70, 120, 0.14); }
+.ar-wal-sum-row strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.ar-wal-sum-row.is-sub { font-size: 12.5px; color: #5b6b85; }
+.ar-wal-sum-row.is-sub .ar-wal-mono { text-align: right; max-width: 70%; }
+.ar-wal-sum-row a { color: #1f6fd1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ar-wal-gold { display: inline-flex; align-items: center; gap: 5px; color: #b26a00; }
+.ar-wal-short { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 92, 76, 0.08); }
+.ar-wal-short > p:first-child { margin: 0; color: #b4321f; font-weight: 700; font-size: 13.5px; }
+.ar-wal-short .ar-hint { margin: 0; }
+.ar-wal-sign .ar-hint { margin: 0; }
+.ar-wal-go { width: 100%; justify-content: center; }
+.ar-wal-sign .ar-pick-grid { margin: 0; }
+
+/* progress + result */
+.ar-wal-steps { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.8); border: 1px solid rgba(40, 70, 120, 0.14); }
+.ar-wal-step { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; color: #8a97ab; }
+.ar-wal-step-dot { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(40, 70, 120, 0.18); flex: none; }
+.ar-wal-step.is-now { color: var(--ar-text); }
+.ar-wal-step.is-now .ar-wal-step-dot { border-color: #1f6fd1; color: #1f6fd1; }
+.ar-wal-step.is-done { color: #0b7a55; }
+.ar-wal-step.is-done .ar-wal-step-dot { border-color: #12b981; background: #12b981; color: #fff; }
+.ar-wal-result { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 12px; text-align: center; }
+.ar-wal-result .ar-hint, .ar-wal-result p { margin: 0; }
+.ar-wal-result-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: rgba(18, 185, 129, 0.14); color: #0b7a55; }
+.ar-wal-result.is-bad .ar-wal-result-icon { background: rgba(255, 92, 76, 0.12); color: #b4321f; }
+.ar-wal-result.is-wait .ar-wal-result-icon { background: rgba(245, 159, 11, 0.14); color: #8a5300; }
+.ar-wal-result-big { font-family: var(--ar-display); font-size: 20px; font-weight: 800; color: var(--ar-text); }
+.ar-wal-result .ar-btn { min-width: 140px; justify-content: center; margin-top: 4px; }
+
+/* receive */
+.ar-wal-receive { align-items: center; text-align: center; }
+.ar-wal-receive .ar-hint { margin: 0; }
+.ar-wal-qr { padding: 8px; border-radius: 14px; background: #fff; border: 1px solid rgba(40, 70, 120, 0.14); line-height: 0; }
+.ar-wal-full { margin: 0; max-width: 300px; color: var(--ar-text); }
+.ar-wal-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.ar-wal-receive .ar-wal-warn { text-align: left; }
+
+/* send */
+.ar-wal-amount { display: flex; gap: 8px; }
+.ar-wal-amount .ar-input { flex: 1; min-width: 0; }
+.ar-wal-send .ar-eco-note { margin-top: 0; }
+
+/* history */
+.ar-wal-txs { display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; border: 1px solid rgba(40, 70, 120, 0.14); background: rgba(255, 255, 255, 0.8); }
+.ar-wal-tx { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: var(--ar-text); text-decoration: none; }
+.ar-wal-tx + .ar-wal-tx { border-top: 1px solid rgba(40, 70, 120, 0.08); }
+.ar-wal-tx:hover { background: rgba(31, 111, 209, 0.05); }
+.ar-wal-tx-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; flex: none; background: rgba(31, 111, 209, 0.1); color: #1f6fd1; }
+.ar-wal-tx.is-in .ar-wal-tx-icon { background: rgba(18, 185, 129, 0.12); color: #0b7a55; }
+.ar-wal-tx-icon.is-topup { background: rgba(245, 159, 11, 0.16) !important; color: #b26a00 !important; }
+.ar-wal-tx-icon.is-contract { background: rgba(139, 92, 246, 0.12) !important; color: #6d3fd8 !important; }
+.ar-wal-tx-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ar-wal-tx-name { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-wal-tx-sub { font-size: 12px; color: #5b6b85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-wal-tx-fail { padding: 1px 6px; border-radius: 6px; background: rgba(255, 92, 76, 0.12); color: #b4321f; font-size: 10.5px; }
+.ar-wal-tx-value { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ar-wal-tx.is-in .ar-wal-tx-value { color: #0b7a55; }
+.ar-wal-tx.is-failed { opacity: 0.7; }
+.ar-wal-all { align-self: center; }
+
+.ar-wal-signin { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 8px 8px; text-align: center; }
+.ar-wal-signin p { margin: 0; }
+.ar-wal-signin-icon { display: grid; place-items: center; width: 50px; height: 50px; border-radius: 50%; background: rgba(31, 111, 209, 0.1); color: #1f6fd1; }
+
+@media (max-width: 380px) {
+  .ar-wal-balance { font-size: 26px; }
+  .ar-wal-tabs > .ar-btn { font-size: 12px; }
+  .ar-wal-ingame { margin-left: 0; }
+}
+.ar-wallet .ar-hint { text-transform: none; letter-spacing: 0.02em; font-size: 12.5px; line-height: 1.4; }

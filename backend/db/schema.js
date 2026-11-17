@@ -71,9 +71,24 @@ exports.runner_ledger = pgTable("runner_ledger", {
   client_id: text("client_id").notNull(),
   delta: bigint("delta", { mode: "number" }).notNull(),
   // 'run' | 'buy:char:<id>' | 'buy:up:<kind>' | 'daily' | 'quest:<id>' | 'season:<key>' | 'welcome'
-  // | 'ach:<tier ids>' | 'invite:welcome' | 'invite:friend'
+  // | 'ach:<tier ids>' | 'invite:welcome' | 'invite:friend' | 'topup:<pack>'
   reason: text("reason").notNull(),
   balance: bigint("balance", { mode: "number" }),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Arc top-ups paid in testnet USDC on Arc (see routes/wallet.js). The tx hash is the
+// primary key, so one on-chain payment can be credited exactly once.
+exports.runner_topups = pgTable("runner_topups", {
+  tx_hash: text("tx_hash").primaryKey(),
+  client_id: text("client_id").notNull(),
+  // Lower-case sender address (always the signed-in account's own wallet).
+  address: text("address").notNull(),
+  pack: text("pack").notNull(),
+  // USDC actually paid, as a decimal string (18-decimal native USDC).
+  usdc: text("usdc").notNull(),
+  arc: bigint("arc", { mode: "number" }).notNull(),
+  block_number: bigint("block_number", { mode: "number" }),
   created_at: timestamp("created_at").defaultNow(),
 });
 
@@ -188,4 +203,5 @@ exports.arc_challenges = pgTable("arc_challenges", {
 //   runner_tickets  (created_at), (ip, created_at)       -- rate limit, cleanup
 //   arc_challenges  (expires_at), (ip, created_at)
 //   arc_sessions    (account_id)
+//   runner_topups   (client_id, created_at)
 // ---------------------------------------------------------------------------

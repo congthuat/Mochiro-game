@@ -1,5 +1,5 @@
 // Mochiro screens: loading, main menu, pause, results, settings, help, board.
-import { ArrowLeftRight, Award, Check, Coins, Globe, HelpCircle, Home, Hourglass, Loader2, Lock, LogIn, Magnet, Medal, Play, Rocket, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShieldPlus, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, X, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Award, Check, Coins, Globe, HelpCircle, Home, Hourglass, Loader2, Lock, LogIn, Magnet, Medal, Play, Rocket, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShieldPlus, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, Wallet as WalletIcon, X, type LucideIcon } from 'lucide-react'
 import { MochiroLogo } from './MochiroLogo'
 import { formatCompact, formatDistance, formatScore, formatSpeed, formatTime } from '../../runner/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -113,7 +113,7 @@ export function RushMenu({
   quality: 'low' | 'medium' | 'high'
   onNameChange: (value: string) => void
   onStart: () => void
-  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily') => void
+  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily' | 'wallet') => void
   profile: RunnerProfile | null
 }) {
   const t = useT()
@@ -366,7 +366,7 @@ export function RushMenu({
               </button>
             )}
 
-            <div className="ar-menu-row ar-eco-row">
+            <div className="ar-menu-row ar-menu-row-4 ar-eco-row">
               <button className="ar-btn" onClick={() => onOpen('shop')}>
                 <ShoppingBag size={14} /> {t('menu.shop')}
               </button>
@@ -379,6 +379,9 @@ export function RushMenu({
                 {achievementsDue(economy) > 0 && (
                   <span className="ar-badge">{achievementsDue(economy) > 9 ? '9+' : achievementsDue(economy)}</span>
                 )}
+              </button>
+              <button className="ar-btn" onClick={() => onOpen('wallet')}>
+                <WalletIcon size={14} /> {t('menu.wallet')}
               </button>
             </div>
 
