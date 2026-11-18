@@ -1067,6 +1067,10 @@ export default function RushApp() {
             setSettings((prev) => ({ ...prev, character: id }))
             setPanel('none')
           }}
+          onTopup={() => {
+            setEcoNote(null)
+            openPanel('wallet')
+          }}
           onClose={() => setPanel('none')}
         />
       )}

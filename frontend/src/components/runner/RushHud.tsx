@@ -14,7 +14,7 @@ export function ArcIcon({ logo, size = 38, className = '' }: { logo: string | nu
     return (
       <img
         src={logo}
-        alt="Arc"
+        alt="Gold"
         width={size}
         height={size}
         className={`ar-coin-icon ${className}`}
@@ -26,7 +26,7 @@ export function ArcIcon({ logo, size = 38, className = '' }: { logo: string | nu
     <div
       className={`ar-coin-icon flex items-center justify-center ${className}`}
       style={{ width: size, height: size }}
-      aria-label="Arc"
+      aria-label="Gold"
     >
       <svg viewBox="0 0 40 40" width={size * 0.62} height={size * 0.62}>
         <circle cx="20" cy="20" r="14" fill="none" stroke="#a9ecff" strokeWidth="3" strokeDasharray="62 26" strokeLinecap="round" />

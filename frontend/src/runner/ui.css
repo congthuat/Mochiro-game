@@ -3837,7 +3837,10 @@ html[lang='vi'] .ar-mult {
 }
 .ar-wal-addr:hover { background: rgba(255, 255, 255, 0.18); }
 .ar-wal-card .ar-wal-link { color: #9fd8ff; }
-.ar-wal-ingame { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #ffd36b; font-weight: 700; }
+.ar-wal-ingame {
+  display: inline-flex; align-items: center; gap: 5px; margin: 0 8px 0 auto; padding: 3px 9px; border-radius: 999px;
+  background: rgba(255, 211, 107, 0.12); color: #ffd36b; font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
 
 .ar-wal-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 12px; }
 .ar-wal-tabs > .ar-btn { padding-left: 4px; padding-right: 4px; white-space: nowrap; }
@@ -3953,6 +3956,8 @@ html[lang='vi'] .ar-mult {
 @media (max-width: 380px) {
   .ar-wal-balance { font-size: 26px; }
   .ar-wal-tabs > .ar-btn { font-size: 12px; }
-  .ar-wal-ingame { margin-left: 0; }
 }
 .ar-wallet .ar-hint { text-transform: none; letter-spacing: 0.02em; font-size: 12.5px; line-height: 1.4; }
+
+.ar-shop-bank { display: inline-flex; align-items: center; gap: 8px; }
+.ar-shop-topup { gap: 4px; }

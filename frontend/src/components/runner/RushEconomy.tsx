@@ -20,6 +20,7 @@ import {
   Star,
   Target,
   Trophy,
+  Plus,
   UserPlus,
   Users,
   X,
@@ -133,6 +134,7 @@ export function RushShop({
   guest,
   onBuy,
   onPick,
+  onTopup,
   onClose,
 }: {
   economy: EconomyState
@@ -141,6 +143,7 @@ export function RushShop({
   guest: boolean
   onBuy: (item: string) => void
   onPick: (id: CharacterId) => void
+  onTopup?: () => void
   onClose: () => void
 }) {
   const t = useT()
@@ -152,7 +155,14 @@ export function RushShop({
       <div className="ar-panel ar-modal ar-shop">
         <PanelHead icon={<ShoppingBag size={15} className="mr-2 inline" />} title={t('shop.title')} onClose={onClose} />
         <div className="ar-shop-top">
-          <BankChip bank={economy.bank} />
+          <span className="ar-shop-bank">
+            <BankChip bank={economy.bank} />
+            {onTopup && (
+              <button type="button" className="ar-btn ar-btn-sm ar-shop-topup" onClick={onTopup}>
+                <Plus size={13} /> {t('shop.topup')}
+              </button>
+            )}
+          </span>
           <div className="ar-seg ar-shop-tabs">
             <button className={`ar-btn ar-btn-sm ${tab === 'heroes' ? 'ar-seg-active' : ''}`} onClick={() => setTab('heroes')}>
               {t('shop.heroes')}
@@ -427,7 +437,7 @@ export function RushQuests({
                     {quest.id === 'time'
                       ? `${Math.floor(quest.progress / 60)}/${Math.round(quest.target / 60)}`
                       : `${formatNumber(quest.progress)}/${formatNumber(quest.target)}`}
-                    {' · '}+{quest.reward} Arc
+                    {' · '}+{quest.reward} Gold
                   </div>
                 </div>
                 {quest.claimed ? (
@@ -518,7 +528,7 @@ function AchievementRow({
         </div>
         <div className="ar-row-sub">
           {next
-            ? `${achTarget(group.id, Math.min(group.value, next.target))} / ${achTarget(group.id, next.target)} · +${formatNumber(next.reward)} Arc`
+            ? `${achTarget(group.id, Math.min(group.value, next.target))} / ${achTarget(group.id, next.target)} · +${formatNumber(next.reward)} Gold`
             : t('ach.maxed')}
         </div>
       </div>

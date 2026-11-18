@@ -305,6 +305,9 @@ export function RushWallet({
             <span className="ar-wal-net">
               <span className="ar-wal-dot" /> {t('wal.network')}
             </span>
+            <span className="ar-wal-ingame" title={t('wal.inGameTitle')}>
+              <Coins size={12} /> {t('wal.inGame', { n: bank === null ? '—' : formatNumber(bank) })}
+            </span>
             <button
               type="button"
               className="ar-wal-icon-btn"
@@ -343,11 +346,8 @@ export function RushWallet({
               <Copy size={12} />
             </button>
             <a className="ar-wal-link" href={explorerAddr} target="_blank" rel="noreferrer" title={t('wal.explorer')}>
-              <ExternalLink size={12} /> Explorer
+              <ExternalLink size={12} /> {t('wal.explorerShort')}
             </a>
-            <span className="ar-wal-ingame">
-              <Coins size={12} /> {t('wal.inGame', { n: bank === null ? '—' : formatNumber(bank) })}
-            </span>
           </div>
         </div>
 
@@ -446,7 +446,9 @@ function TopupPicker({ config, ready, onPick }: { config: WalletConfig; ready: b
   const t = useT()
   return (
     <>
-      <p className="ar-hint">{t('wal.topupHint')}</p>
+      <p className="ar-hint">
+        {t('wal.topupHint')} {t('wal.gasNote')}
+      </p>
       {!ready && !config.packs.length ? (
         <div className="ar-wal-loading">
           <Loader2 size={18} className="ar-spin" />
@@ -509,7 +511,7 @@ function Confirm({
             <div className="ar-wal-sum-row">
               <span>{t('wal.youGet')}</span>
               <strong className="ar-wal-gold">
-                <Coins size={13} /> {formatNumber(purpose.pack.arc)} Arc
+                <Coins size={13} /> {formatNumber(purpose.pack.arc)} Gold
               </strong>
             </div>
             <div className="ar-wal-sum-row is-sub">
@@ -924,14 +926,15 @@ function TxRow({ tx, config, lang, self }: { tx: WalletTx; config: WalletConfig;
     tx.kind === 'topup'
       ? t('wal.tx.topup')
       : tx.kind === 'contract'
-        ? tx.method ?? t('wal.tx.contract')
+        ? t('wal.tx.contract')
         : t(`wal.tx.${tx.direction}`)
   const other = tx.direction === 'in' ? tx.from : tx.to
   const sub = useMemo(() => {
     const when = timeAgo(tx.time, lang)
-    if (tx.direction === 'self' || !other) return when
+    const method = tx.kind === 'contract' && tx.method ? `${tx.method} · ` : ''
+    if (tx.direction === 'self' || !other) return `${method}${when}`
     const who = other.toLowerCase() === config.treasury.toLowerCase() ? 'Mochiro' : shortAddress(other)
-    return `${t(tx.direction === 'in' ? 'wal.tx.from' : 'wal.tx.to', { who })} · ${when}`
+    return `${method}${t(tx.direction === 'in' ? 'wal.tx.from' : 'wal.tx.to', { who })} · ${when}`
   }, [tx, lang, other, config.treasury, t])
   const Icon = tx.kind === 'topup' ? Zap : tx.kind === 'contract' ? FileCode2 : tx.direction === 'in' ? ArrowDownLeft : ArrowUpRight
   void self
@@ -947,7 +950,7 @@ function TxRow({ tx, config, lang, self }: { tx: WalletTx; config: WalletConfig;
         </span>
         <span className="ar-wal-tx-sub">{sub}</span>
       </span>
-      <span className="ar-wal-tx-value">{zero ? '—' : `${tx.direction === 'in' ? '+' : tx.direction === 'out' ? '−' : ''}${value}`}</span>
+      <span className="ar-wal-tx-value">{zero ? '' : `${tx.direction === 'in' ? '+' : tx.direction === 'out' ? '−' : ''}${value}`}</span>
     </a>
   )
 }
