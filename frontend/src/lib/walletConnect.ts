@@ -67,6 +67,86 @@ type WcProvider = Eip1193 & {
   on: (event: string, handler: (...args: never[]) => void) => void
   removeListener?: (event: string, handler: (...args: never[]) => void) => void
   client?: { core?: { relayer?: { on: (event: string, handler: (error: unknown) => void) => void } } }
+  session?: { expiry?: number; namespaces?: Record<string, { accounts?: string[] }> }
+}
+
+/** Which phone wallet the player last paired, so a payment can go back to the same app. */
+const LAST_WC_KEY = 'mochiro.wcWallet'
+
+/** The paired provider of this page, kept so paying never asks for a second pairing. */
+let live: { provider: WcProvider; wallet: WcWallet } | null = null
+
+const sessionHolds = (provider: WcProvider, address: string): boolean => {
+  const session = provider.session
+  if (!session) return false
+  if (session.expiry && session.expiry * 1000 < Date.now()) return false
+  const want = address.toLowerCase()
+  return Object.values(session.namespaces ?? {}).some((space) =>
+    (space.accounts ?? []).some((entry) => entry.toLowerCase().endsWith(`:${want}`))
+  )
+}
+
+function rememberPaired(provider: WcProvider, wallet: WcWallet): void {
+  live = { provider, wallet }
+  try {
+    localStorage.setItem(LAST_WC_KEY, wallet.id)
+  } catch {
+    /* storage may be blocked; the in-page provider still works */
+  }
+}
+
+async function createProvider(): Promise<WcProvider> {
+  const mod = (await import('@walletconnect/universal-provider')) as unknown as {
+    default?: { init?: unknown }
+    UniversalProvider?: { init?: unknown }
+  }
+  const Universal = (typeof mod.default?.init === 'function' ? mod.default : mod.UniversalProvider) as {
+    init: (options: unknown) => Promise<unknown>
+  }
+  const origin = window.location.origin
+  return (await Universal.init({
+    projectId: await projectId(),
+    metadata: {
+      name: 'Mochiro',
+      description: 'Endless runner on Arc',
+      url: origin,
+      icons: [`${origin}${import.meta.env.BASE_URL}favicon.ico`],
+    },
+  })) as WcProvider
+}
+
+let resuming: Promise<WcProvider | null> | null = null
+
+/**
+ * The phone wallet already paired with this address — from this page, or restored from the
+ * session WalletConnect keeps in storage after a reload. Paying through it sends the request
+ * straight to the app; no new code to scan. Null when there is nothing to reuse.
+ */
+export async function resumeWalletConnect(address: string): Promise<{ provider: Eip1193; wallet: WcWallet } | null> {
+  if (typeof window === 'undefined' || !walletConnectReady()) return null
+  if (live && sessionHolds(live.provider, address)) return live
+  let lastId: string | null = null
+  try {
+    lastId = localStorage.getItem(LAST_WC_KEY)
+  } catch {
+    return null
+  }
+  const wallet = WC_WALLETS.find((entry) => entry.id === lastId)
+  if (!wallet) return null
+  resuming ??= createProvider().catch(() => null)
+  const provider = await resuming
+  resuming = null
+  if (!provider || !sessionHolds(provider, address)) return null
+  live = { provider, wallet }
+  return live
+}
+
+/** On a phone, bring the paired wallet app forward so the waiting request is in view. */
+export function openWalletApp(wallet: WcWallet): void {
+  if (!isMobile()) return
+  let base = wallet.native
+  if (!base.includes('://')) base = `${base.replace(/[/:]/g, '')}://`
+  window.location.href = base
 }
 
 /**
@@ -112,24 +192,7 @@ export async function connectWallet(wallet: WcWallet, onUri?: (uri: string) => v
   if (!walletConnectReady()) throw new Error('walletconnect-not-configured')
   if (typeof window === 'undefined') throw new Error('walletconnect-no-window')
 
-  const mod = (await import('@walletconnect/universal-provider')) as unknown as {
-    default?: { init?: unknown }
-    UniversalProvider?: { init?: unknown }
-  }
-  const Universal = (typeof mod.default?.init === 'function' ? mod.default : mod.UniversalProvider) as {
-    init: (options: unknown) => Promise<unknown>
-  }
-  const origin = window.location.origin
-
-  const provider = (await Universal.init({
-    projectId: await projectId(),
-    metadata: {
-      name: 'Mochiro',
-      description: 'Endless runner on Arc',
-      url: origin,
-      icons: [`${origin}${import.meta.env.BASE_URL}favicon.ico`],
-    },
-  })) as WcProvider
+  const provider = await createProvider()
 
   let fail: (error: Error) => void = () => {}
   const failed = new Promise<never>((_, reject) => {
@@ -174,6 +237,7 @@ export async function connectWallet(wallet: WcWallet, onUri?: (uri: string) => v
     // Always offer the code too: on a phone it is the fallback when the app did not open.
     onUri?.(first)
     await Promise.race([connecting, failed, giveUp(APPROVE_TIMEOUT_MS, 'wc-expired')])
+    rememberPaired(provider, wallet)
     return provider
   } catch (error) {
     void provider.disconnect?.().catch(() => {})

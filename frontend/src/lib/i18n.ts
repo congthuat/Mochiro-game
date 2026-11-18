@@ -717,6 +717,20 @@ const DICT: Record<string, Entry> = {
     vi: 'Không thấy ví trình duyệt nào. Hãy mở Mochiro trong app ví của bạn, hoặc kết nối ví ở dưới.',
   },
   'wal.scanPair': { en: 'Scan with your wallet app to connect', vi: 'Quét bằng app ví để kết nối' },
+  'wal.scanPay': {
+    en: 'Only needed once: scan with {name} on your phone, then approve. Next time the payment goes straight to the app.',
+    vi: 'Chỉ cần một lần: quét bằng app {name} trên điện thoại rồi bấm xác nhận. Lần sau yêu cầu sẽ tự gửi thẳng vào app.',
+  },
+  'wal.findingWallet': { en: 'Finding your wallet…', vi: 'Đang tìm ví của bạn…' },
+  'wal.readyBrowser': {
+    en: '{name} will pop up — just approve it. No code to scan.',
+    vi: 'Ví {name} sẽ bật lên, bạn chỉ cần bấm xác nhận. Không cần quét mã.',
+  },
+  'wal.readyPhone': {
+    en: 'The request goes straight to {name} on your phone — open it and approve. No code to scan.',
+    vi: 'Yêu cầu sẽ gửi thẳng tới app {name} trên điện thoại, bạn mở app và bấm xác nhận. Không cần quét mã.',
+  },
+  'wal.phoneWallets': { en: 'Wallet on your phone (scan a QR once)', vi: 'Ví trên điện thoại (quét QR một lần)' },
   'wal.cancel': { en: 'Cancel', vi: 'Huỷ' },
   'wal.back': { en: 'Back', vi: 'Quay lại' },
   'wal.step.sign': { en: 'Approve in your wallet', vi: 'Xác nhận trong ví' },

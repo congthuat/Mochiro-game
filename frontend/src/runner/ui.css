@@ -3922,6 +3922,10 @@ html[lang='vi'] .ar-mult {
 .ar-wal-sign .ar-hint { margin: 0; }
 .ar-wal-go { width: 100%; justify-content: center; }
 .ar-wal-sign .ar-pick-grid { margin: 0; }
+.ar-wal-finding { flex-direction: row; align-items: center; justify-content: center; gap: 8px; padding: 14px; color: #5b6b85; font-size: 13.5px; font-weight: 700; }
+.ar-wal-ready { display: flex; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; border-radius: 12px; background: rgba(31, 111, 209, 0.07); color: #34445e; font-size: 13px; line-height: 1.4; }
+.ar-wal-ready .ar-pick-logo { flex: none; }
+.ar-wal-other { align-self: center; color: #1f6fd1; }
 
 /* progress + result */
 .ar-wal-steps { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.8); border: 1px solid rgba(40, 70, 120, 0.14); }

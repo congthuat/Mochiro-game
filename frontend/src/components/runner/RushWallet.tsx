@@ -26,7 +26,7 @@ import { formatNumber, useLang, useT } from '../../lib/i18n'
 import { shortAddress, type AuthAccount, type Eip1193 } from '../../lib/auth'
 import { copyText } from '../../lib/shareCard'
 import { foundWallets, subscribeWallets, watchWallets, type FoundWallet } from '../../lib/walletProviders'
-import { INJECTED_LOGOS, WC_WALLETS, connectWallet, isMobile, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
+import { INJECTED_LOGOS, WC_WALLETS, connectWallet, isMobile, openWalletApp, resumeWalletConnect, walletConnectReady, type WcWallet } from '../../lib/walletConnect'
 import {
   addPendingTopup,
   checkAddress,
@@ -586,11 +586,44 @@ function DeviceSigner({ label, onSign }: { label: string; onSign: (signer: Signe
   )
 }
 
+type ReadyWallet =
+  | { type: 'injected'; name: string; provider: Eip1193 }
+  | { type: 'phone'; wallet: WcWallet; provider: Eip1193 }
+
+/** Older wallets only identify themselves by a flag, so their name arrives as a bare kind. */
+const WALLET_NAMES: Record<string, string> = {
+  metamask: 'MetaMask',
+  rabby: 'Rabby',
+  okx: 'OKX Wallet',
+  coinbase: 'Coinbase Wallet',
+  trust: 'Trust Wallet',
+  bitget: 'Bitget Wallet',
+  phantom: 'Phantom',
+  rainbow: 'Rainbow',
+  zerion: 'Zerion',
+  brave: 'Brave Wallet',
+  other: 'Browser wallet',
+}
+const walletName = (name: string) => WALLET_NAMES[name] ?? name
+
+/** Resolves to null instead of hanging when a wallet never answers. */
+function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([work.catch(() => null), new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))])
+}
+
+/**
+ * Pays with the wallet the player signed in with. That wallet is found first — a browser
+ * wallet already connected to this address, or the phone app paired at sign-in — so paying is
+ * one tap and the wallet simply pops up. The full picker (and a QR code) is only the fallback.
+ */
 function ExternalSigner({ account, label, onSign }: { account: AuthAccount; label: string; onSign: (signer: Signer) => void }) {
   const t = useT()
   const installed = useSyncExternalStore(subscribeWallets, foundWallets, noWallets)
+  const [ready, setReady] = useState<ReadyWallet | null>(null)
+  const [looking, setLooking] = useState(true)
+  const [showAll, setShowAll] = useState(false)
   const [pairing, setPairing] = useState<string | null>(null)
-  const [qr, setQr] = useState<string | null>(null)
+  const [qr, setQr] = useState<{ uri: string; name: string } | null>(null)
   const [error, setError] = useState('')
   const token = useRef(0)
 
@@ -601,6 +634,38 @@ function ExternalSigner({ account, label, onSign }: { account: AuthAccount; labe
     }
   }, [])
 
+  // Find the wallet that already holds this address. `eth_accounts` never opens a prompt: it
+  // only answers for a site the wallet is already connected to.
+  useEffect(() => {
+    let off = false
+    const want = account.address.toLowerCase()
+    void (async () => {
+      for (const wallet of installed) {
+        const accounts = await within(wallet.provider.request({ method: 'eth_accounts' }), 1500)
+        if (off) return
+        if (Array.isArray(accounts) && accounts.some((entry) => String(entry).toLowerCase() === want)) {
+          setReady({ type: 'injected', name: walletName(wallet.name), provider: wallet.provider })
+          setLooking(false)
+          return
+        }
+      }
+      const paired = await within(resumeWalletConnect(account.address), 8000)
+      if (off) return
+      if (paired) setReady({ type: 'phone', wallet: paired.wallet, provider: paired.provider })
+      setLooking(false)
+    })()
+    return () => {
+      off = true
+    }
+  }, [account.address, installed])
+
+  const payWithReady = (wallet: ReadyWallet) => {
+    setError('')
+    onSign({ kind: 'external', provider: wallet.provider })
+    // On a phone, bring the wallet app forward so the request is waiting on screen.
+    if (wallet.type === 'phone') setTimeout(() => openWalletApp(wallet.wallet), 700)
+  }
+
   const viaWc = async (wallet: WcWallet) => {
     const mine = (token.current += 1)
     setError('')
@@ -608,7 +673,7 @@ function ExternalSigner({ account, label, onSign }: { account: AuthAccount; labe
     setQr(null)
     try {
       const provider = await connectWallet(wallet, (uri) => {
-        if (token.current === mine && !isMobile()) setQr(uri)
+        if (token.current === mine && !isMobile()) setQr({ uri, name: wallet.name })
       })
       if (token.current !== mine) return
       onSign({ kind: 'external', provider: provider as Eip1193 })
@@ -626,9 +691,9 @@ function ExternalSigner({ account, label, onSign }: { account: AuthAccount; labe
     return (
       <div className="ar-pick-qr">
         <div className="ar-pick-qr-code">
-          <QRCodeSVG value={qr} size={168} marginSize={2} level="M" />
+          <QRCodeSVG value={qr.uri} size={168} marginSize={2} level="M" />
         </div>
-        <p className="ar-pick-qr-note">{t('wal.scanPair')}</p>
+        <p className="ar-pick-qr-note">{t('wal.scanPay', { name: qr.name })}</p>
         <button
           type="button"
           className="ar-pick-mini"
@@ -639,6 +704,34 @@ function ExternalSigner({ account, label, onSign }: { account: AuthAccount; labe
           }}
         >
           {t('wal.cancel')}
+        </button>
+      </div>
+    )
+  }
+
+  if (looking && !showAll) {
+    return (
+      <div className="ar-wal-sign ar-wal-finding">
+        <Loader2 size={16} className="ar-spin" />
+        <span>{t('wal.findingWallet')}</span>
+      </div>
+    )
+  }
+
+  if (ready && !showAll) {
+    const name = ready.type === 'phone' ? ready.wallet.name : ready.name
+    const logo = ready.type === 'phone' ? ready.wallet.logo : INJECTED_LOGOS[ready.name]
+    return (
+      <div className="ar-wal-sign">
+        <button type="button" className="ar-btn ar-btn-primary ar-wal-go" onClick={() => payWithReady(ready)}>
+          <ShieldCheck size={14} /> {label}
+        </button>
+        <p className="ar-wal-ready">
+          <WalletMark logo={logo} />
+          <span>{t(ready.type === 'phone' ? 'wal.readyPhone' : 'wal.readyBrowser', { name })}</span>
+        </p>
+        <button type="button" className="ar-wal-back ar-wal-other" onClick={() => setShowAll(true)}>
+          {t('wal.changeWallet')}
         </button>
       </div>
     )
@@ -658,9 +751,9 @@ function ExternalSigner({ account, label, onSign }: { account: AuthAccount; labe
               disabled={pairing !== null}
               onClick={() => onSign({ kind: 'external', provider: wallet.provider })}
             >
-              <WalletMark logo={INJECTED_LOGOS[wallet.name]} />
+              <WalletMark logo={INJECTED_LOGOS[walletName(wallet.name)]} />
               <span className="ar-pick-text">
-                <span className="ar-pick-name">{wallet.name}</span>
+                <span className="ar-pick-name">{walletName(wallet.name)}</span>
                 <span className="ar-pick-sub">{label}</span>
               </span>
             </button>
@@ -671,7 +764,7 @@ function ExternalSigner({ account, label, onSign }: { account: AuthAccount; labe
       )}
       {walletConnectReady() && (
         <>
-          <p className="ar-wal-label ar-wal-label-sm">WalletConnect</p>
+          <p className="ar-wal-label ar-wal-label-sm">{t('wal.phoneWallets')}</p>
           <div className="ar-pick-grid">
             {WC_WALLETS.slice(0, 4).map((wallet) => (
               <button
