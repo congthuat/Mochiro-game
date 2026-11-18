@@ -335,10 +335,10 @@ export const PALETTE = {
   trim: '#2f7fe0',
 } as const
 
-export type CharacterId = 'kai' | 'mika' | 'bjorn' | 'nyx' | 'rin' | 'tim'
+export type CharacterId = 'kai' | 'mika' | 'bjorn' | 'nyx' | 'rin' | 'tim' | 'ezgi'
 
 /** Roster order — also the order of the character line-up on the menu stage. */
-export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin', 'tim']
+export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin', 'tim', 'ezgi']
 
 /**
  * Every hero has one signature ability, so picking a character is a gameplay
@@ -346,7 +346,7 @@ export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin
  * `shieldStart` (a number of shields) and `badImmunity` (a plain yes/no, so the
  * value is unused).
  */
-export type PerkId = 'shieldStart' | 'longPower' | 'badImmunity' | 'quickLane' | 'wideMagnet' | 'longBoost'
+export type PerkId = 'shieldStart' | 'longPower' | 'badImmunity' | 'quickLane' | 'wideMagnet' | 'longBoost' | 'quickRecover'
 
 export interface CharacterPerk {
   id: PerkId
@@ -406,7 +406,7 @@ export interface CharacterSpec {
 
 /**
  * Each hero's signature colour on screen — card edge, stage plate, the light column on
- * the stage. `accent` is the yellow of the in-game gear and is shared by five of the six,
+ * the stage. `accent` is the yellow of the in-game gear and is shared by several heroes,
  * so it could not tell anyone apart. These are taken from each hero's outfit and darkened
  * until white text on them clears WCAG AA (4.5:1 or better).
  */
@@ -417,6 +417,7 @@ export const HERO_COLORS: Record<CharacterId, number> = {
   nyx: 0x6b4fd8,
   rin: 0x23794a,
   tim: 0x9a6200,
+  ezgi: 0x9b2747,
 }
 
 export function heroColorCss(id: CharacterId): string {
@@ -586,6 +587,32 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     accent: 0xf0b81c,
     glove: 0xeebfa4,
     eye: 0x5b7893,
+  },
+  ezgi: {
+    id: 'ezgi',
+    perk: { id: 'quickRecover', value: 1.5 },
+    name: 'Ezgi',
+    tagline: 'Bounce Back',
+    // Ezgi as in her photo (see persona.ts): long, voluminous dark-brown curls past her
+    // shoulders, a white channel-quilted puffer over a burgundy top, dark trousers and
+    // white sneakers, and a big warm smile. Same mage rig as Bobbilee, kit hidden.
+    persona: 'ezgi',
+    hideNodes: ['Spellbook', '1H_Wand', '2H_Staff', 'Mage_Hat', 'Mage_Cape'],
+    model: mageModel,
+    modelHeight: 2.1,
+    modelFacing: Math.PI,
+    skin: 0xf1c2a0,
+    hair: 0x3a2418,
+    hairStyle: 'ponytail',
+    outfit: 0xf4f2ee,
+    outfitDark: 0xe3dfd7,
+    shirt: 0x6e1a2a,
+    bottom: 0x33353c,
+    shoe: 0xf2f1ee,
+    sole: 0xbfc0c4,
+    accent: 0x9b2747,
+    glove: 0xf1c2a0,
+    eye: 0x4c2c1b,
   },
 }
 

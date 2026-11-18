@@ -255,6 +255,7 @@ const DICT: Record<string, Entry> = {
   'perk.quickLane': { en: 'Close calls ×2, lanes 35% faster', vi: 'Né sát ×2 điểm, đổi làn nhanh 35%' },
   'perk.wideMagnet': { en: 'Pulls close coins, magnet +45% reach', vi: 'Tự hút xu ở gần, nam châm hút xa hơn 45%' },
   'perk.longBoost': { en: 'Overdrive lasts twice as long', vi: 'Tăng tốc kéo dài gấp đôi' },
+  'perk.quickRecover': { en: 'Danger bar drains 50% faster', vi: 'Thanh nguy hiểm hạ nhanh hơn 50%' },
   'hud.arcCollected': { en: 'Gold collected', vi: 'Gold đã thu' },
   'hud.score': { en: 'Score', vi: 'Điểm' },
   'hud.pause': { en: 'Pause', vi: 'Tạm dừng' },

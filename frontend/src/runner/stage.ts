@@ -29,20 +29,20 @@ const ALIGN_HEIGHT = 0.9
 const LABEL_GAP = 6
 
 /**
- * Gap between heroes. Their kit — Teddyz's shield, Bobbilee's book, the axes — reaches
- * well past the body, and at 1.42 m it overlapped the neighbour on every stage shape.
+ * Gap between heroes. With their fantasy kit (shields, books, axes) at 1.42 m they
+ * overlapped; the kit is hidden now, so seven fit at 1.6 m with room to spare.
  */
-const SPACING = 1.72
+const SPACING = 1.6
 /** How far each step out from the centre stands back, so the line-up reads as an arc. */
 const ARC_DEPTH = 0.5
 
 /**
- * Half the width of the six-hero line-up, and the half-height the tallest hero needs.
- * The stage camera is fitted to these on every resize so the characters fill whatever
+ * Half the width of the line-up (the outermost hero's centre plus her reach), and the
+ * half-height the tallest hero needs. The stage camera is fitted to these on every resize so the characters fill whatever
  * shape the panel gives them, instead of standing at a fixed distance and leaving a
  * wide strip of empty background above and below.
  */
-export const LINEUP_HALF_WIDTH = 4.7
+export const LINEUP_HALF_WIDTH = ((CHARACTER_IDS.length - 1) / 2) * SPACING + 0.4
 export const LINEUP_HALF_HEIGHT = 1.05
 
 /** The hero's height, for the fit check. */

@@ -29,7 +29,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { recolorTexture } from './recolor'
 
-export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter' | 'mike' | 'tim'
+export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter' | 'mike' | 'tim' | 'ezgi'
 
 /* ------------------------------------------------------------------ *
  * Palette
@@ -76,12 +76,12 @@ const TIM_KHAKI = 0x6e6655
 const TIM_SKIN = 0xeebfa4
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT, mike: OXFORD, tim: TIM_SHIRT }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT, mike: OXFORD, tim: TIM_SHIRT, ezgi: 0x4c3020 }
 /**
  * …and what it sees below that: the trousers. Two people in black tops are still told
  * apart from behind by their legs (kit-check uses this when the tops are close).
  */
-export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT, mike: NAVY, tim: TIM_KHAKI }
+export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT, mike: NAVY, tim: TIM_KHAKI, ezgi: TROUSER }
 
 /** Order matters: a colour's index is its palette cell. */
 const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, KIT, KIT_GOLD, OXFORD, OXFORD_CUFF, NAVY, MIKE_SKIN, TIM_SHIRT, TIM_SHIRT_HEM, TIM_KHAKI, TIM_SKIN] as const
@@ -1199,7 +1199,11 @@ const HAIR_TIE = [42, 42, 46] as const
  * only turns from near-black to brown. The face is redrawn on a front-projected patch:
  * straight dark brows, brown eyes, nude-rose lips.
  */
-function dressBobbileeHead(head: THREE.SkinnedMesh): void {
+function dressBobbileeHead(
+  head: THREE.SkinnedMesh,
+  hair: { dark: readonly number[]; light: readonly number[] } = BROWN_HAIR,
+  paint: (ctx: CanvasRenderingContext2D, top: string, bottom: string) => void = paintBobbileeFace
+): void {
   const material = head.material as THREE.MeshStandardMaterial
   if (!material.map) return
   const copy = editableCopy(material.map)
@@ -1277,12 +1281,12 @@ function dressBobbileeHead(head: THREE.SkinnedMesh): void {
       data[at + 2] = HAIR_TIE[2]
     } else if (max < 90) {
       const t = Math.min(1, Math.max(0, (max - 14) / 40))
-      for (let c = 0; c < 3; c += 1) data[at + c] = BROWN_HAIR.dark[c] + (BROWN_HAIR.light[c] - BROWN_HAIR.dark[c]) * t
+      for (let c = 0; c < 3; c += 1) data[at + c] = hair.dark[c] + (hair.light[c] - hair.dark[c]) * t
     }
   }
   ctx.putImageData(pixels, 0, 0)
 
-  paintBobbileeFace(ctx, tone(forehead, '#f6c6a2'), tone(chin, '#f2b48c'))
+  paint(ctx, tone(forehead, '#f6c6a2'), tone(chin, '#f2b48c'))
   texture.needsUpdate = true
 
   for (const i of faceTriangles) {
@@ -1599,6 +1603,475 @@ function dressBobbilee(root: THREE.Object3D): void {
   dress(findMesh(root, '_legright'), palette, sneakerLeg)
   const torso = findMesh(root, '_body')
   if (torso) bindSpaceOf(torso, 'chest')?.add(buildBackpack())
+}
+
+/* ------------------------------------------------------------------ *
+ * Ezgi
+ * ------------------------------------------------------------------ */
+
+// Ezgi as in her photo: a big head of long, dark-brown curls that falls past her
+// shoulders, a white channel-quilted puffer jacket over a burgundy top, dark trousers
+// and white sneakers, and a wide warm smile. She wears the mage rig, like Bobbilee.
+
+/** The rig's own swept-back hair turns a deep brown under the curls. */
+const EZGI_HAIR = { dark: [36, 22, 16], light: [98, 64, 44] } as const
+/** Curl shades: deep roots, a warm mid-brown, and caramel lights towards the ends. */
+const CURL_DARK = [40, 24, 17] as const
+const CURL_MID = [76, 48, 32] as const
+const CURL_LIGHT = [136, 94, 60] as const
+
+/** Bind-space centre of the mage's head (x ±0.54, y 1.07–2.2, z −0.75 to 0.52). */
+const EZGI_HEAD_CENTRE = new THREE.Vector3(0, 1.66, -0.02)
+
+function seeded(seed: number): () => number {
+  let state = seed
+  return () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+}
+
+interface Curl {
+  at: THREE.Vector3
+  radius: number
+  /** 0 = darkest root brown, 1 = caramel tip. */
+  tone: number
+}
+
+/**
+ * Where every curl sits. Three layers, all in the head's bind space:
+ *  - the crown: a shell of curls over the skull, found by casting at the head itself,
+ *    leaving the face and forehead clear;
+ *  - the fall: rings of curls hanging round the sides and back down past the
+ *    shoulders, longest at the centre of the back, with a lock over the front of each
+ *    shoulder — bigger and lighter towards the ends, as in the photo;
+ *  - a darker under-layer behind the fall, so no gap between curls shows the jacket.
+ */
+function ezgiCurls(probe: Probe): Curl[] {
+  const rand = seeded(1118)
+  const curls: Curl[] = []
+
+  // The crown. A Fibonacci spread of directions, so the curls are evenly packed.
+  const count = 280
+  for (let i = 0; i < count; i += 1) {
+    const dy = 1 - ((i + 0.5) / count) * 2
+    if (dy < -0.22) continue
+    const ring = Math.sqrt(1 - dy * dy)
+    const phi = i * 2.399963
+    const direction = new THREE.Vector3(Math.cos(phi) * ring, dy, Math.sin(phi) * ring)
+    const hit = probe(EZGI_HEAD_CENTRE.clone().addScaledVector(direction, 1.6), direction.clone().negate())
+    if (!hit) continue
+    // Face and forehead stay clear: the hairline sits just above the brows.
+    if (hit.z > 0.08 && hit.y < 1.88) continue
+    curls.push({
+      at: hit.addScaledVector(direction, 0.035 + rand() * 0.02),
+      radius: 0.078 + rand() * 0.024,
+      tone: rand() * 0.32,
+    })
+  }
+
+  // The fall. θ is measured round the head from straight ahead (0) to straight back (π).
+  const axisZ = -0.06
+  let row = 0
+  for (let y = 1.62; y > 0.8; y -= 0.068, row += 1) {
+    const t = smooth(1.62, 0.84, y)
+    // How far forward the fall may come: beside the face it stays behind the cheeks;
+    // under the chin it comes round onto the front of the shoulders.
+    const frontmost = y > 1.3 ? 1.2 : y > 1.12 ? 1.0 : 0.78
+    const rx = y > 1.3 ? 0.6 : 0.52 + 0.08 * smooth(1.0, 1.3, y)
+    const rzBack = y > 1.35 ? 0.64 : y > 1.0 ? 0.68 : 0.62
+    const rzFront = 0.42
+    const step = 0.088 / ((rx + rzBack) / 2)
+    const shift = row % 2 ? step / 2 : 0
+    for (let side = -1; side <= 1; side += 2) {
+      for (let theta = frontmost + shift; theta <= Math.PI + 0.001; theta += step) {
+        const fromBack = Math.PI - theta
+        // Longest down the middle of the back, shorter at the sides, the front locks
+        // ending at the chest.
+        const end = 0.82 + 0.14 * smooth(0.5, 1.6, fromBack) + (rand() - 0.5) * 0.05
+        if (y < end) continue
+        // The centre column is laid once, not once per side.
+        if (side > 0 && fromBack < step * 0.45) continue
+        const sin = Math.sin(theta)
+        const cos = Math.cos(theta)
+        const swell = 1 + 0.06 * t
+        const at = new THREE.Vector3(
+          side * rx * sin * swell + (rand() - 0.5) * 0.02,
+          y + (rand() - 0.5) * 0.024,
+          axisZ + (cos < 0 ? rzBack : rzFront) * cos * swell + (rand() - 0.5) * 0.02
+        )
+        curls.push({ at, radius: 0.082 + 0.024 * t + rand() * 0.018, tone: 0.12 + 0.55 * t * rand() + 0.18 * rand() })
+        // The under-layer, a little inside and every other curl.
+        if ((Math.round(theta / step) + row) % 2 === 0) {
+          curls.push({
+            at: new THREE.Vector3(at.x * 0.86, at.y, axisZ + (at.z - axisZ) * 0.86),
+            radius: 0.11,
+            tone: 0,
+          })
+        }
+      }
+    }
+  }
+
+  // Curls framing the face at the temples and cheeks, just behind the cheekbones.
+  for (const side of [-1, 1]) {
+    for (const [x, y, z, r] of [
+      [0.5, 1.84, 0.26, 0.085],
+      [0.56, 1.74, 0.2, 0.09],
+      [0.6, 1.62, 0.16, 0.09],
+      [0.6, 1.5, 0.14, 0.092],
+      [0.58, 1.38, 0.12, 0.095],
+    ] as const) {
+      curls.push({ at: new THREE.Vector3(side * x, y, z), radius: r, tone: 0.1 + rand() * 0.3 })
+    }
+  }
+  return curls
+}
+
+const mixRgb3 = (a: readonly number[], b: readonly number[], t: number): number[] => a.map((v, k) => v + (b[k] - v) * t)
+
+/**
+ * Every curl is a small, slightly squashed and turned icosphere; they are merged into a
+ * single mesh with vertex colours (one draw call for the whole head of hair). Each curl
+ * is lit from above in its colour, so the pile reads as separate ringlets.
+ */
+function buildEzgiHair(probe: Probe): THREE.Mesh {
+  const curls = ezgiCurls(probe)
+  const rand = seeded(4242)
+  const base = new THREE.IcosahedronGeometry(1, 1)
+  const source = base.getAttribute('position')
+  const per = source.count
+  const positions = new Float32Array(curls.length * per * 3)
+  const normals = new Float32Array(curls.length * per * 3)
+  const colors = new Float32Array(curls.length * per * 3)
+  const matrix = new THREE.Matrix4()
+  const normalMatrix = new THREE.Matrix3()
+  const quaternion = new THREE.Quaternion()
+  const euler = new THREE.Euler()
+  const scale = new THREE.Vector3()
+  const p = new THREE.Vector3()
+  const n = new THREE.Vector3()
+  const colour = new THREE.Color()
+  let at = 0
+  for (const curl of curls) {
+    euler.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI)
+    quaternion.setFromEuler(euler)
+    scale.set(curl.radius * (0.9 + rand() * 0.2), curl.radius * (0.82 + rand() * 0.2), curl.radius * (0.9 + rand() * 0.2))
+    matrix.compose(curl.at, quaternion, scale)
+    normalMatrix.getNormalMatrix(matrix)
+    const tone = Math.min(1, Math.max(0, curl.tone))
+    const rgb = tone < 0.5 ? mixRgb3(CURL_DARK, CURL_MID, tone * 2) : mixRgb3(CURL_MID, CURL_LIGHT, tone * 2 - 1)
+    for (let k = 0; k < per; k += 1) {
+      p.fromBufferAttribute(source, k)
+      n.copy(p).normalize().applyMatrix3(normalMatrix).normalize()
+      p.applyMatrix4(matrix)
+      positions[at] = p.x
+      positions[at + 1] = p.y
+      positions[at + 2] = p.z
+      normals[at] = n.x
+      normals[at + 1] = n.y
+      normals[at + 2] = n.z
+      // Lighter on top of each ringlet, deeper underneath.
+      const shade = 0.72 + 0.34 * (n.y * 0.5 + 0.5)
+      colour.setRGB(
+        Math.min(1, (rgb[0] * shade) / 255),
+        Math.min(1, (rgb[1] * shade) / 255),
+        Math.min(1, (rgb[2] * shade) / 255),
+        THREE.SRGBColorSpace
+      )
+      colors[at] = colour.r
+      colors[at + 1] = colour.g
+      colors[at + 2] = colour.b
+      at += 3
+    }
+  }
+  base.dispose()
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geometry.computeBoundingSphere()
+  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.02 })
+  material.emissive = new THREE.Color(0x4a2f20)
+  material.emissiveIntensity = SELF_LIT
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.name = 'persona:ezgi-curls'
+  mesh.castShadow = true
+  return mesh
+}
+
+/**
+ * Ezgi's face: full, softly arched dark brows, warm brown eyes lifted by the smile with
+ * a defined lash line, rosy cheeks, and a wide open smile showing the top teeth.
+ */
+function paintEzgiFace(ctx: CanvasRenderingContext2D, top: string, bottom: string): void {
+  const u = faceU
+  const v = faceV
+  const s = FACE.scale
+  const left = u(-FACE.half)
+  const right = u(FACE.half)
+  const skin = ctx.createLinearGradient(0, v(1.75), 0, v(1.3))
+  skin.addColorStop(0, top)
+  skin.addColorStop(1, bottom)
+  ctx.fillStyle = skin
+  ctx.fillRect(left, v(FACE.ceiling + 0.05), right - left, v(FACE.bottom - 0.05) - v(FACE.ceiling + 0.05))
+
+  // Cheeks lifted and flushed by the smile, and a soft shadow under the nose.
+  for (const side of [-1, 1]) {
+    const blush = ctx.createRadialGradient(u(side * 0.28), v(1.49), 0, u(side * 0.28), v(1.49), 0.12 * s)
+    blush.addColorStop(0, 'rgba(226,116,112,0.38)')
+    blush.addColorStop(1, 'rgba(226,116,112,0)')
+    ctx.fillStyle = blush
+    ctx.fillRect(u(side * 0.28) - 0.13 * s, v(1.49) - 0.13 * s, 0.26 * s, 0.26 * s)
+  }
+  const nose = ctx.createRadialGradient(u(0), v(1.46), 0, u(0), v(1.46), 0.05 * s)
+  nose.addColorStop(0, 'rgba(170,98,76,0.34)')
+  nose.addColorStop(1, 'rgba(170,98,76,0)')
+  ctx.fillStyle = nose
+  ctx.fillRect(u(0) - 0.06 * s, v(1.46) - 0.06 * s, 0.12 * s, 0.12 * s)
+
+  // Brows: full and dark, a soft arch peaking two-thirds of the way out.
+  ctx.fillStyle = '#2b1b13'
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.085), v(1.692))
+    ctx.lineTo(u(side * 0.085), v(1.732))
+    ctx.quadraticCurveTo(u(side * 0.19), v(1.762), u(side * 0.25), v(1.758))
+    ctx.quadraticCurveTo(u(side * 0.3), v(1.752), u(side * 0.325), v(1.718))
+    ctx.quadraticCurveTo(u(side * 0.27), v(1.728), u(side * 0.21), v(1.722))
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  // Eyes: a little narrowed from below by the smile.
+  for (const side of [-1, 1]) {
+    const cx = u(side * 0.203)
+    const cy = v(1.618)
+    ctx.save()
+    ctx.beginPath()
+    ctx.ellipse(cx, cy, 0.064 * s, 0.048 * s, 0, Math.PI, Math.PI * 2)
+    ctx.ellipse(cx, cy, 0.064 * s, 0.026 * s, 0, 0, Math.PI)
+    ctx.closePath()
+    ctx.fillStyle = '#fbf6f1'
+    ctx.fill()
+    ctx.clip()
+    ctx.fillStyle = '#4c2c1b'
+    ctx.beginPath()
+    ctx.ellipse(cx + side * -0.004 * s, cy - 0.004 * s, 0.042 * s, 0.046 * s, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#170e09'
+    ctx.beginPath()
+    ctx.ellipse(cx + side * -0.004 * s, cy - 0.002 * s, 0.021 * s, 0.024 * s, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(cx + side * 0.012 * s, cy - 0.018 * s, 0.011 * s, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+    // Upper lash line with a flick at the outer corner.
+    ctx.strokeStyle = '#1b110c'
+    ctx.lineCap = 'round'
+    ctx.lineWidth = 0.016 * s
+    ctx.beginPath()
+    ctx.ellipse(cx, cy + 0.002 * s, 0.066 * s, 0.052 * s, 0, Math.PI * 1.06, Math.PI * 1.94)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(u(side * 0.264), v(1.63))
+    ctx.lineTo(u(side * 0.294), v(1.65))
+    ctx.stroke()
+    // The smile's lift under each eye.
+    ctx.strokeStyle = 'rgba(150,86,64,0.5)'
+    ctx.lineWidth = 0.007 * s
+    ctx.beginPath()
+    ctx.ellipse(cx, cy - 0.004 * s, 0.062 * s, 0.036 * s, 0, Math.PI * 0.12, Math.PI * 0.88)
+    ctx.stroke()
+  }
+
+  // The smile: wide, corners lifted, the top teeth showing between rosy lips.
+  const my = 1.392
+  const wide = 0.112
+  ctx.save()
+  ctx.beginPath()
+  ctx.moveTo(u(-wide), v(my + 0.018))
+  ctx.quadraticCurveTo(u(0), v(my - 0.004), u(wide), v(my + 0.018))
+  ctx.quadraticCurveTo(u(0), v(my - 0.072), u(-wide), v(my + 0.018))
+  ctx.closePath()
+  ctx.fillStyle = '#6a2328'
+  ctx.fill()
+  ctx.clip()
+  ctx.fillStyle = '#fcf9f4'
+  ctx.fillRect(u(-wide), v(my + 0.008), 2 * wide * s, 0.032 * s)
+  ctx.fillStyle = 'rgba(150,120,110,0.3)'
+  for (let i = -3; i <= 3; i += 1) ctx.fillRect(u(i * 0.028) - 0.5, v(my + 0.008), 1, 0.03 * s)
+  ctx.restore()
+  ctx.strokeStyle = '#c4605f'
+  ctx.lineWidth = 0.014 * s
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.beginPath()
+  ctx.moveTo(u(-wide), v(my + 0.018))
+  ctx.quadraticCurveTo(u(0), v(my - 0.004), u(wide), v(my + 0.018))
+  ctx.quadraticCurveTo(u(0), v(my - 0.072), u(-wide), v(my + 0.018))
+  ctx.stroke()
+  // A soft shine on the lower lip and the dimples at the corners.
+  ctx.fillStyle = 'rgba(255,226,220,0.5)'
+  ctx.beginPath()
+  ctx.ellipse(u(0.01), v(my - 0.058), 0.026 * s, 0.006 * s, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(150,88,78,0.45)'
+  ctx.lineWidth = 0.005 * s
+  for (const side of [-1, 1]) {
+    ctx.beginPath()
+    ctx.moveTo(u(side * (wide + 0.012)), v(my + 0.034))
+    ctx.quadraticCurveTo(u(side * (wide + 0.026)), v(my + 0.014), u(side * (wide + 0.016)), v(my - 0.006))
+    ctx.stroke()
+  }
+}
+
+/* The puffer jacket ----------------------------------------------------- */
+
+/**
+ * One private texture for her clothes: two quilted columns (the body, whose channels run
+ * round her, and the sleeves, whose channels ring the arm) and a strip of flat colours.
+ * The quilted parts are mapped per vertex — v follows height on the body and reach on
+ * the arms — so the stitch lines land at fixed heights whatever the triangles are.
+ */
+const QUILT_SIZE = 256
+const QUILT_BODY_U = 32 / QUILT_SIZE
+const QUILT_SLEEVE_U = 96 / QUILT_SIZE
+/** Body: v runs from the top of the collar (0) to below the hem (1). */
+const QUILT_BODY_Y: [number, number] = [1.34, 0.55]
+/** Sleeves: v runs from the shoulder (0) to the hand (1). */
+const QUILT_SLEEVE_X: [number, number] = [0.08, 0.82]
+/** Stitch lines, in bind-space units: body heights and sleeve reaches. */
+const BODY_STITCHES = [0.665, 0.752, 0.838, 0.924, 1.01, 1.096, 1.18, 1.27]
+const SLEEVE_STITCHES = [0.24, 0.34, 0.44, 0.535, 0.63, 0.72]
+const PUFFER_HEM = 0.6
+const PUFFER_CUFF: [number, number] = [0.72, 0.8]
+
+const enum Wear {
+  Body = -1,
+  Sleeve = -2,
+  Cuff = 0,
+  Zip = 1,
+  Top = 2,
+  Trouser = 3,
+  Skin = 4,
+}
+/** Cuff and hem rib, zip, the burgundy top, trousers (as the legs), her hands. */
+const WEAR_COLOURS = ['#e3dfd7', '#b8b3aa', '#6e1a2a', hex(TROUSER), hex(FAIR)] as const
+const wearU = (cell: number): number => (128 + cell * 16 + 8) / QUILT_SIZE
+
+function quiltTexture(): THREE.CanvasTexture {
+  const { canvas: element, ctx } = canvas(QUILT_SIZE, QUILT_SIZE)
+  const rowOf = (value: number, range: [number, number]) => ((value - range[0]) / (range[1] - range[0])) * QUILT_SIZE
+  const column = (x0: number, rows: number[]) => {
+    const sorted = [...rows].sort((a, b) => a - b)
+    const edges = [0, ...sorted, QUILT_SIZE]
+    // Each channel puffs out: bright along its middle, shaded into the seams.
+    for (let i = 0; i + 1 < edges.length; i += 1) {
+      const a = edges[i]
+      const b = edges[i + 1]
+      if (b - a < 2) continue
+      const puff = ctx.createLinearGradient(0, a, 0, b)
+      puff.addColorStop(0, '#d9d4ca')
+      puff.addColorStop(0.22, '#f3f1ec')
+      puff.addColorStop(0.5, '#fdfcf9')
+      puff.addColorStop(0.78, '#f0ede7')
+      puff.addColorStop(1, '#d4cfc4')
+      ctx.fillStyle = puff
+      ctx.fillRect(x0, a, 64, b - a)
+    }
+    ctx.fillStyle = '#aaa398'
+    for (const r of sorted) ctx.fillRect(x0, r - 1, 64, 2)
+  }
+  column(
+    0,
+    BODY_STITCHES.map((y) => rowOf(y, QUILT_BODY_Y))
+  )
+  column(
+    64,
+    SLEEVE_STITCHES.map((x) => rowOf(x, QUILT_SLEEVE_X))
+  )
+  WEAR_COLOURS.forEach((colour, cell) => {
+    ctx.fillStyle = colour
+    ctx.fillRect(128 + cell * 16, 0, 16, QUILT_SIZE)
+  })
+  const texture = textureOf(element)
+  texture.flipY = false
+  texture.generateMipmaps = false
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+  return texture
+}
+
+const pufferBody = (x: number, y: number, z: number): Wear => {
+  if (y < PUFFER_HEM) return Wear.Trouser
+  if (y < BODY_STITCHES[0]) return Wear.Cuff
+  // The jacket is open at the neck over the burgundy top.
+  if (z > 0.1 && y > 1.0 && Math.abs(x) < 0.07 + (y - 1.0) * 0.6) return Wear.Top
+  // The front placket carries the zip.
+  if (z > 0.2 && Math.abs(x) < 0.045) return Wear.Zip
+  return Wear.Body
+}
+
+const pufferArm = (x: number): Wear => {
+  const reach = Math.abs(x)
+  if (reach < PUFFER_CUFF[0]) return Wear.Sleeve
+  if (reach < PUFFER_CUFF[1]) return Wear.Cuff
+  return Wear.Skin
+}
+
+function dressPuffer(mesh: THREE.SkinnedMesh | null, texture: THREE.Texture, classify: (x: number, y: number, z: number) => Wear): void {
+  if (!mesh) return
+  const geometry = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone()
+  const position = geometry.getAttribute('position')
+  const uv = new Float32Array(position.count * 2)
+  const span = (value: number, range: [number, number]) => Math.min(1, Math.max(0, (value - range[0]) / (range[1] - range[0])))
+  for (let i = 0; i + 2 < position.count; i += 3) {
+    const x = (position.getX(i) + position.getX(i + 1) + position.getX(i + 2)) / 3
+    const y = (position.getY(i) + position.getY(i + 1) + position.getY(i + 2)) / 3
+    const z = (position.getZ(i) + position.getZ(i + 1) + position.getZ(i + 2)) / 3
+    const wear = classify(x, y, z)
+    for (let k = 0; k < 3; k += 1) {
+      const at = (i + k) * 2
+      if (wear === Wear.Body) {
+        uv[at] = QUILT_BODY_U
+        uv[at + 1] = span(position.getY(i + k), QUILT_BODY_Y)
+      } else if (wear === Wear.Sleeve) {
+        uv[at] = QUILT_SLEEVE_U
+        uv[at + 1] = span(Math.abs(position.getX(i + k)), QUILT_SLEEVE_X)
+      } else {
+        uv[at] = wearU(wear)
+        uv[at + 1] = 0.5
+      }
+    }
+  }
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+  mesh.geometry = geometry
+  const material = mesh.material as THREE.MeshStandardMaterial
+  material.map = texture
+  material.emissiveMap = texture
+  // Nylon shell: a soft sheen, not the matte of knitwear.
+  material.roughness = 0.55
+  material.needsUpdate = true
+}
+
+function dressEzgi(root: THREE.Object3D): void {
+  const head = findMesh(root, '_head')
+  const palette = paletteTexture()
+  const quilt = quiltTexture()
+  if (head) {
+    // Probe the head before it is re-dressed: the shape is the same either way.
+    const probe = prober(head.geometry)
+    dressBobbileeHead(head, EZGI_HAIR, paintEzgiFace)
+    bindSpaceOf(head, 'head')?.add(buildEzgiHair(probe))
+  }
+  dress(findMesh(root, '_legleft'), palette, sneakerLeg)
+  dress(findMesh(root, '_legright'), palette, sneakerLeg)
+  dressPuffer(findMesh(root, '_body'), quilt, pufferBody)
+  dressPuffer(findMesh(root, '_armleft'), quilt, pufferArm)
+  dressPuffer(findMesh(root, '_armright'), quilt, pufferArm)
 }
 
 /* ------------------------------------------------------------------ *
@@ -4567,6 +5040,10 @@ export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
   }
   if (id === 'tim') {
     dressTim(root)
+    return
+  }
+  if (id === 'ezgi') {
+    dressEzgi(root)
     return
   }
   const head = findMesh(root, '_head')

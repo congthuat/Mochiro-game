@@ -1331,9 +1331,9 @@ body {
 }
 .ar-char-row {
   display: grid;
-  /* Six heroes on one row. The tiles are narrower than they were with five, so the
-     type steps down a little rather than letting a long name wrap. */
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* Seven heroes on one row. The tiles are narrow, so the type steps down a little
+     rather than letting a long name wrap. */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
   width: 100%;
 }
@@ -1757,7 +1757,7 @@ body {
 
 .ar-char-row {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
 }
 .ar-char-tile {
@@ -1859,8 +1859,9 @@ body {
   .ar-stage {
     height: 224px;
   }
+  /* Seven heroes wrap as four over three, not three-three-one. */
   .ar-char-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .ar-char-tile {
     min-height: 96px;
@@ -3626,6 +3627,26 @@ a.ar-pick-card {
     -webkit-line-clamp: 4;
     font-size: 10.5px;
     line-height: 1.28;
+  }
+}
+/* Seven heroes in one row leave each ability ~75 px wide on a laptop (and four to a
+   row on a phone is not much more), so the longer Vietnamese lines get a fourth line
+   too instead of being cut off. */
+.ar-menu .ar-char-tile-perk-text {
+  -webkit-line-clamp: 4;
+  font-size: 10.5px;
+  line-height: 1.28;
+}
+/* On a phone the tiles are four to a row and ~70 px wide: thinner padding hands the
+   text back some width, and it may run to seven short lines. */
+@media (max-width: 600px) {
+  .ar-menu .ar-char-tile { padding-left: 5px; padding-right: 5px; }
+  .ar-menu .ar-char-tile-perk { padding: 6px 5px 7px; }
+  .ar-menu .ar-char-tile-perk-text {
+    -webkit-line-clamp: 7;
+    font-size: 10px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
   }
 }
 

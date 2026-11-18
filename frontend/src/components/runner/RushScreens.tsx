@@ -1,5 +1,5 @@
 // Mochiro screens: loading, main menu, pause, results, settings, help, board.
-import { ArrowLeftRight, Award, Check, Coins, Globe, HelpCircle, Home, Hourglass, Loader2, Lock, LogIn, Magnet, Medal, Play, Rocket, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShieldPlus, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, Wallet as WalletIcon, X, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Award, Check, Coins, Globe, HeartPulse, HelpCircle, Home, Hourglass, Loader2, Lock, LogIn, Magnet, Medal, Play, Rocket, RotateCcw, Settings as SettingsIcon, Share2, Shield, ShieldPlus, ShoppingBag, Smartphone, Target, Trophy, UserPlus, Volume2, Wallet as WalletIcon, X, type LucideIcon } from 'lucide-react'
 import { MochiroLogo } from './MochiroLogo'
 import { formatCompact, formatDistance, formatScore, formatSpeed, formatTime } from '../../runner/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -53,6 +53,7 @@ const PERK_ICONS: Record<string, LucideIcon> = {
   quickLane: ArrowLeftRight,
   wideMagnet: Magnet,
   longBoost: Rocket,
+  quickRecover: HeartPulse,
 }
 
 function PerkIcon({ id }: { id: string }) {

@@ -2200,7 +2200,8 @@ export class Runner {
    */
   private updatePursuit(dt: number): void {
     const run = this.run
-    run.heat = clamp01(run.heat - PURSUIT.coolPerSecond * dt)
+    // Ezgi's perk: she shakes a crash off faster, so the danger bar drains quicker.
+    run.heat = clamp01(run.heat - PURSUIT.coolPerSecond * this.perkScale('quickRecover') * dt)
     if (run.heat >= PURSUIT.bustedAt) this.bust()
   }
 
