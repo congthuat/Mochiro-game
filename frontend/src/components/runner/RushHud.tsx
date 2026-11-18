@@ -159,7 +159,7 @@ export function RushHud({
             <div className="ar-score-label">{t('hud.combo')}</div>
             <div className="ar-mult">
               ×{hud.multiplier}
-              <span className="ml-2 text-[12px] tracking-[0.2em] text-[#5d7096]">{hud.combo} ARC</span>
+              <span className="ml-2 text-[12px] tracking-[0.2em] text-[#5d7096]">{hud.combo} GOLD</span>
             </div>
           </div>
         </div>

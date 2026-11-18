@@ -53,7 +53,7 @@ const PERK_ICONS: Record<string, LucideIcon> = {
   quickLane: ArrowLeftRight,
   wideMagnet: Magnet,
   longBoost: Rocket,
-  quickRecover: HeartPulse,
+  bounceBack: HeartPulse,
 }
 
 function PerkIcon({ id }: { id: string }) {

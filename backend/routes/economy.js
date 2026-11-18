@@ -44,7 +44,7 @@ const CHARACTER_PRICES = {
   nyx: 0, // Lecter — faster lane changes, close calls score double
   rin: 0, // Mike — always pulls nearby coins, magnet reaches 45% further
   tim: 0, // Tim — Overdrive lasts twice as long
-  ezgi: 0, // Ezgi — the danger bar drains 50% faster
+  ezgi: 0, // Ezgi — regains a shield after 30s without a crash
 }
 
 /** Each level stretches that power-up by +10% (max +50%). Costs climb per level. */

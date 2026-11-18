@@ -108,6 +108,8 @@ interface RunState {
   bestCombo: number
   multiplier: number
   shield: number
+  /** When the runner last crashed (or started): Ezgi's Bounce Back counts from here. */
+  cleanSince: number
   magnetUntil: number
   boostUntil: number
   invulnUntil: number
@@ -2127,6 +2129,8 @@ export class Runner {
     // attention. This is what makes the meter a rule rather than a decoration — and it
     // is the line the feature check is written around.
     run.heat = Math.min(PURSUIT.bustedAt, run.heat + PURSUIT.crashHeat)
+    // Any crash restarts Ezgi's Bounce Back clock.
+    run.cleanSince = run.elapsed
 
     if (run.shield > 0) {
       run.shield -= 1
@@ -2200,9 +2204,30 @@ export class Runner {
    */
   private updatePursuit(dt: number): void {
     const run = this.run
-    // Ezgi's perk: she shakes a crash off faster, so the danger bar drains quicker.
-    run.heat = clamp01(run.heat - PURSUIT.coolPerSecond * this.perkScale('quickRecover') * dt)
+    run.heat = clamp01(run.heat - PURSUIT.coolPerSecond * dt)
     if (run.heat >= PURSUIT.bustedAt) this.bust()
+    this.updateBounceBack()
+  }
+
+  /**
+   * Ezgi's perk: after a stretch without a crash she bounces back with a fresh shield.
+   * Only ever one, and only when she has none, so it rewards clean running without
+   * stacking past what a pickup gives.
+   */
+  private updateBounceBack(): void {
+    const run = this.run
+    const wait = this.perkScale('bounceBack', 0)
+    if (wait <= 0) return
+    if (run.shield > 0) {
+      run.cleanSince = Math.max(run.cleanSince, run.elapsed - wait)
+      return
+    }
+    if (run.elapsed - run.cleanSince < wait) return
+    run.shield = 1
+    run.cleanSince = run.elapsed
+    this.avatar.setShieldLevel(1)
+    this.audio.play('shield')
+    this.toast(translate('runner.toast.bounce'), 'power')
   }
 
   /** Heat reaches its ceiling: the run is over. */
@@ -2260,6 +2285,7 @@ export class Runner {
     run.revived = true
     run.busted = false
     run.heat = 0
+    run.cleanSince = run.elapsed
     run.invulnUntil = run.elapsed + 2.6
     run.y = 0
     run.vy = 0
@@ -2366,6 +2392,7 @@ export class Runner {
       bestCombo: 0,
       multiplier: 1,
       shield: 0,
+      cleanSince: 0,
       magnetUntil: 0,
       boostUntil: 0,
       invulnUntil: 0,
@@ -2502,6 +2529,7 @@ export class Runner {
         boostScale: this.boostScale,
         powerScale: this.powerScale,
         shieldAtStart: this.perkScale('shieldStart', 0),
+        bounceBackAfter: this.perkScale('bounceBack', 0),
       },
       avatar: this.avatar instanceof ModelAvatar ? 'rigged' : 'procedural',
       anim: this.avatar.animName ?? 'rig',

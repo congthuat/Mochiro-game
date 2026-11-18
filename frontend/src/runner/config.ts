@@ -121,7 +121,7 @@ export const POWERS: PowerSpec[] = [
   { kind: 'shield', harmful: false, label: 'SHIELD UP', hint: 'One free hit', colour: '#4fd8ff', duration: 0, weight: 9 },
   { kind: 'magnet', harmful: false, label: 'MAGNET ONLINE', hint: 'Coins fly to you', colour: '#b47cff', duration: 8, weight: 18 },
   { kind: 'boost', harmful: false, label: 'OVERDRIVE', hint: 'Smash through traffic', colour: '#ff9b3d', duration: 3.4, weight: 14 },
-  { kind: 'double', harmful: false, label: 'DOUBLE ARC', hint: 'Every coin counts twice', colour: '#ffd45e', duration: 9, weight: 13 },
+  { kind: 'double', harmful: false, label: 'DOUBLE GOLD', hint: 'Every coin counts twice', colour: '#ffd45e', duration: 9, weight: 13 },
   { kind: 'ghost', harmful: false, label: 'PHASE SHIFT', hint: 'Traffic passes through you', colour: '#6ef0d4', duration: 4.5, weight: 11 },
   { kind: 'invert', harmful: true, label: 'CONTROLS JAMMED', hint: 'Steering is mirrored', colour: '#ff5d73', duration: 5, weight: 12 },
   { kind: 'fog', harmful: true, label: 'SMOKE SCREEN', hint: 'Visibility drops', colour: '#9aa7c2', duration: 4.5, weight: 6 },
@@ -346,7 +346,7 @@ export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin
  * `shieldStart` (a number of shields) and `badImmunity` (a plain yes/no, so the
  * value is unused).
  */
-export type PerkId = 'shieldStart' | 'longPower' | 'badImmunity' | 'quickLane' | 'wideMagnet' | 'longBoost' | 'quickRecover'
+export type PerkId = 'shieldStart' | 'longPower' | 'badImmunity' | 'quickLane' | 'wideMagnet' | 'longBoost' | 'bounceBack'
 
 export interface CharacterPerk {
   id: PerkId
@@ -590,7 +590,7 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
   },
   ezgi: {
     id: 'ezgi',
-    perk: { id: 'quickRecover', value: 1.5 },
+    perk: { id: 'bounceBack', value: 30 },
     name: 'Ezgi',
     tagline: 'Bounce Back',
     // Ezgi as in her photo (see persona.ts): long, voluminous dark-brown curls past her
