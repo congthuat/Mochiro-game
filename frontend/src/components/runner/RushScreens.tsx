@@ -114,7 +114,7 @@ export function RushMenu({
   quality: 'low' | 'medium' | 'high'
   onNameChange: (value: string) => void
   onStart: () => void
-  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily' | 'wallet') => void
+  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily' | 'wallet' | 'badges') => void
   profile: RunnerProfile | null
 }) {
   const t = useT()
@@ -401,6 +401,19 @@ export function RushMenu({
                 <SettingsIcon size={14} /> {t('menu.settings')}
               </button>
             </div>
+
+            <button type="button" className="ar-nft-entry" onClick={() => onOpen('badges')}>
+              <span className="ar-nft-entry-art">
+                <img src={`${import.meta.env.BASE_URL}badges/run1k.svg`} alt="" />
+                <img src={`${import.meta.env.BASE_URL}badges/combo300.svg`} alt="" />
+                <img src={`${import.meta.env.BASE_URL}badges/week1.svg`} alt="" />
+              </span>
+              <span className="ar-nft-entry-text">
+                <b>{t('menu.nft')}</b>
+                <span>{t('nft.entry')}</span>
+              </span>
+              <span className="ar-nft-entry-new">NEW</span>
+            </button>
 
             {canInstall && (
               <button type="button" className="ar-install" onClick={onInstall}>

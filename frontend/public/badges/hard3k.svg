@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+<radialGradient id="bg" cx="50%" cy="38%" r="75%"><stop offset="0" stop-color="#1d2f57"/><stop offset="1" stop-color="#0a1226"/></radialGradient>
+<linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9a6e"/><stop offset="1" stop-color="#c8321f"/></linearGradient>
+<linearGradient id="face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c8321f"/><stop offset="1" stop-color="#0e1a36"/></linearGradient>
+<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="56" fill="url(#bg)"/>
+<text x="256" y="40" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="20" font-weight="800" letter-spacing="7" fill="#9fb3d9">MOCHIRO · ARC</text>
+
+<path d="M196 330 L160 476 L206 452 L232 494 L256 352 Z" fill="#c8321f"/><path d="M316 330 L352 476 L306 452 L280 494 L256 352 Z" fill="#c8321f" opacity="0.85"/>
+<circle cx="256" cy="236" r="172" fill="url(#rim)"/>
+<circle cx="256" cy="236" r="160" fill="none" stroke="#fff" stroke-opacity="0.45" stroke-width="4" stroke-dasharray="3 11"/>
+<circle cx="256" cy="236" r="142" fill="url(#face)" stroke="#ff9a6e" stroke-width="6"/>
+<g transform="translate(176 146) scale(6.67)" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></g>
+<ellipse cx="256" cy="150" rx="118" ry="70" fill="url(#gloss)"/>
+<rect x="96" y="372" width="320" height="58" rx="14" fill="#0e1a36" stroke="#ff9a6e" stroke-width="4"/>
+<text x="256" y="410" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="28" font-weight="900" letter-spacing="1.5" fill="#ffffff">DAREDEVIL</text>
+<text x="256" y="345" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="22" font-weight="900" letter-spacing="2" fill="#ff9a6e">HARD · 3 KM</text>
+</svg>

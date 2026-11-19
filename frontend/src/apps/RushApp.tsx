@@ -69,6 +69,7 @@ import {
   type EcoNote,
 } from '../components/runner/RushEconomy'
 import { RushWallet } from '../components/runner/RushWallet'
+import { RushBadges } from '../components/runner/RushBadges'
 
 const SETTINGS_KEY = 'arcrush.settings'
 const BEST_KEY = 'arcrush.best'
@@ -137,7 +138,7 @@ function storeBest(value: number): void {
   }
 }
 
-type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet'
+type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet' | 'badges'
 
 /**
  * Dev-server only: the browser checks in `scripts/` drive the menu and the run without a
@@ -1104,9 +1105,11 @@ export default function RushApp() {
           note={ecoNote}
           guest={!account}
           onClaim={handleClaimAchievement}
+          onBadges={() => openPanel('badges')}
           onClose={() => setPanel('none')}
         />
       )}
+      {panel === 'badges' && <RushBadges account={account} onSignIn={() => setPanel('auth')} onClose={() => setPanel('none')} />}
       {panel === 'invite' && economy && (
         <RushInvite
           economy={economy}

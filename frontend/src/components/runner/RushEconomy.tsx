@@ -12,6 +12,7 @@ import {
   Gift,
   Lock,
   LogIn,
+  Medal,
   Route,
   Share2,
   ShoppingBag,
@@ -162,6 +163,7 @@ export function RushShop({
                 <Plus size={13} /> {t('shop.topup')}
               </button>
             )}
+            <span className="ar-shop-rate">{t('shop.rate')}</span>
           </span>
           <div className="ar-seg ar-shop-tabs">
             <button className={`ar-btn ar-btn-sm ${tab === 'heroes' ? 'ar-seg-active' : ''}`} onClick={() => setTab('heroes')}>
@@ -196,14 +198,17 @@ export function RushShop({
                       <Check size={13} /> {price === 0 ? t('shop.free') : t('shop.owned')}
                     </button>
                   ) : (
-                    <button
-                      className="ar-btn ar-btn-sm ar-btn-primary"
-                      disabled={busy !== null || short > 0}
-                      title={short > 0 ? t('menu.needMore', { n: formatNumber(short) }) : undefined}
-                      onClick={() => onBuy(`char:${id}`)}
-                    >
-                      <Coins size={13} /> {formatNumber(price)}
-                    </button>
+                    <>
+                      <button
+                        className="ar-btn ar-btn-sm ar-btn-primary"
+                        disabled={busy !== null || short > 0}
+                        title={short > 0 ? t('menu.needMore', { n: formatNumber(short) }) : undefined}
+                        onClick={() => onBuy(`char:${id}`)}
+                      >
+                        <Coins size={13} /> {formatNumber(price)}
+                      </button>
+                      <PriceFoot price={price} short={short} onTopup={onTopup} />
+                    </>
                   )}
                 </div>
               )
@@ -234,13 +239,17 @@ export function RushShop({
                   {price === null ? (
                     <span className="ar-up-max">{t('shop.max')}</span>
                   ) : (
-                    <button
-                      className="ar-btn ar-btn-sm ar-btn-primary"
-                      disabled={busy !== null || economy.bank < price}
-                      onClick={() => onBuy(`up:${kind}`)}
-                    >
-                      <Coins size={13} /> {formatNumber(price)}
-                    </button>
+                    <div className="ar-up-buy">
+                      <button
+                        className="ar-btn ar-btn-sm ar-btn-primary"
+                        disabled={busy !== null || economy.bank < price}
+                        title={economy.bank < price ? t('menu.needMore', { n: formatNumber(price - economy.bank) }) : undefined}
+                        onClick={() => onBuy(`up:${kind}`)}
+                      >
+                        <Coins size={13} /> {formatNumber(price)}
+                      </button>
+                      <PriceFoot price={price} short={Math.max(0, price - economy.bank)} onTopup={onTopup} />
+                    </div>
                   )}
                 </div>
               )
@@ -250,6 +259,27 @@ export function RushShop({
       </div>
     </Backdrop>
   )
+}
+
+/** Gold per USDC in the base top-up pack (bigger packs add a bonus on top). */
+const GOLD_PER_USDC = 2000
+
+function usdcFor(gold: number): string {
+  const usdc = gold / GOLD_PER_USDC
+  return usdc >= 10 ? String(Math.round(usdc)) : String(Math.round(usdc * 100) / 100)
+}
+
+/** Under a Gold price: what it is worth in USDC, or a one-tap top-up when the player is short. */
+function PriceFoot({ price, short, onTopup }: { price: number; short: number; onTopup?: () => void }) {
+  const t = useT()
+  if (short > 0 && onTopup) {
+    return (
+      <button type="button" className="ar-price-foot is-short" onClick={onTopup}>
+        <Plus size={11} /> {t('shop.quickTopup', { n: formatNumber(short) })}
+      </button>
+    )
+  }
+  return <span className="ar-price-foot">≈ {usdcFor(price)} USDC</span>
 }
 
 // ------------------------------------------------------------------ daily --
@@ -555,6 +585,7 @@ export function RushAchievements({
   note,
   guest,
   onClaim,
+  onBadges,
   onClose,
 }: {
   economy: EconomyState
@@ -562,6 +593,7 @@ export function RushAchievements({
   note: EcoNote
   guest: boolean
   onClaim: (group?: string) => void
+  onBadges?: () => void
   onClose: () => void
 }) {
   const t = useT()
@@ -606,6 +638,12 @@ export function RushAchievements({
               <span>{t('ach.lifeCoins')}</span>
             </div>
           </div>
+        )}
+        {onBadges && (
+          <button type="button" className="ar-invite-banner ar-ach-nft" onClick={onBadges}>
+            <Medal size={16} />
+            <span>{t('ach.nftBanner')}</span>
+          </button>
         )}
         {note && <div className={`ar-eco-note ${note.tone === 'bad' ? 'is-bad' : ''}`}>{note.text}</div>}
         {due > 1 && (

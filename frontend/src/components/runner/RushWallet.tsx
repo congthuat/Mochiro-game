@@ -555,6 +555,15 @@ function Confirm({
   )
 }
 
+/** The signing step for any Arc transaction: password for the device wallet, the player's wallet app otherwise. */
+export function SignWith({ account, label, onSign }: { account: AuthAccount; label: string; onSign: (signer: Signer) => void }) {
+  return account.method === 'google' || account.walletKind === 'embedded' ? (
+    <DeviceSigner label={label} onSign={onSign} />
+  ) : (
+    <ExternalSigner account={account} label={label} onSign={onSign} />
+  )
+}
+
 function DeviceSigner({ label, onSign }: { label: string; onSign: (signer: Signer) => void }) {
   const t = useT()
   const [password, setPassword] = useState('')

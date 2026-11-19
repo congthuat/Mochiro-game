@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+<radialGradient id="bg" cx="50%" cy="38%" r="75%"><stop offset="0" stop-color="#1d2f57"/><stop offset="1" stop-color="#0a1226"/></radialGradient>
+<linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe58f"/><stop offset="1" stop-color="#d98f00"/></linearGradient>
+<linearGradient id="face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d98f00"/><stop offset="1" stop-color="#0e1a36"/></linearGradient>
+<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="56" fill="url(#bg)"/>
+<text x="256" y="40" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="20" font-weight="800" letter-spacing="7" fill="#9fb3d9">MOCHIRO · ARC</text>
+<rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(0 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(22.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(45 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(67.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(90 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(112.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(135 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(157.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(180 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(202.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(225 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(247.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(270 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(292.5 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(315 256 236)"/><rect x="252" y="40" width="8" height="70" rx="4" fill="#ffe58f" opacity="0.55" transform="rotate(337.5 256 236)"/>
+<path d="M196 330 L160 476 L206 452 L232 494 L256 352 Z" fill="#d98f00"/><path d="M316 330 L352 476 L306 452 L280 494 L256 352 Z" fill="#d98f00" opacity="0.85"/>
+<circle cx="256" cy="236" r="172" fill="url(#rim)"/>
+<circle cx="256" cy="236" r="160" fill="none" stroke="#fff" stroke-opacity="0.45" stroke-width="4" stroke-dasharray="3 11"/>
+<circle cx="256" cy="236" r="142" fill="url(#face)" stroke="#ffe58f" stroke-width="6"/>
+<g transform="translate(176 146) scale(6.67)" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.734H5.81a1 1 0 0 1-.957-.734L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"/><path d="M5 21h14"/></g>
+<ellipse cx="256" cy="150" rx="118" ry="70" fill="url(#gloss)"/>
+<rect x="96" y="372" width="320" height="58" rx="14" fill="#0e1a36" stroke="#ffe58f" stroke-width="4"/>
+<text x="256" y="410" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="25" font-weight="900" letter-spacing="1.5" fill="#ffffff">WEEKLY CHAMPION</text>
+<text x="256" y="345" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="22" font-weight="900" letter-spacing="2" fill="#ffe58f">#1</text>
+</svg>

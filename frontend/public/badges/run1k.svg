@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+<radialGradient id="bg" cx="50%" cy="38%" r="75%"><stop offset="0" stop-color="#1d2f57"/><stop offset="1" stop-color="#0a1226"/></radialGradient>
+<linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0a46a"/><stop offset="1" stop-color="#8a4a1c"/></linearGradient>
+<linearGradient id="face" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a4a1c"/><stop offset="1" stop-color="#0e1a36"/></linearGradient>
+<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+</defs>
+<rect width="512" height="512" rx="56" fill="url(#bg)"/>
+<text x="256" y="40" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="20" font-weight="800" letter-spacing="7" fill="#9fb3d9">MOCHIRO · ARC</text>
+
+<path d="M196 330 L160 476 L206 452 L232 494 L256 352 Z" fill="#8a4a1c"/><path d="M316 330 L352 476 L306 452 L280 494 L256 352 Z" fill="#8a4a1c" opacity="0.85"/>
+<circle cx="256" cy="236" r="172" fill="url(#rim)"/>
+<circle cx="256" cy="236" r="160" fill="none" stroke="#fff" stroke-opacity="0.45" stroke-width="4" stroke-dasharray="3 11"/>
+<circle cx="256" cy="236" r="142" fill="url(#face)" stroke="#f0a46a" stroke-width="6"/>
+<g transform="translate(176 146) scale(6.67)" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></g>
+<ellipse cx="256" cy="150" rx="118" ry="70" fill="url(#gloss)"/>
+<rect x="96" y="372" width="320" height="58" rx="14" fill="#0e1a36" stroke="#f0a46a" stroke-width="4"/>
+<text x="256" y="410" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="25" font-weight="900" letter-spacing="1.5" fill="#ffffff">FIRST KILOMETRE</text>
+<text x="256" y="345" text-anchor="middle" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="22" font-weight="900" letter-spacing="2" fill="#f0a46a">1 KM</text>
+</svg>
