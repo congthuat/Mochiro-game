@@ -85,6 +85,9 @@ function baseDistance(seconds, speedMult) {
   return (ramped + Math.max(0, seconds - ramp) * max) * speedMult
 }
 
+/** Heroes whose coins count extra: the run reports the doubled figure, the caps are per pickup. */
+const HERO_GOLD = { jeremy: 2 }
+const goldMultiplier = (value) => (typeof value === 'string' && Object.hasOwn(HERO_GOLD, value) ? HERO_GOLD[value] : 1)
 const cleanMode = (value) => (value === 'easy' || value === 'hard' ? value : 'normal')
 
 /**
@@ -469,7 +472,9 @@ router.post('/runs', async (req, res) => {
     // A continued run keeps the mode it started on.
     if (continued) mode = cleanMode(continued.difficulty)
     else mode = resolveMode(mode, distance, duration)
-    const reason = implausible({ score, coins, distance, topSpeed, bestCombo, duration, mode })
+    // A hero whose coins count extra reports the larger figure; the caps are per pickup.
+    const pickups = Math.ceil(coins / goldMultiplier(req.body?.hero))
+    const reason = implausible({ score, coins: pickups, distance, topSpeed, bestCombo, duration, mode })
     if (reason) {
       // Impossible numbers are not stored at all — not even on the cheater's profile.
       console.warn('[runner] rejected run', { clientId, reason, score, distance, duration })

@@ -170,4 +170,6 @@ export interface RunSubmission {
   best_combo: number
   duration_s: number
   difficulty: 'easy' | 'normal' | 'hard'
+  /** The hero played: the server scales its coin cap for a hero whose coins count extra. */
+  hero?: string
 }

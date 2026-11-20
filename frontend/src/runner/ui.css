@@ -1333,7 +1333,7 @@ body {
   display: grid;
   /* Seven heroes on one row. The tiles are narrow, so the type steps down a little
      rather than letting a long name wrap. */
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 6px;
   width: 100%;
 }
@@ -1757,7 +1757,7 @@ body {
 
 .ar-char-row {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 8px;
 }
 .ar-char-tile {
@@ -1859,7 +1859,7 @@ body {
   .ar-stage {
     height: 224px;
   }
-  /* Seven heroes wrap as four over three, not three-three-one. */
+  /* Eight heroes wrap as four over four. */
   .ar-char-row {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }

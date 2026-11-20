@@ -977,6 +977,11 @@ export class Runner {
     return this.perkScale('quickLane') > 1 ? 2 : 1
   }
 
+  /** Jeremy's perk: every Gold coin picked up counts for more than one. */
+  private get goldPerCoin(): number {
+    return this.perkScale('goldRush')
+  }
+
   /** The duelist's rush: Overdrive is the one power they make their own. */
   private get boostScale(): number {
     return this.perkScale('longBoost')
@@ -1803,7 +1808,7 @@ export class Runner {
   private collectCoin(coin: Coin): void {
     const run = this.run
     this.pickups?.take(coin)
-    run.coins += 1
+    run.coins += this.goldPerCoin
     run.pickedCoins += 1
     run.combo += 1
     run.bestCombo = Math.max(run.bestCombo, run.combo)

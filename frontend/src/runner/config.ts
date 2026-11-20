@@ -335,10 +335,10 @@ export const PALETTE = {
   trim: '#2f7fe0',
 } as const
 
-export type CharacterId = 'kai' | 'mika' | 'bjorn' | 'nyx' | 'rin' | 'tim' | 'ezgi'
+export type CharacterId = 'kai' | 'mika' | 'bjorn' | 'nyx' | 'rin' | 'tim' | 'ezgi' | 'jeremy'
 
 /** Roster order — also the order of the character line-up on the menu stage. */
-export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin', 'tim', 'ezgi']
+export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin', 'tim', 'ezgi', 'jeremy']
 
 /**
  * Every hero has one signature ability, so picking a character is a gameplay
@@ -346,7 +346,7 @@ export const CHARACTER_IDS: CharacterId[] = ['kai', 'mika', 'bjorn', 'nyx', 'rin
  * `shieldStart` (a number of shields) and `badImmunity` (a plain yes/no, so the
  * value is unused).
  */
-export type PerkId = 'shieldStart' | 'longPower' | 'badImmunity' | 'quickLane' | 'wideMagnet' | 'longBoost' | 'bounceBack'
+export type PerkId = 'shieldStart' | 'longPower' | 'badImmunity' | 'quickLane' | 'wideMagnet' | 'longBoost' | 'bounceBack' | 'goldRush'
 
 export interface CharacterPerk {
   id: PerkId
@@ -418,6 +418,7 @@ export const HERO_COLORS: Record<CharacterId, number> = {
   rin: 0x23794a,
   tim: 0x9a6200,
   ezgi: 0x9b2747,
+  jeremy: 0x1f6f78,
 }
 
 export function heroColorCss(id: CharacterId): string {
@@ -613,6 +614,35 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
     accent: 0x9b2747,
     glove: 0xf1c2a0,
     eye: 0x4c2c1b,
+  },
+  jeremy: {
+    id: 'jeremy',
+    // Every Gold coin he picks up counts twice: the run's total, the bank and the revive
+    // price all see the doubled figure (the server scales its coin cap by it, see
+    // backend/routes/runner.js).
+    perk: { id: 'goldRush', value: 2 },
+    name: 'Jeremy Allaire',
+    tagline: 'Gold ×2',
+    // Jeremy as in his photo (see persona.ts): a shaved head, a cream linen blazer over a
+    // navy open-collar shirt, cream trousers, a black belt and grey sneakers. On the knight
+    // rig (Sam's skeleton); the plate, helmet, cape and blades stay home.
+    persona: 'jeremy',
+    model: knightModel,
+    modelHeight: 1.74,
+    modelFacing: Math.PI,
+    hideNodes: ['1H_Sword', '2H_Sword', 'Shield', 'Knight_Helmet', 'Knight_Cape'],
+    skin: 0xeec4ac,
+    hair: 0xc9b8a0,
+    hairStyle: 'spiky',
+    outfit: 0xd8c9ae,
+    outfitDark: 0xc5b595,
+    shirt: 0x1b2234,
+    bottom: 0xe6dfd0,
+    shoe: 0x8d939c,
+    sole: 0xf2f1ee,
+    accent: 0xf0b81c,
+    glove: 0xeec4ac,
+    eye: 0x6f8fa6,
   },
 }
 

@@ -29,7 +29,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { recolorTexture } from './recolor'
 
-export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter' | 'mike' | 'tim' | 'ezgi'
+export type PersonaId = 'sam' | 'bobbilee' | 'teddyz' | 'lecter' | 'mike' | 'tim' | 'ezgi' | 'jeremy'
 
 /* ------------------------------------------------------------------ *
  * Palette
@@ -74,17 +74,23 @@ const TIM_SHIRT = 0xa7b7e2
 const TIM_SHIRT_HEM = 0x95a6d6
 const TIM_KHAKI = 0x6e6655
 const TIM_SKIN = 0xeebfa4
+// Jeremy, from a photo of him: a cream linen blazer over a dark navy open-collar shirt,
+// cream textured trousers, a black belt and grey sneakers; fair skin, a shaved head.
+const JEREMY_BLAZER = 0xd8c9ae
+const JEREMY_CUFF = 0xc5b595
+const JEREMY_TROUSER = 0xe6dfd0
+const JEREMY_SHOE = 0x8d939c
 
 /** What the camera behind the runner mostly sees of each persona (kit-check compares backs). */
-export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT, mike: OXFORD, tim: TIM_SHIRT, ezgi: 0x4c3020 }
+export const PERSONA_BACK: Record<PersonaId, number> = { sam: TEE, bobbilee: BACKPACK, teddyz: WHITE_TEE, lecter: KIT, mike: OXFORD, tim: TIM_SHIRT, ezgi: 0x4c3020, jeremy: JEREMY_BLAZER }
 /**
  * …and what it sees below that: the trousers. Two people in black tops are still told
  * apart from behind by their legs (kit-check uses this when the tops are close).
  */
-export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT, mike: NAVY, tim: TIM_KHAKI, ezgi: TROUSER }
+export const PERSONA_LEGS: Record<PersonaId, number> = { sam: JEANS, bobbilee: TROUSER, teddyz: BLACK_TROUSER, lecter: KIT, mike: NAVY, tim: TIM_KHAKI, ezgi: TROUSER, jeremy: JEREMY_TROUSER }
 
 /** Order matters: a colour's index is its palette cell. */
-const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, KIT, KIT_GOLD, OXFORD, OXFORD_CUFF, NAVY, MIKE_SKIN, TIM_SHIRT, TIM_SHIRT_HEM, TIM_KHAKI, TIM_SKIN] as const
+const PALETTE = [TEE, JEANS, SKIN, STEEL, SHOE, SOLE, SWEATER, RIB, TROUSER, SNEAKER, SNEAKER_SOLE, FAIR, WHITE_TEE, BLACK_TROUSER, TAN, KIT, KIT_GOLD, OXFORD, OXFORD_CUFF, NAVY, MIKE_SKIN, TIM_SHIRT, TIM_SHIRT_HEM, TIM_KHAKI, TIM_SKIN, JEREMY_BLAZER, JEREMY_CUFF, JEREMY_TROUSER, JEREMY_SHOE] as const
 const enum Cell {
   Tee = 0,
   Jeans = 1,
@@ -111,6 +117,10 @@ const enum Cell {
   TimShirtHem = 22,
   TimKhaki = 23,
   TimSkin = 24,
+  JeremyBlazer = 25,
+  JeremyCuff = 26,
+  JeremyTrouser = 27,
+  JeremyShoe = 28,
 }
 
 /** Skin re-hue for the painted head: the artist's peach becomes a warm deep brown. */
@@ -4750,7 +4760,16 @@ const TIM_SIDES: SidesStyle = {
  * Tim as in the photo: fair skin with freckles across the nose and cheeks, light auburn
  * brows, pale blue-grey eyes wide open behind his glasses, and a gentle closed smile.
  */
-function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string): void {
+interface FaceTone {
+  freckles: number
+  cheek: string
+  brow: string
+  iris: [string, string, string]
+  lash: string
+}
+const TIM_FACE: FaceTone = { freckles: 420, cheek: '232,140,128', brow: '#9a6a48', iris: ['#8aa4bd', '#5b7893', '#34495e'], lash: '#5a3a2a' }
+
+function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string, tone: FaceTone = TIM_FACE): void {
   const u = faceU
   const v = faceV
   const s = FACE.scale
@@ -4770,7 +4789,7 @@ function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string
     ctx.fillRect(u(x) - radius * s, v(y) - radius * s, radius * 2 * s, radius * 2 * s)
   }
   // Pink in the cheeks and a little shade under the nose and the lower lip.
-  for (const side of [-1, 1]) glow(side * 0.27, 1.47, 0.11, '232,140,128', 0.22)
+  for (const side of [-1, 1]) glow(side * 0.27, 1.47, 0.11, tone.cheek, 0.22)
   glow(0, 1.452, 0.05, '176,108,92', 0.26)
   glow(0, 1.318, 0.05, '190,120,104', 0.16)
 
@@ -4780,7 +4799,7 @@ function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string
     state = (state * 16807) % 2147483647
     return state / 2147483647
   }
-  for (let i = 0; i < 420; i += 1) {
+  for (let i = 0; i < tone.freckles; i += 1) {
     const x = (noise() - 0.5) * 0.6
     const y = 1.42 + noise() * 0.2
     const density = smooth(0.32, 0.12, Math.abs(x)) * smooth(1.41, 1.5, y) * smooth(1.64, 1.56, y)
@@ -4792,7 +4811,7 @@ function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string
   }
 
   // Brows: light auburn, soft and not heavy, a gentle arch.
-  ctx.fillStyle = '#9a6a48'
+  ctx.fillStyle = tone.brow
   for (const side of [-1, 1]) {
     ctx.beginPath()
     ctx.moveTo(u(side * 0.075), v(1.706))
@@ -4821,9 +4840,9 @@ function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string
     const cx = u(mid - side * 0.004)
     const cy = v(1.608)
     const iris = ctx.createRadialGradient(cx, cy, 0, cx, cy, 0.038 * s)
-    iris.addColorStop(0, '#8aa4bd')
-    iris.addColorStop(0.7, '#5b7893')
-    iris.addColorStop(1, '#34495e')
+    iris.addColorStop(0, tone.iris[0])
+    iris.addColorStop(0.7, tone.iris[1])
+    iris.addColorStop(1, tone.iris[2])
     ctx.fillStyle = iris
     ctx.beginPath()
     ctx.arc(cx, cy, 0.037 * s, 0, Math.PI * 2)
@@ -4839,7 +4858,7 @@ function paintTimFace(ctx: CanvasRenderingContext2D, top: string, bottom: string
     ctx.arc(cx + side * 0.011 * s, cy - 0.012 * s, 0.008 * s, 0, Math.PI * 2)
     ctx.fill()
     ctx.restore()
-    ctx.strokeStyle = '#5a3a2a'
+    ctx.strokeStyle = tone.lash
     ctx.lineCap = 'round'
     ctx.lineWidth = 0.008 * s
     ctx.beginPath()
@@ -5013,6 +5032,167 @@ function dressTim(root: THREE.Object3D): void {
 }
 
 /* ------------------------------------------------------------------ *
+ * Jeremy
+ * ------------------------------------------------------------------ */
+
+// Jeremy Allaire, from a photo of him: a shaved, bald head with a fine grey stubble round
+// the sides, fair skin, pale blue eyes and a calm, slightly amused closed smile. He wears a
+// cream linen blazer, open, over a dark navy shirt with an open collar, a black belt,
+// cream textured trousers and grey sneakers. He wears the knight rig (Sam's skeleton).
+
+const JEREMY_FACE: FaceTone = {
+  freckles: 0,
+  cheek: '236,150,138',
+  brow: '#c6b296',
+  iris: ['#9cb6c8', '#6f8fa6', '#3f5568'],
+  lash: '#6b5444',
+}
+
+/** A shaved head: the top is bare skin, the sides a faint grey-blond shadow of stubble. */
+const JEREMY_SIDES: SidesStyle = {
+  shadow: (skin) => mixRgb(skin, [172, 130, 110], 0.12),
+  buzz: (skin) => mixRgb(skin, [178, 164, 146], 0.3),
+  hair: [232, 190, 166],
+  line: [1.8, 1.92],
+  speck: [150, 138, 124],
+  alpha: [0.1, 0.14],
+}
+
+const JEREMY_LOOK: RogueLook = {
+  skinShift: [1, 1, 1],
+  tone: [238, 196, 172],
+  hair: { dark: [150, 134, 116], light: [200, 186, 166] },
+  paintFace: (ctx, top, bottom) => paintTimFace(ctx, top, bottom, JEREMY_FACE),
+  paintSides: (ctx, skin) => paintFade(ctx, skin, JEREMY_SIDES),
+  jaw: roundJaw,
+}
+
+/** Linen: a loose cross-hatch of slubs, light and dark, over the cloth. */
+function linenWeave(ctx: CanvasRenderingContext2D, x0: number, y0: number, width: number, height: number): void {
+  let state = 41
+  const noise = () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+  for (let y = y0; y < y0 + height; y += 3) {
+    ctx.fillStyle = 'rgba(120,96,60,0.07)'
+    ctx.fillRect(x0, y, width, 1)
+  }
+  for (let x = x0; x < x0 + width; x += 3) {
+    ctx.fillStyle = 'rgba(255,250,236,0.07)'
+    ctx.fillRect(x, y0, 1, height)
+  }
+  const slubs = Math.floor((width * height) / 60)
+  for (let i = 0; i < slubs; i += 1) {
+    ctx.fillStyle = noise() < 0.5 ? 'rgba(255,252,240,0.2)' : 'rgba(110,86,52,0.16)'
+    const long = noise() < 0.5
+    ctx.fillRect(x0 + noise() * width, y0 + noise() * height, long ? 5 : 1, long ? 1 : 5)
+  }
+}
+
+/** The navy shirt in the open front of the blazer, its buttons, and his black belt. */
+function jeremyFront(ctx: CanvasRenderingContext2D): void {
+  const m = SHIRT_PANEL.scale
+  const hem = SHIRT_HEM + 0.01
+  const left = shirtPx('front', -0.125, 1.27)
+  const right = shirtPx('front', 0.125, 1.27)
+  const lowLeft = shirtPx('front', -0.062, hem)
+  const lowRight = shirtPx('front', 0.062, hem)
+  ctx.fillStyle = '#1b2234'
+  ctx.beginPath()
+  ctx.moveTo(left[0], left[1])
+  ctx.lineTo(lowLeft[0], lowLeft[1])
+  ctx.lineTo(lowRight[0], lowRight[1])
+  ctx.lineTo(right[0], right[1])
+  ctx.closePath()
+  ctx.fill()
+  // The blazer's front edges: a shade darker, with a line of top-stitching beside each.
+  ctx.strokeStyle = 'rgba(70,52,28,0.5)'
+  ctx.lineWidth = 3
+  for (const [a, b] of [
+    [left, lowLeft],
+    [right, lowRight],
+  ] as const) {
+    ctx.beginPath()
+    ctx.moveTo(a[0], a[1])
+    ctx.lineTo(b[0], b[1])
+    ctx.stroke()
+  }
+  // The shirt's buttons and a fold of light down it.
+  const [cx] = shirtPx('front', 0, 1)
+  ctx.fillStyle = 'rgba(120,134,170,0.22)'
+  ctx.fillRect(cx - 2, shirtPx('front', 0, 1.15)[1], 4, shirtPx('front', 0, hem + 0.05)[1] - shirtPx('front', 0, 1.15)[1])
+  for (let y = 1.1; y > 0.62; y -= 0.1) {
+    const [bx, by] = shirtPx('front', 0, y)
+    ctx.fillStyle = '#8b94aa'
+    ctx.beginPath()
+    ctx.arc(bx, by, 0.007 * m, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // The belt: black, with a small steel buckle.
+  const [bl, by] = shirtPx('front', -0.062, hem + 0.05)
+  const [br] = shirtPx('front', 0.062, hem + 0.05)
+  ctx.fillStyle = '#0f1013'
+  ctx.fillRect(bl, by, br - bl, 0.04 * m)
+  ctx.fillStyle = '#b9bec6'
+  ctx.fillRect(cx - 0.014 * m, by - 0.002 * m, 0.028 * m, 0.044 * m)
+  ctx.fillStyle = '#0f1013'
+  ctx.fillRect(cx - 0.008 * m, by + 0.008 * m, 0.016 * m, 0.024 * m)
+}
+
+const JEREMY_STYLE: ShirtStyle = {
+  cloth: hex(JEREMY_BLAZER),
+  weave: linenWeave,
+  light: ['rgba(255,255,255,0.08)', 'rgba(90,66,30,0.16)'],
+  trousers: hex(JEREMY_TROUSER),
+  trouserSeam: 'rgba(120,106,84,0.5)',
+  under: '100,84,56',
+  hemShade: 'rgba(110,90,56,0.35)',
+  seam: 'rgba(120,98,64,0.45)',
+  thread: 'rgba(244,236,218,0.5)',
+  neck: { fill: '#1b2234', shadow: 'rgba(0,0,0,0.5)', top: 1.27, tip: 1.2, half: 0.08, band: null },
+  button: '#b6a684',
+  glint: 'rgba(255,255,255,0.35)',
+  collar: { ribs: null, edge: 'rgba(120,98,64,0.45)', thread: 'rgba(244,236,218,0.6)', button: null },
+  extras: jeremyFront,
+}
+
+/** Long blazer sleeves, a buttoned cuff, then bare skin from the wrist. */
+const JEREMY_CUFF_BAND: [number, number] = [0.73, 0.775]
+const jeremyArm: Classifier = (x) => {
+  const reach = Math.abs(x)
+  if (reach < JEREMY_CUFF_BAND[0]) return Cell.JeremyBlazer
+  if (reach < JEREMY_CUFF_BAND[1]) return Cell.JeremyCuff
+  return Cell.TimSkin
+}
+const jeremyLeg: Classifier = (_x, y) => {
+  if (y < SNEAKER_SOLE_TOP) return Cell.SneakerSole
+  if (y < SNEAKER_TOP) return Cell.JeremyShoe
+  return Cell.JeremyTrouser
+}
+
+function dressJeremy(root: THREE.Object3D): void {
+  const head = findMesh(root, '_head')
+  const torso = findMesh(root, '_body')
+  const palette = paletteTexture()
+  if (head) dressKnightHead(head, JEREMY_LOOK)
+  dress(findMesh(root, '_armleft'), palette, jeremyArm)
+  dress(findMesh(root, '_armright'), palette, jeremyArm)
+  dress(findMesh(root, '_legleft'), palette, jeremyLeg)
+  dress(findMesh(root, '_legright'), palette, jeremyLeg)
+  for (const side of ['_armleft', '_armright']) sculpt(findMesh(root, side), bareForearm)
+  // Linen and cotton twill are matte.
+  for (const part of ['_armleft', '_armright', '_legleft', '_legright']) {
+    const material = findMesh(root, part)?.material as THREE.MeshStandardMaterial | undefined
+    if (material) material.roughness = 1
+  }
+  if (torso) {
+    dressShirt(torso, JEREMY_STYLE)
+    bindSpaceOf(torso, 'chest')?.add(buildShirtCollar(prober(torso.geometry), JEREMY_STYLE))
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Entry point
  * ------------------------------------------------------------------ */
 
@@ -5040,6 +5220,10 @@ export function applyPersona(root: THREE.Object3D, id: PersonaId): void {
   }
   if (id === 'tim') {
     dressTim(root)
+    return
+  }
+  if (id === 'jeremy') {
+    dressJeremy(root)
     return
   }
   if (id === 'ezgi') {

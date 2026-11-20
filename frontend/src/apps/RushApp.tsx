@@ -556,6 +556,7 @@ export default function RushApp() {
           best_combo: result.bestCombo,
           duration_s: Math.round(result.duration),
           difficulty: result.difficulty,
+          hero: settingsRef.current.character,
           } })
           return sendLiveRef.current(item, result.coins)
         })
