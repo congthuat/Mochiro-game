@@ -133,6 +133,10 @@ interface RunState {
   jumpBuffer: number
   spawnCursor: number
   lineCounter: number
+  /** Last pattern spawned, so the same set piece never plays twice in a row. */
+  lastPattern: PatternKind | null
+  /** Position inside the current rhythm phrase (see PHRASE). */
+  beat: number
   powerTimer: number
   /** When the last shield was put on the road — shields have their own cooldown. */
   lastShieldAt: number
@@ -167,6 +171,34 @@ type PatternKind =
   | 'traffic'
   | 'rampCar'
   | 'slideGate'
+  | 'breather'
+
+/**
+ * Pattern pools by stage of the run. The early pool teaches one verb at a time; later
+ * pools add the set pieces that ask for two verbs in a row. Weights are relative.
+ */
+const PATTERN_POOLS: Array<{ until: number; weights: Array<[PatternKind, number]> }> = [
+  { until: 0.12, weights: [['single', 55], ['jumpLine', 30], ['gate', 15]] },
+  { until: 0.3, weights: [['single', 20], ['jumpLine', 18], ['double', 24], ['gate', 12], ['slalom', 12], ['traffic', 14]] },
+  {
+    until: 0.6,
+    weights: [['single', 8], ['jumpLine', 10], ['double', 16], ['gate', 8], ['slalom', 13], ['gauntlet', 11], ['traffic', 13], ['rampCar', 11], ['slideGate', 10]],
+  },
+  {
+    until: Infinity,
+    weights: [['single', 4], ['jumpLine', 6], ['double', 14], ['gate', 5], ['slalom', 14], ['gauntlet', 14], ['traffic', 14], ['rampCar', 11], ['slideGate', 9], ['tunnel', 13]],
+  },
+]
+
+/**
+ * Rhythm: a run breathes in phrases. Most beats are normal; one beat in each phrase is a
+ * burst (the next gap is shorter) and the phrase closes on a breather — a free coin run
+ * with extra room — so tension builds and releases instead of staying flat.
+ */
+const PHRASE = 7
+const BURST_BEAT = 5
+const BURST_GAP = 0.8
+const BREATHER_GAP = 1.3
 
 /** Mike's always-on coin pull, in metres (a lane is 2.3 m wide). */
 const PASSIVE_COIN_REACH = 1.9
@@ -459,6 +491,12 @@ export class Runner {
       this.composer = this.stashedComposer
       this.stashedComposer = null
     }
+  }
+
+  /** Dev-only: the patterns the director chose this session, as `seconds:kind`. */
+  private patternLog: string[] = []
+  debugPatterns(): string[] {
+    return this.patternLog.slice(-400)
   }
 
   /** Dev-only: renderer statistics — proves whether geometry is drawn. */
@@ -1637,9 +1675,16 @@ export class Runner {
     run.spawnCursor -= run.speed * dt
     if (run.spawnCursor > 0) return
     const difficulty = clamp01((run.elapsed - 5) / 130)
-    const pattern = this.pickPattern(difficulty)
+    const beat = run.beat
+    run.beat = (run.beat + 1) % PHRASE
+    // The first phrase plays straight; breathers start once there is something to rest from.
+    const breather = beat === PHRASE - 1 && difficulty >= 0.12
+    const pattern = breather ? 'breather' : this.pickPattern(difficulty)
+    run.lastPattern = pattern
+    if (import.meta.env.DEV) this.patternLog.push(`${Math.round(run.elapsed)}s:${pattern}`)
     const length = this.spawnPattern(pattern, -RUN.spawnAhead, difficulty)
-    run.spawnCursor = length + run.speed * gapTimeAt(run.elapsed) * this.diff.gaps
+    const rhythm = breather ? BREATHER_GAP : beat === BURST_BEAT && difficulty >= 0.3 ? BURST_GAP : 1
+    run.spawnCursor = length + run.speed * gapTimeAt(run.elapsed) * this.diff.gaps * rhythm
 
     run.powerTimer -= 1
     if (run.powerTimer <= 0) {
@@ -1672,26 +1717,16 @@ export class Runner {
   }
 
   private pickPattern(difficulty: number): PatternKind {
-    const roll = this.rng()
-    if (difficulty < 0.12) return roll < 0.7 ? 'single' : 'jumpLine'
-    if (difficulty < 0.3) {
-      if (roll < 0.3) return 'single'
-      if (roll < 0.55) return 'jumpLine'
-      if (roll < 0.8) return 'double'
-      return 'gate'
+    const pool = (PATTERN_POOLS.find((entry) => difficulty < entry.until) ?? PATTERN_POOLS[PATTERN_POOLS.length - 1]).weights
+    // Never the same set piece twice in a row: repetition is what makes a runner feel small.
+    const options = pool.filter(([kind]) => kind !== this.run.lastPattern)
+    const total = options.reduce((sum, [, weight]) => sum + weight, 0)
+    let roll = this.rng() * total
+    for (const [kind, weight] of options) {
+      roll -= weight
+      if (roll <= 0) return kind
     }
-    if (roll < 0.16) return 'single'
-    if (roll < 0.32) return 'jumpLine'
-    if (roll < 0.5) return 'double'
-    if (roll < 0.62) return 'gate'
-    if (roll < 0.74) return 'traffic'
-    if (roll < 0.84) return 'rampCar'
-    if (roll < 0.94) return 'slideGate'
-    // Every branch above returns a pattern `spawnPattern` actually implements. The old
-    // chain was out of order — `roll < 0.84` sat after `roll < 0.9` — so `slalom` could
-    // never be picked and two branches were dead, which quietly made the game repeat
-    // itself more than the weights suggest.
-    return difficulty > 0.6 ? 'tunnel' : 'gate'
+    return options[options.length - 1][0]
   }
 
   /** Spawns one pattern at `z` (negative, ahead of the player) and returns its length. */
@@ -1735,7 +1770,8 @@ export class Runner {
       }
       case 'slalom': {
         const order = [...lanes].sort(() => this.rng() - 0.5)
-        const span = 13
+        // Spacing follows speed (about 0.3 s per step) so the weave stays possible at the top end.
+        const span = Math.max(13, this.run.speed * 0.9)
         order.forEach((lane, index) => {
           const at = z - index * (span / 3)
           spawn(index === 1 ? 'low' : 'tall', lane, at)
@@ -1746,11 +1782,13 @@ export class Runner {
       case 'gauntlet': {
         spawn('tunnel', 1, z)
         const lane = free()
-        spawn('low', lane, z - 7)
+        // Slide, then jump: the hurdle sits far enough behind the lintel to stand up first.
+        const after = Math.max(7, this.run.speed * 0.32)
+        spawn('low', lane, z - after)
         const safe = lanes.filter((item) => item !== lane)
         line(safe[0], z + 2.5, 3, 'flat')
-        line(lane, z - 4.5, 4, 'arc')
-        return 13
+        line(lane, z - after + 2.5, 4, 'arc')
+        return after + 6
       }
       case 'tunnel': {
         spawn('tunnel', 1, z)
@@ -1782,6 +1820,14 @@ export class Runner {
         line(1, z + 1.8, 4, 'flat')
         if (this.rng() < 0.5) spawn('car', free(), z - 7)
         return 11
+      }
+      case 'breather': {
+        // A free stretch: two weaving coin runs and nothing to hit.
+        const first = free()
+        const second = lanes.filter((item) => item !== first)[Math.floor(this.rng() * 2)]
+        line(first, z, 7, 'wave')
+        line(second, z - 12, 7, 'wave')
+        return 22
       }
       default:
         return 6
@@ -2420,6 +2466,8 @@ export class Runner {
       jumpBuffer: 0,
       spawnCursor: 18,
       lineCounter: 1,
+      lastPattern: null,
+      beat: 0,
       powerTimer: Math.round(randRange(this.rng, 4, 8)),
       lastShieldAt: -Infinity,
       tierIndex: 0,

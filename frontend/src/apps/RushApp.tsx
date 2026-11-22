@@ -579,6 +579,7 @@ export default function RushApp() {
       probe: () => runnerRef.current?.debugProbe(),
       parts: () => runnerRef.current?.debugParts(),
       stats: () => runnerRef.current?.debugStats(),
+      patterns: () => runnerRef.current?.debugPatterns() ?? [],
       noFx: (on: boolean) => runnerRef.current?.debugNoFx(on),
       hair: (on: boolean) => runnerRef.current?.debugHair(on),
       coin: (on: boolean) => runnerRef.current?.debugCoin(on),
