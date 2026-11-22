@@ -17,7 +17,7 @@ const TILE = ROAD_LENGTH / ROAD_REPEAT
 
 const DASH_SPACING = 7
 const DASH_COUNT = 40 // per divider
-const ARCH_SPACING = 44
+export const ARCH_SPACING = 44
 const CONE_SPACING = 13
 const CONE_PER_SIDE = 22
 
@@ -212,6 +212,11 @@ export class Track {
       this.disposables.push(beamMat, glowMat)
     }
     this.setQuality(quality)
+  }
+
+  /** Where the gate arches sit along the road; every arch shares this phase modulo ARCH_SPACING. */
+  get archPhase(): number {
+    return this.arches[0]?.position.z ?? -18
   }
 
   setQuality(quality: QualityPreset): void {

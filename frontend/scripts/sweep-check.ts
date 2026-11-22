@@ -53,9 +53,12 @@ function verdict(
   obstacleX: number
 ): Verdict {
   const reach = spec.depth / 2 + RUNNER_REACH
+  // Traffic comes down the road towards +z, so a step moves an obstacle from z - dz
+  // to z. (The mirror used to look for -z travel, so `crossed` could never fire and
+  // coverage of thin hazards rested on where the frames happened to land.)
   const previousZ = z - dz
   const alongside = Math.abs(z) <= reach
-  const crossed = previousZ > reach && z < -reach
+  const crossed = previousZ < -reach && z > reach
   if (!alongside && !crossed) return 'clear'
   if (Math.abs(obstacleX - laneX) > spec.width / 2 + BODY.halfWidth - BODY.forgiveness) return 'clear'
   const at = crossed ? previousY : y
@@ -91,7 +94,7 @@ for (const spec of kinds) {
       const dz = speed * dt
       // Walk the obstacle from well ahead of the runner to well behind it.
       let seen = false
-      for (let z = 12; z > -12; z -= dz) {
+      for (let z = -12; z < 12; z += dz) {
         if (verdict(spec, z, dz, 0, 0, BODY.standHeight, 0, 0) !== 'clear') {
           seen = true
           break
@@ -123,7 +126,7 @@ for (const spec of kinds) {
       let worst = ''
       let deepest = 0
       for (let y = 0; y <= spec.bottom + spec.height + 0.4; y += 0.05) {
-        for (let z = 6; z > -6; z -= dz) {
+        for (let z = -6; z < 6; z += dz) {
           const depth = overlapDepth(spec, z, y, height)
           if (depth <= BODY.forgiveness) continue
           if (verdict(spec, z, dz, y, y, height, 0, 0) === 'hit') continue

@@ -100,6 +100,13 @@ export const OBSTACLES: Record<ObstacleKind, ObstacleSpec> = {
   ramp: { kind: 'ramp', width: 2.05, height: 1.3, bottom: 0, depth: 2.9, points: 30, launch: 14.5 },
   // Gateway: the visible lintel is exactly this box, so ducking is never a guess.
   tunnel: { kind: 'tunnel', width: 9.4, height: 1.97, bottom: 1.25, depth: 1.4, points: 80 },
+  // Skyway: a box truck whose long flat roof is the high road. Taller than a car, so it
+  // takes the ramp (or a well-timed jump) to get up there.
+  truck: { kind: 'truck', width: 2.2, height: 1.6, bottom: 0, depth: 12.0, points: 70, platformTop: 1.6 },
+  // Neon district laser fences: the low one is jumped, the high one is slid under (its
+  // top sits above the best jump, like the gateway, so it can only be ducked).
+  laserLow: { kind: 'laserLow', width: 2.0, height: 0.85, bottom: 0, depth: 0.5, points: 50 },
+  laserHigh: { kind: 'laserHigh', width: 2.0, height: 1.95, bottom: 1.25, depth: 0.5, points: 70 },
 }
 
 /**
@@ -696,6 +703,15 @@ export const BIOMES: Biome[] = [
 /** Metres over which one zone hands over to the next. */
 export const BIOME_BLEND = 150
 
+/**
+ * A long run loops the zones: after the neon night the sky eases back to day at this
+ * distance and the cycle starts again, so a great run keeps changing scenery.
+ */
+export const BIOME_LAP = 2800
+
+/** Night to day is the biggest change of light in the lap, so the dawn takes longer. */
+export const BIOME_DAWN = 280
+
 export interface BiomeMix {
   from: Biome
   to: Biome
@@ -712,14 +728,23 @@ export function biomeMix(distance: number): BiomeMix {
   // passed. Picking the last zone whose handover has merely *started* would swap the
   // base colour a whole blend early, and the sky would cut in one metre rather than
   // easing over 150: the check caught exactly that at 369 m.
+  const d = ((distance % BIOME_LAP) + BIOME_LAP) % BIOME_LAP
   let index = 0
-  for (let i = 0; i < BIOMES.length; i += 1) if (distance >= BIOMES[i].at) index = i
-  const to = BIOMES[index + 1]
-  if (!to) return { from: BIOMES[index], to: BIOMES[index], t: 0 }
-  const raw = (distance - (to.at - BIOME_BLEND)) / BIOME_BLEND
+  for (let i = 0; i < BIOMES.length; i += 1) if (d >= BIOMES[i].at) index = i
+  // After the last zone the lap closes back on the first one, at BIOME_LAP.
+  const to = BIOMES[index + 1] ?? BIOMES[0]
+  const toAt = BIOMES[index + 1] ? to.at : BIOME_LAP
+  const span = BIOMES[index + 1] ? BIOME_BLEND : BIOME_DAWN
+  const raw = (d - (toAt - span)) / span
   const t = Math.min(1, Math.max(0, raw))
   // Smoothstep: a handover that eases in and out reads as weather, not as a switch.
   return { from: BIOMES[index], to, t: t * t * (3 - 2 * t) }
+}
+
+/** The zone that owns the road at `distance` (the nearer side of a handover). */
+export function zoneAt(distance: number): string {
+  const { from, to, t } = biomeMix(distance)
+  return t < 0.5 ? from.name : to.name
 }
 
 /**

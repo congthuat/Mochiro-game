@@ -1,7 +1,7 @@
 // Mochiro HUD: score, Arc coin counter, multiplier, speed meter, power-ups,
 // touch controls and transient overlays.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Pause, Gauge, Zap, Magnet, Shield, ShieldCheck, Coins, Ghost, Shuffle, CloudFog, Weight, Compass, TriangleAlert, Check } from 'lucide-react'
+import { Pause, Gauge, Zap, Magnet, Shield, ShieldCheck, Coins, Ghost, Shuffle, CloudFog, Weight, Compass, TriangleAlert, Check, Siren } from 'lucide-react'
 import { formatNumber, useT } from '../../lib/i18n'
 import { POWER_BY_KIND } from '../../runner/config'
 import type { PowerKind } from '../../runner/types'
@@ -166,6 +166,24 @@ export function RushHud({
       </div>
 
       <div className="ar-hud-track">
+        {hud.event && (
+          <div className={`ar-event ar-event-${hud.event.kind}${hud.event.phase === 'incoming' ? ' is-incoming' : ''}`}>
+            <span className="ar-event-label">
+              {hud.event.kind === 'goldRush' ? <Coins size={14} /> : <Siren size={14} />}
+              {t(`event.${hud.event.kind}`)}
+            </span>
+            {hud.event.phase === 'incoming' ? (
+              <span className="ar-event-note">{t('event.incoming', { n: hud.event.seconds })}</span>
+            ) : (
+              <>
+                <span className="ar-event-bar">
+                  <i style={{ width: `${Math.max(0, 100 - hud.event.progress * 100)}%` }} />
+                </span>
+                <span className="ar-event-note">{hud.event.seconds}s</span>
+              </>
+            )}
+          </div>
+        )}
         {hud.heat > 0.02 && (
           <div className={`ar-pursuit${hud.heat > 0.7 ? ' is-hot' : ''}`}>
             <span className="ar-pursuit-label">

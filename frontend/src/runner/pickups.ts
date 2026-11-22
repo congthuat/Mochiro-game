@@ -189,7 +189,7 @@ export class PickupManager {
    *  - arc:  a jump arc (rewards clearing a low obstacle)
    *  - wave: sine wave across the lane (keeps the player weaving)
    */
-  spawnLine(lane: number, z: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof', line: number): number {
+  spawnLine(lane: number, z: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof' | 'sky', line: number): number {
     const baseX = LANES[Math.max(0, Math.min(LANES.length - 1, lane))]
     let spawned = 0
     for (let i = 0; i < count; i++) {
@@ -204,6 +204,8 @@ export class PickupManager {
       if (style === 'wave') x = baseX + Math.sin(t * Math.PI * 2) * 0.55
       // Roof line: floats at car-roof height so the ramp launch pays out.
       if (style === 'roof') y = 1.95 + Math.sin(Math.PI * t) * 0.35
+      // Sky line: rides along the skyway truck roofs.
+      if (style === 'sky') y = 2.55 + Math.sin(Math.PI * t * 2) * 0.2
       coin.active = true
       coin.collected = false
       coin.line = line

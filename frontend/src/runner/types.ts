@@ -27,7 +27,20 @@ export type PowerKind =
   | 'fog'
   | 'heavy'
 
-export type ObstacleKind = 'low' | 'tall' | 'car' | 'bus' | 'ramp' | 'tunnel'
+export type ObstacleKind = 'low' | 'tall' | 'car' | 'bus' | 'ramp' | 'tunnel' | 'truck' | 'laserLow' | 'laserHigh'
+
+/** Timed set pieces that take over the road for a few seconds. */
+export type RunEventKind = 'goldRush' | 'rushHour'
+
+export interface RunEventHud {
+  kind: RunEventKind
+  /** 'incoming' while the content is still on its way down the road. */
+  phase: 'incoming' | 'active'
+  /** 0 … 1 through the active part. */
+  progress: number
+  /** Whole seconds left (incoming: until it arrives; active: until it ends). */
+  seconds: number
+}
 
 export interface HudState {
   score: number
@@ -60,6 +73,8 @@ export interface HudState {
   canRevive: boolean
   reviveCost: number
   missions: MissionProgress[]
+  /** The live road event, if any — see Runner.updateEvents. */
+  event: RunEventHud | null
 }
 
 export interface MissionProgress {

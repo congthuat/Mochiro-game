@@ -17,6 +17,9 @@ export type RushSfx =
   | 'gameover'
   | 'uiClick'
   | 'uiHover'
+  | 'horn'
+  | 'alarm'
+  | 'fanfare'
 
 const midiToFreq = (midi: number): number => 440 * Math.pow(2, (midi - 69) / 12)
 
@@ -430,6 +433,25 @@ export class RushAudio {
         break
       case 'uiClick':
         this.blip(1180, t, 0.05, 'square', 0.1)
+        break
+      case 'horn':
+        // Two-tone car horn: a major third, slightly detuned, short and blunt.
+        this.blip(392, t, 0.34, 'square', 0.1)
+        this.blip(494, t, 0.34, 'square', 0.09)
+        this.blip(396, t + 0.02, 0.3, 'sawtooth', 0.05)
+        break
+      case 'alarm':
+        // Rush Hour: a rising two-note siren, twice.
+        this.sweep(620, 880, t, 0.22, 'square', 0.1)
+        this.sweep(880, 620, t + 0.22, 0.22, 'square', 0.1)
+        this.sweep(620, 880, t + 0.44, 0.22, 'square', 0.1)
+        break
+      case 'fanfare':
+        // Gold Rush: a bright arpeggio climbing an octave and a bit.
+        ;[67, 72, 76, 79, 84, 88].forEach((note, index) =>
+          this.blip(midiToFreq(note), t + index * 0.07, 0.26, 'triangle', 0.2)
+        )
+        this.noiseSweep(t + 0.3, 0.4, 3000, 9000, 0.06)
         break
       case 'uiHover':
         this.blip(880, t, 0.03, 'sine', 0.05)

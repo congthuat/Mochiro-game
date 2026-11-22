@@ -18,7 +18,7 @@
  *   bun run scripts/biome-check.ts
  */
 import * as THREE from 'three'
-import { BIOMES, BIOME_BLEND, biomeMix } from '../src/runner/config'
+import { BIOMES, BIOME_BLEND, BIOME_DAWN, BIOME_LAP, biomeMix, zoneAt } from '../src/runner/config'
 import { translate } from '../src/lib/i18n'
 
 let failed = 0
@@ -65,7 +65,13 @@ console.log('\nThe handover\n')
 
 check('a fresh run starts in the first zone', biomeMix(0).from.name === BIOMES[0].name && biomeMix(0).t === 0, `${biomeMix(0).from.name} t=${biomeMix(0).t}`)
 const last = BIOMES[BIOMES.length - 1]
-check('a long run ends in the last zone', biomeMix(50_000).from.name === last.name, biomeMix(50_000).from.name)
+check('the lap is longer than the last zone start', BIOME_LAP - BIOME_DAWN > last.at + BIOME_BLEND, `lap ${BIOME_LAP} m · ${last.name} at ${last.at} m`)
+check('after the last zone the city loops back to the first', biomeMix(BIOME_LAP + 1).from.name === BIOMES[0].name, biomeMix(BIOME_LAP + 1).from.name)
+check(
+  'every zone comes round again on the second lap',
+  BIOMES.every((zone) => biomeMix(BIOME_LAP + zone.at + 1).from.name === zone.name && zoneAt(BIOME_LAP + zone.at + BIOME_BLEND + 1) === zone.name),
+  BIOMES.map((z) => `${z.name}@${zoneAt(BIOME_LAP + z.at + BIOME_BLEND + 1)}`).join(' · ')
+)
 check(
   'every zone is reached',
   BIOMES.every((zone) => biomeMix(zone.at + 1).from.name === zone.name),
@@ -75,7 +81,7 @@ check(
 // Metre by metre: the blended sky, fog and sun may never jump.
 let worstStep = 0
 let worstAt = 0
-for (let d = 0; d < 3000; d += 1) {
+for (let d = 0; d < 3 * BIOME_LAP; d += 1) {
   const now = biomeMix(d)
   const next = biomeMix(d + 1)
   for (const key of ['sky', 'fog', 'sun', 'skyBounce', 'groundBounce'] as const) {
@@ -107,7 +113,7 @@ const intensity = (d: number): number => {
 let minExposure = 9
 let maxExposure = 0
 let minSun = 9
-for (let d = 0; d < 3000; d += 5) {
+for (let d = 0; d < 3 * BIOME_LAP; d += 5) {
   minExposure = Math.min(minExposure, exposure(d))
   maxExposure = Math.max(maxExposure, exposure(d))
   minSun = Math.min(minSun, intensity(d))

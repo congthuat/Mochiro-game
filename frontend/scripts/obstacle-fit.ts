@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three'
 import { BODY, OBSTACLES, PHYSICS, RUN, type ObstacleKind } from '../src/runner/config'
-import { PILLAR_WIDTH, PILLAR_X, busGeometry, carGeometry, rampGeometry, tunnelGeometry } from '../src/runner/obstacles'
+import { PILLAR_WIDTH, PILLAR_X, busGeometry, carGeometry, laserGeometry, rampGeometry, truckGeometry, tunnelGeometry } from '../src/runner/obstacles'
 
 const TOLERANCE = 0.08
 
@@ -26,6 +26,9 @@ const meshes: Record<ObstacleKind, () => THREE.BufferGeometry> = {
   bus: busGeometry,
   ramp: rampGeometry,
   tunnel: tunnelGeometry,
+  truck: truckGeometry,
+  laserLow: () => laserGeometry('laserLow'),
+  laserHigh: () => laserGeometry('laserHigh'),
 }
 
 /** Plain boxes are centred on their own origin; the manager lifts them into place. */
@@ -34,9 +37,9 @@ const meshLift = (kind: ObstacleKind): number =>
 
 /** Gates are flat-topped and span the road: a vertical probe at the centre must land
  *  on the collision box at both ends. */
-const GATES: ObstacleKind[] = ['low', 'tall', 'tunnel']
+const GATES: ObstacleKind[] = ['low', 'tall', 'tunnel', 'laserLow', 'laserHigh']
 /** Platforms and ramps are not flat: their roof (or ridge) is the walkable surface. */
-const PLATFORMS: ObstacleKind[] = ['car', 'bus', 'ramp']
+const PLATFORMS: ObstacleKind[] = ['car', 'bus', 'ramp', 'truck']
 
 /** Where the visible surface sits, straight up and straight down from the road centre. */
 function probe(kind: ObstacleKind): { top: number | null; bottom: number | null; highest: number; lowest: number } {
@@ -100,7 +103,7 @@ for (const kind of Object.keys(meshes) as ObstacleKind[]) {
 }
 
 console.log('\nGates you have to slide under')
-for (const kind of ['tunnel'] as ObstacleKind[]) {
+for (const kind of ['tunnel', 'laserHigh'] as ObstacleKind[]) {
   const spec = OBSTACLES[kind]
   const top = spec.bottom + spec.height
   check(

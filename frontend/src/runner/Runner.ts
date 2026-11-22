@@ -17,7 +17,9 @@ import {
   CHARACTERS,
   CHARACTER_IDS,
   PURSUIT,
+  OBSTACLES,
   biomeMix,
+  zoneAt,
   difficulty,
   reviveCostFor,
   powerTakesHold,
@@ -32,6 +34,7 @@ import { PickupManager, type Coin, type PowerUp } from './pickups'
 import { Scenery } from './scenery'
 import { FlyCoins, ShockRings, SparkSystem, SpeedLines, speedLevel } from './effects'
 import { Track } from './track'
+import { ZoneDressing } from './zones'
 import { buildCoinTexture, loadArcBrand, loadArcMark, type ArcMark } from './arc'
 import {
   BODY,
@@ -54,6 +57,7 @@ import type {
   ArcBrand,
   HudState,
   Phase,
+  RunEventKind,
   PickupEvent,
   PowerKind,
   ProgressState,
@@ -153,6 +157,26 @@ interface RunState {
   heat: number
   busted: boolean
   revived: boolean
+  /** Extra room the next pattern must leave, so oncoming traffic never drives through it. */
+  reserve: number
+  /** Every contact with a hazard, shield or not — Rush Hour pays only for a clean pass. */
+  contacts: number
+  /** The road event in progress (see updateEvents), and its timeline in run seconds. */
+  eventKind: RunEventKind | null
+  eventSpawnUntil: number
+  eventArriveAt: number
+  eventEndAt: number
+  nextEventAt: number
+  eventIndex: number
+  eventContacts: number
+  eventCoins: number
+  /** Lane the last gold river ran in, so the next one makes you move. */
+  riverLane: number
+  /** Force the next pattern to be a breather (after an event). */
+  breatherNext: boolean
+  /** Seconds spent up on the skyway this convoy, and whether it has been called out. */
+  roofTime: number
+  roofToasted: boolean
 }
 
 interface LineTracker {
@@ -172,6 +196,12 @@ type PatternKind =
   | 'rampCar'
   | 'slideGate'
   | 'breather'
+  | 'oncoming'
+  | 'rushTraffic'
+  | 'merge'
+  | 'skyway'
+  | 'laserGrid'
+  | 'goldRiver'
 
 /**
  * Pattern pools by stage of the run. The early pool teaches one verb at a time; later
@@ -179,16 +209,58 @@ type PatternKind =
  */
 const PATTERN_POOLS: Array<{ until: number; weights: Array<[PatternKind, number]> }> = [
   { until: 0.12, weights: [['single', 55], ['jumpLine', 30], ['gate', 15]] },
-  { until: 0.3, weights: [['single', 20], ['jumpLine', 18], ['double', 24], ['gate', 12], ['slalom', 12], ['traffic', 14]] },
+  {
+    until: 0.3,
+    weights: [['single', 18], ['jumpLine', 16], ['double', 22], ['gate', 11], ['slalom', 11], ['traffic', 12], ['merge', 8], ['skyway', 8], ['oncoming', 6]],
+  },
   {
     until: 0.6,
-    weights: [['single', 8], ['jumpLine', 10], ['double', 16], ['gate', 8], ['slalom', 13], ['gauntlet', 11], ['traffic', 13], ['rampCar', 11], ['slideGate', 10]],
+    weights: [
+      ['single', 6], ['jumpLine', 8], ['double', 14], ['gate', 6], ['slalom', 12], ['gauntlet', 10], ['traffic', 11], ['rampCar', 9],
+      ['slideGate', 9], ['oncoming', 10], ['merge', 9], ['skyway', 9], ['laserGrid', 12],
+    ],
   },
   {
     until: Infinity,
-    weights: [['single', 4], ['jumpLine', 6], ['double', 14], ['gate', 5], ['slalom', 14], ['gauntlet', 14], ['traffic', 14], ['rampCar', 11], ['slideGate', 9], ['tunnel', 13]],
+    weights: [
+      ['single', 3], ['jumpLine', 4], ['double', 11], ['gate', 4], ['slalom', 12], ['gauntlet', 12], ['traffic', 11], ['rampCar', 8],
+      ['slideGate', 7], ['tunnel', 11], ['rushTraffic', 10], ['oncoming', 11], ['merge', 9], ['skyway', 8], ['laserGrid', 13],
+    ],
   },
 ]
+
+/**
+ * Each district leans on its own set pieces: the construction zone builds skyways and
+ * merges, dusk is commuter traffic, the neon night is the only place the laser fences
+ * stand. Multipliers on the pool weights; a kind listed in ZONE_ONLY appears nowhere else.
+ */
+const ZONE_FLAVOR: Record<string, Partial<Record<PatternKind, number>>> = {
+  day: {},
+  golden: { skyway: 2.2, merge: 1.6, rampCar: 1.4 },
+  dusk: { oncoming: 2.2, rushTraffic: 2, merge: 1.3 },
+  neon: { laserGrid: 2.2, oncoming: 1.3, gauntlet: 1.2 },
+}
+const ZONE_ONLY: Partial<Record<PatternKind, string>> = { laserGrid: 'neon' }
+
+/** The traffic set Rush Hour draws from. */
+const RUSH_HOUR_POOL: Array<[PatternKind, number]> = [['oncoming', 10], ['rushTraffic', 10], ['merge', 8], ['traffic', 6]]
+
+/**
+ * Road events. The first comes round once a run has found its feet, then one a minute
+ * or so; they alternate so a long run gets both.
+ */
+const EVENT = {
+  firstAt: 38,
+  gapMin: 50,
+  gapMax: 65,
+  goldRushSeconds: 7,
+  rushHourSeconds: 11,
+  /** Rush Hour survived without a single contact pays this (points × difficulty, Gold). */
+  rushPoints: 2500,
+  rushGold: 25,
+}
+/** Points a second for running the skyway roofs (× multiplier × difficulty). */
+const SKYWAY_POINTS = 120
 
 /**
  * Rhythm: a run breathes in phrases. Most beats are normal; one beat in each phrase is a
@@ -234,6 +306,7 @@ export class Runner {
   private outputPass: OutputPass | null = null
 
   private track: Track
+  private zones: ZoneDressing
   private scenery: Scenery | null = null
   private obstacles: ObstacleManager
   private pickups: PickupManager | null = null
@@ -348,6 +421,8 @@ export class Runner {
 
     this.track = new Track(this.preset, 20261110)
     this.scene.add(this.track.group)
+    this.zones = new ZoneDressing(this.preset, 20261122)
+    this.scene.add(this.zones.group)
     this.obstacles = new ObstacleManager(this.preset)
     this.scene.add(this.obstacles.group)
     this.sparks = new SparkSystem(this.preset.particles)
@@ -749,6 +824,7 @@ export class Runner {
     this.studio = on
     if (this.scenery) this.scenery.group.visible = !on
     this.track.group.visible = !on
+    this.zones.group.visible = !on
     this.obstacles.group.visible = !on
     if (this.pickups) this.pickups.group.visible = !on
     this.speedLines.mesh.visible = !on && this.preset.speedLines > 0
@@ -1045,6 +1121,7 @@ export class Runner {
     this.rng = makeRng(Math.floor(Math.random() * 0xffffffff))
     this.obstacles.reset()
     this.pickups?.reset()
+    this.zones.reset()
     this.avatar.root.visible = true
     this.avatar.root.position.set(LANES[1], 0, 0)
     this.avatar.root.rotation.set(0, 0, 0)
@@ -1143,6 +1220,7 @@ export class Runner {
     this.input.dispose()
     this.audio.dispose()
     this.track.dispose()
+    this.zones.dispose()
     this.scenery?.dispose()
     this.obstacles.dispose()
     this.pickups?.dispose()
@@ -1256,6 +1334,7 @@ export class Runner {
     this.buildComposer()
     this.applyEnvironment()
     this.track.setQuality(this.preset)
+    this.zones.setQuality(this.preset)
     this.scenery?.setQuality(this.preset)
     this.obstacles.setQuality(this.preset)
     this.pickups?.setQuality(this.preset)
@@ -1291,6 +1370,7 @@ export class Runner {
     this.applyBiome(0)
     this.run.speed = 9
     this.track.update(dt, 9, this.clockTime)
+    this.zones.update(dt, 9, 0, this.track.archPhase)
     this.scenery?.update(dt, 9, this.clockTime)
     this.pickups?.update(dt, 9, this.clockTime, false, this.target)
     this.sparks.update(dt, 9 * dt)
@@ -1358,6 +1438,7 @@ export class Runner {
     this.applyBiome(run.distance)
     this.updatePursuit(dt)
     this.updateMissions()
+    this.updateEvents()
     this.applyInput(dt, boosting)
     this.updatePhysics(dt)
     this.spawnIfNeeded(dt)
@@ -1365,8 +1446,10 @@ export class Runner {
     const dz = run.speed * dt
     this.target.set(run.laneX, run.y, 0)
     this.track.update(dt, run.speed, this.clockTime)
+    this.zones.update(dt, run.speed, run.distance, this.track.archPhase)
     this.scenery?.update(dt, run.speed, this.clockTime)
     this.obstacles.update(dt, run.speed)
+    this.updateTraffic()
     if (this.pickups) {
       this.pickups.magnetRadius = this.magnetReach
       this.pickups.passiveReach = this.passiveReach
@@ -1380,6 +1463,7 @@ export class Runner {
     this.checkCoins(dz)
     this.checkPowers()
     this.checkObstacles(dz)
+    this.updateSkyway(dt)
 
     if (run.ghostUntil > run.elapsed) {
       this.sparks.burst(this.avatar.root.position.x, run.y + 0.85, 0.2, {
@@ -1675,17 +1759,38 @@ export class Runner {
     run.spawnCursor -= run.speed * dt
     if (run.spawnCursor > 0) return
     const difficulty = clamp01((run.elapsed - 5) / 130)
-    const beat = run.beat
-    run.beat = (run.beat + 1) % PHRASE
-    // The first phrase plays straight; breathers start once there is something to rest from.
-    const breather = beat === PHRASE - 1 && difficulty >= 0.12
-    const pattern = breather ? 'breather' : this.pickPattern(difficulty)
+    // The zone the pattern will be met in, not the one the runner is standing in.
+    const zone = zoneAt(run.distance + RUN.spawnAhead)
+    const event = run.eventKind && run.elapsed < run.eventSpawnUntil ? run.eventKind : null
+    let pattern: PatternKind
+    let rhythm = 1
+    if (this.forcedPattern) {
+      pattern = this.forcedPattern
+      this.forcedPattern = null
+    } else if (event === 'goldRush') {
+      pattern = 'goldRiver'
+      rhythm = 0.3
+    } else if (event === 'rushHour') {
+      const pool = RUSH_HOUR_POOL.filter(([kind]) => kind !== 'rushTraffic' || difficulty >= 0.3)
+      pattern = this.drawPattern(pool)
+      rhythm = 0.9
+    } else {
+      const beat = run.beat
+      run.beat = (run.beat + 1) % PHRASE
+      // The first phrase plays straight; breathers start once there is something to rest from.
+      const breather = run.breatherNext || (beat === PHRASE - 1 && difficulty >= 0.12)
+      run.breatherNext = false
+      pattern = breather ? 'breather' : this.pickPattern(difficulty, zone)
+      rhythm = breather ? BREATHER_GAP : beat === BURST_BEAT && difficulty >= 0.3 ? BURST_GAP : 1
+    }
     run.lastPattern = pattern
-    if (import.meta.env.DEV) this.patternLog.push(`${Math.round(run.elapsed)}s:${pattern}`)
+    if (import.meta.env.DEV) this.patternLog.push(`${Math.round(run.elapsed)}s:${pattern}${event ? '!' : ''}@${zone}`)
+    run.reserve = 0
     const length = this.spawnPattern(pattern, -RUN.spawnAhead, difficulty)
-    const rhythm = breather ? BREATHER_GAP : beat === BURST_BEAT && difficulty >= 0.3 ? BURST_GAP : 1
-    run.spawnCursor = length + run.speed * gapTimeAt(run.elapsed) * this.diff.gaps * rhythm
+    run.spawnCursor = Math.max(length + run.speed * gapTimeAt(run.elapsed) * this.diff.gaps * rhythm, run.reserve)
 
+    // A gold rush is a reward lap: nothing on the road but Gold.
+    if (event === 'goldRush') return
     run.powerTimer -= 1
     if (run.powerTimer <= 0) {
       run.powerTimer = Math.round(randRange(this.rng, 5, 9))
@@ -1716,9 +1821,17 @@ export class Runner {
     return 'magnet'
   }
 
-  private pickPattern(difficulty: number): PatternKind {
+  private pickPattern(difficulty: number, zone = 'day'): PatternKind {
     const pool = (PATTERN_POOLS.find((entry) => difficulty < entry.until) ?? PATTERN_POOLS[PATTERN_POOLS.length - 1]).weights
-    // Never the same set piece twice in a row: repetition is what makes a runner feel small.
+    const flavor = ZONE_FLAVOR[zone] ?? {}
+    const weighted = pool
+      .filter(([kind]) => !ZONE_ONLY[kind] || ZONE_ONLY[kind] === zone)
+      .map(([kind, weight]): [PatternKind, number] => [kind, weight * (flavor[kind] ?? 1)])
+    return this.drawPattern(weighted)
+  }
+
+  /** Weighted draw that never repeats the last set piece: repetition makes a runner feel small. */
+  private drawPattern(pool: Array<[PatternKind, number]>): PatternKind {
     const options = pool.filter(([kind]) => kind !== this.run.lastPattern)
     const total = options.reduce((sum, [, weight]) => sum + weight, 0)
     let roll = this.rng() * total
@@ -1734,9 +1847,27 @@ export class Runner {
     const lanes = [0, 1, 2]
     const free = () => lanes[Math.floor(this.rng() * lanes.length)]
     const spawn = (type: ObstacleKind, lane: number, at: number) => this.obstacles.spawn(type, lane, at)
-    const line = (lane: number, at: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof') => {
+    const line = (lane: number, at: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof' | 'sky') => {
+      if (count <= 0) return
       const id = this.run.lineCounter++
       this.trackLine(id, count, this.pickups?.spawnLine(lane, at, count, style, id) ?? 0)
+    }
+    // Oncoming traffic is timed to a slot: it reaches the runner exactly when a parked
+    // obstacle spawned at `slot` would, so the pattern reads like any other. It starts
+    // further up the road and drives at them; while it is still behind the spawn line
+    // the next pattern is held back (run.reserve) so it never drives through one.
+    const oncoming = (type: ObstacleKind, lane: number, slot: number) => {
+      const s = Math.max(8, this.run.speed)
+      const reach = -slot
+      // Never start further than ~280 m out (deep in the fog on every tier).
+      const v = Math.min(9 + 7 * difficulty, s * (280 / reach) - s)
+      const at = slot * ((s + v) / s)
+      const vehicle = spawn(type, lane, at)
+      if (!vehicle) return null
+      this.obstacles.makeOncoming(vehicle, v)
+      const clear = reach - (RUN.spawnAhead * s) / (s + v) + OBSTACLES[type].depth + 4
+      this.run.reserve = Math.max(this.run.reserve, clear)
+      return vehicle
     }
 
     switch (kind) {
@@ -1820,6 +1951,90 @@ export class Runner {
         line(1, z + 1.8, 4, 'flat')
         if (this.rng() < 0.5) spawn('car', free(), z - 7)
         return 11
+      }
+      case 'oncoming': {
+        // A car (later a bus) driving straight at you, headlights on, horn when it is close.
+        const lane = free()
+        const type: ObstacleKind = difficulty >= 0.5 && this.rng() < 0.35 ? 'bus' : 'car'
+        oncoming(type, lane, z)
+        const others = lanes.filter((item) => item !== lane)
+        const pick = Math.floor(this.rng() * 2)
+        // From mid-run a hurdle shares the slot, so the dodge has a second verb.
+        if (difficulty > 0.3 && this.rng() < 0.6) spawn('low', others[pick], z)
+        line(others[1 - pick], z + 1.5, 6, 'flat')
+        return 8
+      }
+      case 'rushTraffic': {
+        // Two oncoming vehicles a beat apart plus a parked car: thread the gap.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [a, b, c] = order
+        const step = Math.max(9, this.run.speed * 0.55)
+        oncoming(difficulty >= 0.5 && this.rng() < 0.3 ? 'bus' : 'car', a, z)
+        oncoming('car', b, z - step)
+        spawn('car', c, z - step)
+        // Lane A is open again by the second slot — the reward for reading it.
+        line(a, z - step + 2.5, 4, 'flat')
+        return step + 8
+      }
+      case 'merge': {
+        // A car signals and changes lane in front of you; the lane it leaves is the prize.
+        const from = free()
+        const to = from === 1 ? (this.rng() < 0.5 ? 0 : 2) : 1
+        const other = lanes.find((item) => item !== from && item !== to) ?? 0
+        const car = spawn('car', from, z)
+        const s = this.run.speed
+        if (car) this.obstacles.makeMerge(car, to, -Math.max(60, s * 2.1), -Math.max(30, s * 1.05))
+        if (difficulty > 0.35) spawn('low', other, z)
+        line(from, z - 3.5, 5, 'flat')
+        return 10
+      }
+      case 'skyway': {
+        // The high road: a ramp up onto a convoy of box trucks, a coin line and a points
+        // trickle along the roofs. Below, one lane of hurdles and one open lane.
+        const s = this.run.speed
+        const trucks = s < 22 ? 2 : s < 38 ? 3 : 4
+        const pitch = OBSTACLES.truck.depth + 0.6
+        const gapR = Math.max(2.4, s * 0.2)
+        const firstCentre = z - OBSTACLES.ramp.depth / 2 - gapR - OBSTACLES.truck.depth / 2
+        const backEnd = firstCentre - (trucks - 1) * pitch - OBSTACLES.truck.depth / 2
+        const step = Math.max(10, s * 0.9)
+        const hurdles = Math.max(1, Math.floor((z - 4 - (backEnd + 2)) / step) + 1)
+        if (this.obstacles.available() < 1 + trucks + hurdles + 1) return this.spawnPattern('rampCar', z, difficulty)
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [high, ground, open] = order
+        spawn('ramp', high, z)
+        for (let i = 0; i < trucks; i++) spawn('truck', high, firstCentre - i * pitch)
+        const roofLength = z - OBSTACLES.ramp.depth / 2 - gapR - backEnd
+        line(high, firstCentre + OBSTACLES.truck.depth / 2 - 3, Math.min(16, Math.floor(roofLength / 2.45) - 2), 'sky')
+        for (let i = 0, at = z - 4; i < hurdles; i++, at -= step) {
+          spawn('low', ground, at)
+          if (i === 0) line(ground, at + 2.2, 5, 'arc')
+        }
+        if (difficulty > 0.5) spawn('tall', open, z - 2)
+        return z - backEnd + 4
+      }
+      case 'laserGrid': {
+        // Neon district: three lanes, three verbs — jump the pink, duck the cyan, never the wall.
+        const row = (at: number): number => {
+          const kinds: ObstacleKind[] = ['laserLow', 'laserHigh', 'tall']
+          kinds.sort(() => this.rng() - 0.5)
+          kinds.forEach((type, lane) => spawn(type, lane, at))
+          return kinds.indexOf('laserLow')
+        }
+        const lowLane = row(z)
+        line(lowLane, z + 2.2, 5, 'arc')
+        if (difficulty < 0.45) return 6
+        const gap = Math.max(14, this.run.speed * 0.6)
+        row(z - gap)
+        return gap + 6
+      }
+      case 'goldRiver': {
+        // Gold Rush: rivers of coins that switch lanes, nothing to hit.
+        const options = lanes.filter((item) => item !== this.run.riverLane)
+        const lane = options[Math.floor(this.rng() * options.length)]
+        this.run.riverLane = lane
+        line(lane, z, 8, this.rng() < 0.5 ? 'wave' : 'arc')
+        return 8 * 2.45 + 2
       }
       case 'breather': {
         // A free stretch: two weaving coin runs and nothing to hit.
@@ -2061,6 +2276,7 @@ export class Runner {
   }
 
   private checkObstacles(dz: number): void {
+    void dz
     const run = this.run
     const height = run.sliding ? BODY.slideHeight : BODY.standHeight
     const boosting = run.boostUntil > run.elapsed
@@ -2074,7 +2290,9 @@ export class Runner {
       // a jump by where the runner had been a step earlier. That is what let a
       // runner pass through an obstacle their body was still inside.
       const reach = spec.depth / 2 + 0.55
-      const previousZ = obstacle.z - dz
+      // Moving traffic covers more than the world scroll in a step, so each obstacle
+      // carries the z it started the step at.
+      const previousZ = obstacle.prevZ
       const alongside = Math.abs(obstacle.z) <= reach
       // Traffic comes down the road towards +z. `swept` is a hazard that jumped the
       // whole contact window in one frame (a long frame at full speed); `leaving` is
@@ -2129,6 +2347,17 @@ export class Runner {
         if (bottom - (y + height) < BODY.nearMiss) this.graze(obstacle, swept)
         continue
       }
+      // Roofs (cars, the skyway trucks) are landings: feet within a hand of the top while
+      // coming down is a landing, not a crash into the bodywork.
+      if (spec.platformTop && !swept && y >= top - 0.3 && !run.sliding) {
+        run.y = top
+        if (run.vy <= 0) {
+          run.vy = 0
+          run.onGround = true
+          run.coyote = PHYSICS.coyoteTime
+        }
+        continue
+      }
       // No forgiveness on this edge. A runner whose feet are still below the top of
       // a solid obstacle is inside it, and a wall with no `platformTop` cannot be
       // stood on, so there is no landing to forgive — forgiving it is exactly what
@@ -2175,6 +2404,7 @@ export class Runner {
   private hit(obstacle: Obstacle): void {
     const run = this.run
     if (run.invulnUntil > run.elapsed) return
+    run.contacts += 1
     this.shake = Math.min(1.4, this.shake + 0.9)
     // Every contact adds danger, shield or not: a ward absorbs the impact, not the
     // attention. This is what makes the meter a rule rather than a decoration — and it
@@ -2395,6 +2625,7 @@ export class Runner {
     const slow = clamp(1 - (this.clockTime - this.gameOverAt) * 1.6, 0.05, 1)
     const dz = run.speed * slow * dt
     this.track.update(dt, run.speed * slow, this.clockTime)
+    this.zones.update(dt, run.speed * slow, run.distance, this.track.archPhase)
     this.scenery?.update(dt, run.speed * slow, this.clockTime)
     this.obstacles.update(dt, run.speed * slow)
     this.pickups?.update(dt, run.speed * slow, this.clockTime, false, this.target)
@@ -2472,6 +2703,120 @@ export class Runner {
       lastShieldAt: -Infinity,
       tierIndex: 0,
       hits: 0,
+      reserve: 0,
+      contacts: 0,
+      eventKind: null,
+      eventSpawnUntil: 0,
+      eventArriveAt: 0,
+      eventEndAt: 0,
+      nextEventAt: EVENT.firstAt,
+      eventIndex: 0,
+      eventContacts: 0,
+      eventCoins: 0,
+      riverLane: 1,
+      breatherNext: false,
+      roofTime: 0,
+      roofToasted: false,
+    }
+  }
+
+  // ----------------------------------------------------------------- events --
+  /**
+   * Road events: Gold Rush (a few seconds of nothing but coin rivers) and Rush Hour
+   * (traffic only — get through without a scratch for a bonus). The HUD calls one out
+   * while it is still on its way down the road, then counts it down once it arrives.
+   */
+  private updateEvents(): void {
+    const run = this.run
+    if (!run.eventKind) {
+      if (run.elapsed >= run.nextEventAt) this.startEvent(run.eventIndex % 2 === 0 ? 'goldRush' : 'rushHour')
+      return
+    }
+    // Until the event reaches the runner, what happens on the road is not part of it.
+    if (run.elapsed < run.eventArriveAt) {
+      run.eventContacts = run.contacts
+      run.eventCoins = run.pickedCoins
+    }
+    if (run.elapsed >= run.eventEndAt) this.endEvent()
+  }
+
+  private startEvent(kind: RunEventKind): void {
+    const run = this.run
+    const lead = RUN.spawnAhead / Math.max(8, run.speed)
+    run.eventKind = kind
+    run.eventSpawnUntil = run.elapsed + (kind === 'goldRush' ? EVENT.goldRushSeconds : EVENT.rushHourSeconds)
+    // The pattern already on its way plays out first; the event arrives with the next one.
+    run.eventArriveAt = run.elapsed + lead + Math.max(0, run.spawnCursor) / Math.max(8, run.speed)
+    run.eventEndAt = run.eventSpawnUntil + lead + 0.6
+    run.eventContacts = run.contacts
+    run.eventCoins = run.pickedCoins
+    this.toast(translate(`event.${kind}.start`), kind === 'goldRush' ? 'good' : 'warn')
+    this.audio.play(kind === 'goldRush' ? 'fanfare' : 'alarm')
+  }
+
+  private endEvent(): void {
+    const run = this.run
+    const kind = run.eventKind
+    run.eventKind = null
+    run.eventIndex += 1
+    run.nextEventAt = run.elapsed + randRange(this.rng, EVENT.gapMin, EVENT.gapMax)
+    run.breatherNext = true
+    if (kind === 'goldRush') {
+      const picked = run.pickedCoins - run.eventCoins
+      this.toast(translate('event.goldRush.end', undefined, { n: picked }), 'good')
+      return
+    }
+    if (run.contacts === run.eventContacts) {
+      const points = Math.round(EVENT.rushPoints * this.diff.score)
+      run.score += points
+      run.coins += EVENT.rushGold
+      this.toast(translate('event.rushHour.clear', undefined, { points: formatScore(points), gold: EVENT.rushGold }), 'good')
+      this.audio.play('power')
+      this.rings?.burst(run.laneX, run.y + 1, 0, { color: new THREE.Color(PALETTE.coinGlow).getHex(), radius: 2.4, life: 0.5, spin: 2 })
+    } else {
+      this.toast(translate('event.rushHour.over'), 'info')
+    }
+  }
+
+  private eventHud(): HudState['event'] {
+    const run = this.run
+    if (!run.eventKind || this.phase !== 'playing') return null
+    const incoming = run.elapsed < run.eventArriveAt
+    const span = Math.max(0.1, run.eventEndAt - run.eventArriveAt)
+    return {
+      kind: run.eventKind,
+      phase: incoming ? 'incoming' : 'active',
+      progress: incoming ? 0 : clamp01((run.elapsed - run.eventArriveAt) / span),
+      seconds: Math.max(0, Math.ceil(incoming ? run.eventArriveAt - run.elapsed : run.eventEndAt - run.elapsed)),
+    }
+  }
+
+  /** Oncoming traffic sounds its horn once, about a second and a half out. */
+  private updateTraffic(): void {
+    const run = this.run
+    for (const obstacle of this.obstacles.pool) {
+      if (!obstacle.active || obstacle.smashing || obstacle.vz <= 0 || obstacle.honked) continue
+      if (obstacle.z < -(run.speed + obstacle.vz) * 1.5) continue
+      obstacle.honked = true
+      // Only worth a horn if it is in, or next to, the runner's lane.
+      if (Math.abs(obstacle.mesh.position.x - run.laneX) < 3.6) this.audio.play('horn')
+    }
+  }
+
+  /** Points trickle while running the truck roofs; called out once per convoy. */
+  private updateSkyway(dt: number): void {
+    const run = this.run
+    const onRoof = run.onGround && run.y > 1.4
+    if (onRoof) {
+      run.roofTime += dt
+      run.score += SKYWAY_POINTS * run.multiplier * this.diff.score * dt
+      if (run.roofTime > 1 && !run.roofToasted) {
+        run.roofToasted = true
+        this.toast(translate('runner.toast.skyway'), 'good')
+      }
+    } else if (run.onGround && run.y < 0.5) {
+      run.roofTime = 0
+      run.roofToasted = false
     }
   }
 
@@ -2521,6 +2866,7 @@ export class Runner {
       canRevive: !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
       reviveCost: reviveCostFor(this.diff, this.run.coins),
       missions: this.run.missions,
+      event: this.eventHud(),
     }
     void force
     this.events.emit('hud', hud)
@@ -2601,6 +2947,21 @@ export class Runner {
     this.applyPower(kind, { x: 0, y: 0, z: 0 }, !powerTakesHold(CHARACTERS[this.character]?.perk, spec.harmful))
   }
 
+  /** Dev-only: make the next spawned pattern this one (QA for the set pieces). */
+  private forcedPattern: PatternKind | null = null
+  debugForcePattern(kind: string): void {
+    if (!import.meta.env.DEV) return
+    this.forcedPattern = kind as PatternKind
+    this.run.spawnCursor = 0
+  }
+
+  /** Dev-only: start a road event now. */
+  debugEvent(kind: RunEventKind): void {
+    if (!import.meta.env.DEV) return
+    if (this.run.eventKind) this.endEvent()
+    this.startEvent(kind)
+  }
+
   /** QA helper: place an obstacle at an exact z (platform tests need control). */
   debugPlaceObstacle(kind: ObstacleKind, lane: number, z: number): void {
     this.obstacles.spawn(kind, lane, z)
@@ -2644,6 +3005,14 @@ export class Runner {
   }
 
   /** QA helper: wipe the road clean (lets a check undo its own spawns). */
+  /** QA helper: what is on the road right now. */
+  debugObstacles(): Array<{ kind: string; x: number; y: number; z: number; vz: number }> {
+    if (!import.meta.env.DEV) return []
+    return this.obstacles.pool
+      .filter((o) => o.active)
+      .map((o) => ({ kind: o.spec.kind, x: +o.mesh.position.x.toFixed(2), y: +o.mesh.position.y.toFixed(2), z: +o.z.toFixed(1), vz: +o.vz.toFixed(1) }))
+  }
+
   debugClearObstacles(): void {
     this.obstacles.reset()
   }

@@ -1485,6 +1485,72 @@ body {
   gap: 8px;
   margin-top: 10px;
 }
+.ar-event {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--ar-event-line);
+  background: var(--ar-event-bg);
+  color: var(--ar-event-ink);
+  box-shadow: 0 4px 14px var(--ar-event-glow);
+  animation: ar-event-in 0.32s cubic-bezier(0.2, 1.3, 0.5, 1);
+}
+.ar-event-goldRush {
+  --ar-event-line: rgba(214, 160, 20, 0.5);
+  --ar-event-bg: linear-gradient(90deg, rgba(255, 244, 200, 0.95), rgba(255, 226, 140, 0.95));
+  --ar-event-ink: #7a5200;
+  --ar-event-glow: rgba(255, 196, 40, 0.35);
+  --ar-event-fill: linear-gradient(90deg, #ffd24a, #ff9f1a);
+}
+.ar-event-rushHour {
+  --ar-event-line: rgba(220, 70, 50, 0.45);
+  --ar-event-bg: linear-gradient(90deg, rgba(255, 238, 232, 0.95), rgba(255, 214, 200, 0.95));
+  --ar-event-ink: #9a2a14;
+  --ar-event-glow: rgba(255, 90, 60, 0.3);
+  --ar-event-fill: linear-gradient(90deg, #ff8a3c, #ff3b30);
+}
+.ar-event.is-incoming {
+  animation: ar-event-in 0.32s cubic-bezier(0.2, 1.3, 0.5, 1), ar-event-pulse 0.7s ease-in-out infinite 0.32s;
+}
+.ar-event-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ar-event-note {
+  font-weight: 600;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+.ar-event-bar {
+  display: block;
+  width: 88px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+.ar-event-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ar-event-fill);
+  transition: width 0.12s linear;
+}
+@keyframes ar-event-in {
+  from { transform: translateY(-6px) scale(0.92); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes ar-event-pulse {
+  0%, 100% { box-shadow: 0 4px 14px var(--ar-event-glow); }
+  50% { box-shadow: 0 0 0 5px var(--ar-event-glow); }
+}
 .ar-pursuit {
   display: inline-flex;
   align-items: center;
