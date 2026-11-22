@@ -2,7 +2,7 @@
 // balloons, rolling hills and a street of detailed procedural houses that recycles
 // in chunks as the runner advances.
 import * as THREE from 'three'
-import { PALETTE, RUN, type QualityPreset } from './config'
+import { PALETTE, RUN, biomeAt, type QualityPreset } from './config'
 import { buildWordmarkTexture, type ArcMark } from './arc'
 import { cloudTexture, glowTexture, skyLayerTextures } from './textures'
 import { makeRng, randRange } from './utils'
@@ -114,6 +114,10 @@ void main() {
 const SKY_FRAGMENT = /* glsl */ `
 uniform sampler2D clouds;
 uniform sampler2D ridges;
+uniform sampler2D peaks;
+uniform sampler2D dunes;
+uniform float peakAmount;
+uniform float duneAmount;
 uniform vec3 top;
 uniform vec3 mid;
 uniform vec3 horizon;
@@ -146,9 +150,21 @@ void main() {
 
   // Ridges sit in the haze: bright texels are far ranges (close to the horizon colour),
   // dark ones the near range (pulled towards the zenith colour).
+  // Out of town the ridges give way to a mountain range or to dunes.
   vec4 r = texture2D(ridges, vUv);
   vec3 ridge = mix(mix(horizon, top, 0.62), horizon, r.r);
-  col = mix(col, ridge, r.a);
+  col = mix(col, ridge, r.a * (1.0 - max(peakAmount, duneAmount)));
+  if (peakAmount > 0.001) {
+    vec4 m = texture2D(peaks, vUv);
+    vec3 rock = mix(mix(horizon, top, 0.7), horizon, m.r);
+    vec3 cap = mix(vec3(0.96, 0.97, 1.0), horizon, m.r * 0.55);
+    col = mix(col, mix(rock, cap, m.g), m.a * peakAmount);
+  }
+  if (duneAmount > 0.001) {
+    vec4 d = texture2D(dunes, vUv);
+    vec3 sand = mix(mix(horizon, vec3(0.78, 0.42, 0.2), 0.45), horizon, d.r);
+    col = mix(col, sand, d.a * duneAmount);
+  }
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
@@ -201,6 +217,10 @@ export class Scenery {
       uniforms: {
         clouds: { value: skyLayers.clouds },
         ridges: { value: skyLayers.ridges },
+        peaks: { value: skyLayers.peaks },
+        dunes: { value: skyLayers.dunes },
+        peakAmount: { value: 0 },
+        duneAmount: { value: 0 },
         top: { value: new THREE.Color(PALETTE.skyTop) },
         mid: { value: new THREE.Color(PALETTE.skyMid) },
         horizon: { value: new THREE.Color(PALETTE.skyHorizon) },
@@ -219,7 +239,7 @@ export class Scenery {
     this.sky.position.set(0, 0, -140)
     this.sky.renderOrder = -2
     this.group.add(this.sky)
-    this.disposables.push(skyGeo, skyMat, skyLayers.clouds, skyLayers.ridges)
+    this.disposables.push(skyGeo, skyMat, skyLayers.clouds, skyLayers.ridges, skyLayers.peaks, skyLayers.dunes)
 
     // --- clouds -------------------------------------------------------------
     const cloudTex = cloudTexture()
@@ -613,6 +633,12 @@ export class Scenery {
     this.cloudMat.color.copy(cloudTint)
   }
 
+  /** How much of the far horizon is a mountain range, and how much is dunes (0..1). */
+  setHorizon(peaks: number, dunes: number): void {
+    this.skyMat.uniforms.peakAmount.value = peaks
+    this.skyMat.uniforms.duneAmount.value = dunes
+  }
+
   /** Stands the procedural houses and blocks down once the real districts are built. */
   setTownVisible(visible: boolean): void {
     for (const mesh of this.town) mesh.visible = visible
@@ -631,13 +657,19 @@ export class Scenery {
     for (let i = 0; i < this.balloons.length; i++) this.balloons[i].group.visible = quality.cityBlocks > 60 || i === 0
   }
 
-  update(dt: number, speed: number, time: number): void {
+  /**
+   * `distance` is the run's; each chunk of street furniture (lamps, fences, hedges, the
+   * garden trees, the hills) stands only where the road is in town — out in the
+   * countryside the wilds take over.
+   */
+  update(dt: number, speed: number, time: number, distance = 0): void {
     const dz = speed * dt
     const loop = CHUNK_COUNT * CHUNK_LENGTH
     for (const chunk of this.chunks) {
       chunk.z += dz
       if (chunk.z > WRAP_Z) chunk.z -= loop
       chunk.group.position.z = chunk.z
+      chunk.group.visible = biomeAt(distance - chunk.z + CHUNK_LENGTH / 2).kind === 'city'
     }
 
     for (const cloud of this.clouds) {

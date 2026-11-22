@@ -34,9 +34,13 @@ import { PickupManager, type Coin, type PowerUp } from './pickups'
 import { Scenery } from './scenery'
 import { Districts } from './districts'
 import districtsUrl from '../assets/models/city-districts.glb?url'
+import landscapeUrl from '../assets/models/landscape.glb?url'
 import { FlyCoins, ShockRings, SparkSystem, SpeedLines, speedLevel } from './effects'
 import { Track } from './track'
 import { ZoneDressing } from './zones'
+import { Tunnel } from './tunnel'
+import { Weather, type WeatherKind } from './weather'
+import { updateSurface } from './surface'
 import { buildCoinTexture, loadArcBrand, loadArcMark, type ArcMark } from './arc'
 import {
   BODY,
@@ -232,14 +236,22 @@ const PATTERN_POOLS: Array<{ until: number; weights: Array<[PatternKind, number]
 ]
 
 /**
- * Each district leans on its own set pieces: the construction zone builds skyways and
- * merges, dusk is commuter traffic, the neon night is the only place the laser fences
- * stand. Multipliers on the pool weights; a kind listed in ZONE_ONLY appears nowhere else.
+ * Each stretch of the trip leans on its own set pieces: downtown is the reference mix,
+ * the suburbs are commuter traffic, the farm roads and the desert are open and fast
+ * (ramps, jumps), the forest and the snowfields weave, the tunnel is a traffic jam under
+ * the mountain, the harbour builds skyways and merges, and the neon night is the only
+ * place the laser fences stand. Multipliers on the pool weights — difficulty is set by
+ * the pool, not by the zone. A kind listed in ZONE_ONLY appears nowhere else.
  */
 const ZONE_FLAVOR: Record<string, Partial<Record<PatternKind, number>>> = {
-  day: {},
-  golden: { skyway: 2.2, merge: 1.6, rampCar: 1.4 },
-  dusk: { oncoming: 2.2, rushTraffic: 2, merge: 1.3 },
+  city: {},
+  suburb: { oncoming: 2.2, rushTraffic: 2, merge: 1.3 },
+  plains: { rampCar: 1.6, jumpLine: 1.4, single: 1.3 },
+  forest: { slalom: 1.5, gauntlet: 1.3, slideGate: 1.2 },
+  tunnel: { traffic: 1.6, oncoming: 1.5, tunnel: 1.4, skyway: 0.5 },
+  snow: { slalom: 1.6, jumpLine: 1.3, rushTraffic: 0.6 },
+  desert: { rampCar: 1.7, oncoming: 1.3, double: 1.2 },
+  port: { skyway: 2.2, merge: 1.6, rampCar: 1.4 },
   neon: { laserGrid: 2.2, oncoming: 1.3, gauntlet: 1.2 },
 }
 const ZONE_ONLY: Partial<Record<PatternKind, string>> = { laserGrid: 'neon' }
@@ -310,6 +322,9 @@ export class Runner {
   private track: Track
   private zones: ZoneDressing
   private scenery: Scenery | null = null
+  private tunnel!: Tunnel
+  private weather!: Weather
+  private weatherAmounts: Record<WeatherKind, number> = { snow: 0, leaves: 0, dust: 0 }
   private districts: Districts
   private obstacles: ObstacleManager
   private pickups: PickupManager | null = null
@@ -426,9 +441,13 @@ export class Runner {
     this.scene.add(this.track.group)
     this.zones = new ZoneDressing(this.preset, 20261122)
     this.scene.add(this.zones.group)
-    this.districts = new Districts(this.preset, districtsUrl)
+    this.districts = new Districts(this.preset, districtsUrl, landscapeUrl)
     this.districts.onReady = () => this.scenery?.setTownVisible(false)
     this.scene.add(this.districts.group)
+    this.tunnel = new Tunnel(this.preset)
+    this.scene.add(this.tunnel.group)
+    this.weather = new Weather(this.preset)
+    this.scene.add(this.weather.group)
     this.obstacles = new ObstacleManager(this.preset)
     this.scene.add(this.obstacles.group)
     this.sparks = new SparkSystem(this.preset.particles)
@@ -581,6 +600,42 @@ export class Runner {
   }
 
   /** Dev-only: renderer statistics — proves whether geometry is drawn. */
+  /**
+   * Dev-only: what the camera sees, as a grid of labels (the first thing a ray from
+   * each cell hits) — a semantic snapshot for headless checks.
+   */
+  debugPick(cols = 24, rows = 12): string[] {
+    const raycaster = new THREE.Raycaster()
+    raycaster.params.Points = { threshold: 0 }
+    this.scene.traverse((object) => {
+      if ((object as THREE.InstancedMesh).isInstancedMesh) (object as THREE.InstancedMesh).boundingSphere = null
+    })
+    const label = (object: THREE.Object3D): string => {
+      let node: THREE.Object3D | null = object
+      while (node && !node.name) node = node.parent
+      if (node) return node.name
+      const material = (object as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined
+      return `${(object as THREE.Mesh).geometry?.type ?? object.type}#${material?.color?.getHexString?.() ?? ''}`
+    }
+    const lines: string[] = []
+    const ndc = new THREE.Vector2()
+    for (let r = 0; r < rows; r++) {
+      const cells: string[] = []
+      for (let c = 0; c < cols; c++) {
+        ndc.set(((c + 0.5) / cols) * 2 - 1, 1 - ((r + 0.5) / rows) * 2)
+        raycaster.setFromCamera(ndc, this.camera)
+        const hit = raycaster.intersectObjects(this.scene.children, true).find((h) => {
+          if (h.object.type === 'Points' || h.object.type === 'Sprite') return false
+          for (let node: THREE.Object3D | null = h.object; node; node = node.parent) if (!node.visible) return false
+          return true
+        })
+        cells.push(hit ? `${label(hit.object)}@${Math.round(hit.distance)}` : 'sky')
+      }
+      lines.push(cells.join(' | '))
+    }
+    return lines
+  }
+
   debugStats(): Record<string, unknown> {
     const info = this.renderer.info
     return {
@@ -833,6 +888,8 @@ export class Runner {
     this.track.group.visible = !on
     this.zones.group.visible = !on
     this.districts.group.visible = !on
+    this.tunnel.group.visible = !on
+    this.weather.group.visible = !on
     this.obstacles.group.visible = !on
     if (this.pickups) this.pickups.group.visible = !on
     this.speedLines.mesh.visible = !on && this.preset.speedLines > 0
@@ -1235,6 +1292,8 @@ export class Runner {
     this.track.dispose()
     this.zones.dispose()
     this.districts.dispose()
+    this.tunnel.dispose()
+    this.weather.dispose()
     this.scenery?.dispose()
     this.obstacles.dispose()
     this.pickups?.dispose()
@@ -1350,6 +1409,8 @@ export class Runner {
     this.track.setQuality(this.preset)
     this.zones.setQuality(this.preset)
     this.districts.setQuality(this.preset)
+    this.tunnel.setQuality(this.preset)
+    this.weather.setQuality(this.preset)
     this.scenery?.setQuality(this.preset)
     this.obstacles.setQuality(this.preset)
     this.pickups?.setQuality(this.preset)
@@ -1384,10 +1445,10 @@ export class Runner {
     // Back to noon: quitting from the night zone must not leave the menu in the dark.
     this.applyBiome(0)
     this.run.speed = 9
-    this.track.update(dt, 9, this.clockTime)
+    this.track.update(dt, 9, this.clockTime, 0)
     this.zones.update(dt, 9, 0, this.track.archPhase)
     this.districts.update(dt, 9, 0)
-    this.scenery?.update(dt, 9, this.clockTime)
+    this.scenery?.update(dt, 9, this.clockTime, 0)
     this.pickups?.update(dt, 9, this.clockTime, false, this.target)
     this.sparks.update(dt, 9 * dt)
     this.updatePickupFx(dt, 9 * dt)
@@ -1461,10 +1522,10 @@ export class Runner {
 
     const dz = run.speed * dt
     this.target.set(run.laneX, run.y, 0)
-    this.track.update(dt, run.speed, this.clockTime)
+    this.track.update(dt, run.speed, this.clockTime, run.distance)
     this.zones.update(dt, run.speed, run.distance, this.track.archPhase)
     this.districts.update(dt, run.speed, run.distance)
-    this.scenery?.update(dt, run.speed, this.clockTime)
+    this.scenery?.update(dt, run.speed, this.clockTime, run.distance)
     this.obstacles.update(dt, run.speed)
     this.updateTraffic()
     if (this.pickups) {
@@ -1838,7 +1899,7 @@ export class Runner {
     return 'magnet'
   }
 
-  private pickPattern(difficulty: number, zone = 'day'): PatternKind {
+  private pickPattern(difficulty: number, zone = 'city'): PatternKind {
     const pool = (PATTERN_POOLS.find((entry) => difficulty < entry.until) ?? PATTERN_POOLS[PATTERN_POOLS.length - 1]).weights
     const flavor = ZONE_FLAVOR[zone] ?? {}
     const weighted = pool
@@ -2291,6 +2352,18 @@ export class Runner {
     )
     this.districts.setNight(from.stars + (to.stars - from.stars) * t)
     this.biomeNow = t < 0.5 ? from.name : to.name
+
+    // Out of town: the ground's colour, the mountains or dunes on the horizon, the
+    // weather, and the tunnel through the range.
+    updateSurface(distance)
+    this.scenery?.setHorizon(from.peaks + (to.peaks - from.peaks) * t, from.dunes + (to.dunes - from.dunes) * t)
+    const amounts = this.weatherAmounts
+    for (const kind of ['snow', 'leaves', 'dust'] as const) {
+      amounts[kind] = (from.weather === kind ? 1 - t : 0) + (to.weather === kind ? t : 0)
+    }
+    const height = this.renderer.domElement.height || 720
+    this.weather.update(this.clockTime, distance, amounts, height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)))
+    this.tunnel.update(distance)
   }
 
   private checkObstacles(dz: number): void {
@@ -2642,10 +2715,11 @@ export class Runner {
     const run = this.run
     const slow = clamp(1 - (this.clockTime - this.gameOverAt) * 1.6, 0.05, 1)
     const dz = run.speed * slow * dt
-    this.track.update(dt, run.speed * slow, this.clockTime)
+    this.applyBiome(run.distance)
+    this.track.update(dt, run.speed * slow, this.clockTime, run.distance)
     this.zones.update(dt, run.speed * slow, run.distance, this.track.archPhase)
     this.districts.update(dt, run.speed * slow, run.distance)
-    this.scenery?.update(dt, run.speed * slow, this.clockTime)
+    this.scenery?.update(dt, run.speed * slow, this.clockTime, run.distance)
     this.obstacles.update(dt, run.speed * slow)
     this.pickups?.update(dt, run.speed * slow, this.clockTime, false, this.target)
     this.sparks.update(dt, dz)

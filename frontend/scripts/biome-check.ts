@@ -18,7 +18,7 @@
  *   bun run scripts/biome-check.ts
  */
 import * as THREE from 'three'
-import { BIOMES, BIOME_BLEND, BIOME_DAWN, BIOME_LAP, biomeMix, zoneAt } from '../src/runner/config'
+import { BIOMES, BIOME_LAP, biomeMix, blendInto, tunnelSpan, zoneAt } from '../src/runner/config'
 import { translate } from '../src/lib/i18n'
 
 let failed = 0
@@ -46,9 +46,24 @@ check(
   BIOMES.map((z) => z.name).join(', ')
 )
 check(
-  'the handover is shorter than the shortest zone',
-  BIOMES.every((zone, i) => i === 0 || zone.at - BIOMES[i - 1].at > BIOME_BLEND),
-  `blend ${BIOME_BLEND} m · closest zones ${Math.min(...BIOMES.slice(1).map((z, i) => z.at - BIOMES[i].at))} m apart`
+  'every handover is shorter than the zone before it',
+  BIOMES.every((zone, i) => i === 0 || zone.at - BIOMES[i - 1].at > blendInto(zone)),
+  BIOMES.slice(1).map((z, i) => `${z.name} ${blendInto(z)}/${z.at - BIOMES[i].at} m`).join(' · ')
+)
+const tunnel = tunnelSpan()
+check(
+  'the mountain tunnel is long enough to feel like one, and short enough not to drag',
+  tunnel.end - tunnel.start >= 150 && tunnel.end - tunnel.start <= 260,
+  `${tunnel.start}–${tunnel.end} m (${tunnel.end - tunnel.start} m)`
+)
+check(
+  'both tunnel handovers happen within a car length of the portals',
+  BIOMES.every((zone, i) => {
+    const before = BIOMES[i - 1]
+    const touches = zone.kind === 'tunnel' || before?.kind === 'tunnel'
+    return !touches || blendInto(zone) <= 30
+  }),
+  BIOMES.filter((z, i) => z.kind === 'tunnel' || BIOMES[i - 1]?.kind === 'tunnel').map((z) => `${z.name} ${blendInto(z)} m`).join(' · ')
 )
 
 for (const zone of BIOMES) {
@@ -65,12 +80,12 @@ console.log('\nThe handover\n')
 
 check('a fresh run starts in the first zone', biomeMix(0).from.name === BIOMES[0].name && biomeMix(0).t === 0, `${biomeMix(0).from.name} t=${biomeMix(0).t}`)
 const last = BIOMES[BIOMES.length - 1]
-check('the lap is longer than the last zone start', BIOME_LAP - BIOME_DAWN > last.at + BIOME_BLEND, `lap ${BIOME_LAP} m · ${last.name} at ${last.at} m`)
+check('the last zone lasts before the lap closes', BIOME_LAP - blendInto(BIOMES[0]) > last.at + 150, `lap ${BIOME_LAP} m · ${last.name} at ${last.at} m`)
 check('after the last zone the city loops back to the first', biomeMix(BIOME_LAP + 1).from.name === BIOMES[0].name, biomeMix(BIOME_LAP + 1).from.name)
 check(
   'every zone comes round again on the second lap',
-  BIOMES.every((zone) => biomeMix(BIOME_LAP + zone.at + 1).from.name === zone.name && zoneAt(BIOME_LAP + zone.at + BIOME_BLEND + 1) === zone.name),
-  BIOMES.map((z) => `${z.name}@${zoneAt(BIOME_LAP + z.at + BIOME_BLEND + 1)}`).join(' · ')
+  BIOMES.every((zone) => biomeMix(BIOME_LAP + zone.at + 1).from.name === zone.name && zoneAt(BIOME_LAP + zone.at + 1) === zone.name),
+  BIOMES.map((z) => `${z.name}@${zoneAt(BIOME_LAP + z.at + 1)}`).join(' · ')
 )
 check(
   'every zone is reached',
@@ -78,12 +93,14 @@ check(
   BIOMES.map((z) => `${z.name}@${biomeMix(z.at + 1).from.name}`).join(' · ')
 )
 
-// Metre by metre: the blended sky, fog and sun may never jump.
+// Metre by metre: the blended sky, fog and sun may never jump — except at the tunnel
+// portals, where the cut is the point (the rock face hides it).
 let worstStep = 0
 let worstAt = 0
 for (let d = 0; d < 3 * BIOME_LAP; d += 1) {
   const now = biomeMix(d)
   const next = biomeMix(d + 1)
+  if (now.to.kind === 'tunnel' || now.from.kind === 'tunnel') continue
   for (const key of ['sky', 'fog', 'sun', 'skyBounce', 'groundBounce'] as const) {
     const from = blend(now.from[key], now.to[key], now.t)
     const to = blend(next.from[key], next.to[key], next.t)

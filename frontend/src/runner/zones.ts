@@ -36,9 +36,9 @@ const ARCH_SPACING = 44
 
 /** Which zone each prop belongs to, how often it comes round (m), and how many may exist. */
 const SCHEDULE: Record<PropKind, { zone: string; every: number; jitter: number; cap: number; lowCap: number }> = {
-  crane: { zone: 'golden', every: 62, jitter: 24, cap: 5, lowCap: 3 },
-  barricade: { zone: 'golden', every: 21, jitter: 10, cap: 12, lowCap: 7 },
-  lanterns: { zone: 'dusk', every: ARCH_SPACING, jitter: 0, cap: 6, lowCap: 5 },
+  crane: { zone: 'port', every: 62, jitter: 24, cap: 5, lowCap: 3 },
+  barricade: { zone: 'port', every: 21, jitter: 10, cap: 12, lowCap: 7 },
+  lanterns: { zone: 'suburb', every: ARCH_SPACING, jitter: 0, cap: 6, lowCap: 5 },
   neonGate: { zone: 'neon', every: ARCH_SPACING * 2, jitter: 0, cap: 4, lowCap: 3 },
   strip: { zone: 'neon', every: 13, jitter: 0, cap: 40, lowCap: 22 },
 }

@@ -1,16 +1,19 @@
-// City districts: real streets of buildings along the run, one district per zone.
+// City districts: real streets of buildings along the run, one district per zone —
+// and, between the cities, the countryside (wilds.ts plans it, this layer places it).
 //
 // Models: Kenney "City Kit (Commercial) 2.1", "City Kit (Suburban) 2.0" and
 // "City Kit (Industrial) 2.0" — all CC0 (public domain), https://www.kenney.nl.
 // scripts/build-districts.ts packs the pieces we use into one meshopt-compressed GLB
 // (no normals: everything here is drawn flat-shaded), one 512² colour atlas per kit.
 //
-//   day    → downtown:   shop fronts and offices, café parasols, towers behind.
-//   golden → industrial: warehouses and works, container yards and tanks, chimneys,
+//   city   → downtown:   shop fronts and offices, café parasols, towers behind.
+//   suburb → suburb:     houses with front fences and garden trees, a wooded edge.
+//   port   → industrial: warehouses and works, container yards and tanks, chimneys,
 //                         water towers and wind turbines on the skyline (the crane
 //                         district of zones.ts sits on top of this).
-//   dusk   → suburb:     houses with front fences and garden trees, a wooded edge.
 //   neon   → night city: a canyon of tall blocks and skyscrapers, windows lit.
+//   plains, forest, snow, desert, tunnel → the countryside of wilds.ts, plus a far
+//                         ring of mountains, hills or dunes.
 //
 // Every building stands on its own street "lot" (a paved/lawn plot) in the front row,
 // facing the road, with a sparser skyline row further out. Lots are spawned for the zone
@@ -21,8 +24,9 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import { zoneAt, type QualityPreset } from './config'
+import { tunnelAround, zoneAt, type QualityPreset } from './config'
 import { makeRng, pick, randRange } from './utils'
+import { WILDS, buildGeneratedModels, planWild, wildCapacity, type ModelSize, type Tier, type WildOptions, type WildPlacer } from './wilds'
 
 /** Kenney units → metres: a two-storey shop lands at ~9 m, the tallest tower at ~38 m. */
 export const DISTRICT_SCALE = 7
@@ -33,16 +37,21 @@ const PLOT_TOP = 0.02
 const GROUND_Y = -0.34
 /** Behind the camera: lots are retired once their near edge passes this. */
 const DESPAWN_Z = 40
+/** Metres before a tunnel portal where the countryside rows stop (tunnel.ts dresses them). */
+const TUNNEL_CLEAR = 10
+/** Nearest a countryside part's edge may come to the road's centre line (the pavement ends at 7.4). */
+const WILD_CLEAR = 8
 /** The group's scroll offset is folded back into the lots past this. */
 const REBASE_AT = 2000
 
-export type Kit = 'com' | 'sub' | 'ind'
+/** City kits (atlas-textured), the Nature Kit and the runtime shapes (both vertex-coloured). */
+export type Kit = 'com' | 'sub' | 'ind' | 'nat' | 'gen'
 export type District = 'downtown' | 'industrial' | 'suburb' | 'neon'
 
 export const ZONE_DISTRICT: Record<string, District> = {
-  day: 'downtown',
-  golden: 'industrial',
-  dusk: 'suburb',
+  city: 'downtown',
+  suburb: 'suburb',
+  port: 'industrial',
   neon: 'neon',
 }
 
@@ -179,7 +188,7 @@ export function bakeDistrictModels(root: THREE.Object3D): Map<string, DistrictMo
   for (const child of root.children) {
     // GLTFLoader strips '.' from object names; the original survives in userData.
     const key = (child.userData?.name as string | undefined) ?? child.name
-    const match = /^(com|sub|ind)\.(.+)$/.exec(key)
+    const match = /^(com|sub|ind|nat)\.(.+)$/.exec(key)
     if (!match) continue
     const parts: THREE.BufferGeometry[] = []
     child.traverse((node) => {
@@ -190,8 +199,20 @@ export function bakeDistrictModels(root: THREE.Object3D): Map<string, DistrictMo
       if (!position) return
       const part = new THREE.BufferGeometry()
       part.setAttribute('position', toFloat(position))
-      const uv = source.getAttribute('uv')
-      part.setAttribute('uv', uv ? toFloat(uv) : new THREE.BufferAttribute(new Float32Array(position.count * 2), 2))
+      const color = source.getAttribute('color')
+      if (color) {
+        // The Nature Kit is vertex-coloured (quantised, possibly RGBA): keep plain RGB.
+        const rgb = new Float32Array(position.count * 3)
+        for (let i = 0; i < position.count; i++) {
+          rgb[i * 3] = color.getComponent(i, 0)
+          rgb[i * 3 + 1] = color.getComponent(i, 1)
+          rgb[i * 3 + 2] = color.getComponent(i, 2)
+        }
+        part.setAttribute('color', new THREE.BufferAttribute(rgb, 3))
+      } else {
+        const uv = source.getAttribute('uv')
+        part.setAttribute('uv', uv ? toFloat(uv) : new THREE.BufferAttribute(new Float32Array(position.count * 2), 2))
+      }
       const index = source.index
         ? Array.from(source.index.array as ArrayLike<number>)
         : Array.from({ length: position.count }, (_, i) => i)
@@ -225,11 +246,14 @@ export function bakeDistrictModels(root: THREE.Object3D): Map<string, DistrictMo
 const nightUniform = { value: 0 }
 
 /**
- * The kit atlas, flat-shaded, plus lit windows after dark: texels in the kits' glass
- * blues glow in the instance's light colour, scaled by the night uniform.
+ * Shared by every material here, via the per-instance `aLit` value:
+ *  - aLit > 0: lit windows after dark — texels in the kits' glass blues glow in the
+ *    instance's light colour (integer part = palette, fraction = brightness), scaled by
+ *    the night uniform;
+ *  - aLit < 0: snow — the up-facing faces turn white (amount = -aLit), with a light
+ *    frost over the rest. The same pines and cabins serve the forest and the snowfields.
  */
-function kitMaterial(map: THREE.Texture | null): THREE.MeshStandardMaterial {
-  const material = new THREE.MeshStandardMaterial({ map, roughness: 0.84, metalness: 0.04, flatShading: true })
+function addInstanceLight(material: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = nightUniform
     shader.vertexShader = shader.vertexShader
@@ -240,9 +264,14 @@ function kitMaterial(map: THREE.Texture | null): THREE.MeshStandardMaterial {
       .replace(
         '#include <emissivemap_fragment>',
         /* glsl */ `#include <emissivemap_fragment>
+if (vLit < -0.001) {
+  float upness = dot(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz));
+  float cover = -vLit * smoothstep(0.2, 0.5, upness);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.94, 0.99), max(cover, -vLit * 0.14));
+}
 #ifdef USE_MAP
 {
-  float lum = fract(vLit);
+  float lum = vLit > 0.0 ? fract(vLit) : 0.0;
   if (uNight > 0.001 && lum > 0.001) {
     vec3 glass = pow(max(texture2D(map, vMapUv).rgb, vec3(0.0)), vec3(0.4545));
     float pane = step(0.25, glass.b - glass.r) * step(0.6, glass.b);
@@ -258,6 +287,54 @@ function kitMaterial(map: THREE.Texture | null): THREE.MeshStandardMaterial {
       )
   }
   return material
+}
+
+/** The kit atlas, flat-shaded, with lit windows and snow. */
+function kitMaterial(map: THREE.Texture | null): THREE.MeshStandardMaterial {
+  return addInstanceLight(new THREE.MeshStandardMaterial({ map, roughness: 0.84, metalness: 0.04, flatShading: true }))
+}
+
+let natureShared: THREE.MeshStandardMaterial | null = null
+
+/** One material for the whole countryside: vertex colours × the instance tint, flat-shaded. */
+function natureMaterial(): THREE.MeshStandardMaterial {
+  if (!natureShared) natureShared = addInstanceLight(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: true }))
+  return natureShared
+}
+
+let landscape: Promise<Map<string, DistrictModel>> | null = null
+
+/** Loads (once) the Nature Kit pack. */
+export function loadLandscapeModels(url: string): Promise<Map<string, DistrictModel>> {
+  if (!landscape) {
+    const loader = new GLTFLoader()
+    loader.setMeshoptDecoder(MeshoptDecoder)
+    landscape = loader.loadAsync(url).then((gltf) => {
+      const models = bakeDistrictModels(gltf.scene)
+      gltf.scene.traverse((node) => {
+        const mesh = node as THREE.Mesh
+        if (!mesh.isMesh) return
+        mesh.geometry.dispose()
+        ;(mesh.material as THREE.Material).dispose()
+      })
+      return models
+    })
+    landscape.catch(() => {
+      landscape = null
+    })
+  }
+  return landscape
+}
+
+/** Wraps a runtime-built `gen.*` geometry as a model (footprint centred, on y = 0). */
+function generatedModel(key: string, geometry: THREE.BufferGeometry): DistrictModel {
+  geometry.computeBoundingBox()
+  const box = geometry.boundingBox as THREE.Box3
+  geometry.translate(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2)
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  const fit = geometry.boundingBox as THREE.Box3
+  return { key, kit: 'gen', geometry, width: fit.max.x - fit.min.x, depth: fit.max.z - fit.min.z, height: fit.max.y - fit.min.y }
 }
 
 let pending: Promise<{ models: Map<string, DistrictModel>; materials: Record<Kit, THREE.MeshStandardMaterial> }> | null = null
@@ -310,6 +387,8 @@ interface Slot {
   lit: THREE.InstancedBufferAttribute
   capacity: number
   count: number
+  /** Countryside slots carry a per-instance colour (desert rock, crop colours). */
+  tinted: boolean
 }
 
 interface Placement {
@@ -321,6 +400,11 @@ interface Placement {
   rot: number
   scale: number
   lit: number
+  /** Non-uniform stretch (countryside shapes), on top of `scale`. */
+  sx?: number
+  sy?: number
+  sz?: number
+  tint?: number
 }
 
 interface Lot {
@@ -328,14 +412,16 @@ interface Lot {
   z: number
   /** Half its length along the road, gap included. */
   half: number
-  district: District
+  /** The city district, or the countryside zone (wilds.ts). */
+  district: string
   parts: Placement[]
-  plot: { x: number; width: number; length: number; dz: number } | null
+  plot: { x: number; width: number; length: number; dz: number; color: number; top?: number } | null
 }
 
 interface Row {
   side: -1 | 1
-  sky: boolean
+  /** Facades by the road, the skyline behind, and the far ring (mountains, dunes). */
+  tier: Tier
   /** Far edge of the furthest lot, in the group frame. */
   cursor: number
   lots: Lot[]
@@ -357,11 +443,17 @@ export class Districts {
   private quality: QualityPreset
   private slots = new Map<string, Slot>()
   private rows: Row[] = [
-    { side: -1, sky: false, cursor: DESPAWN_Z, lots: [] },
-    { side: 1, sky: false, cursor: DESPAWN_Z, lots: [] },
-    { side: -1, sky: true, cursor: DESPAWN_Z, lots: [] },
-    { side: 1, sky: true, cursor: DESPAWN_Z, lots: [] },
+    { side: -1, tier: 'front', cursor: DESPAWN_Z, lots: [] },
+    { side: 1, tier: 'front', cursor: DESPAWN_Z, lots: [] },
+    { side: -1, tier: 'sky', cursor: DESPAWN_Z, lots: [] },
+    { side: 1, tier: 'sky', cursor: DESPAWN_Z, lots: [] },
+    { side: -1, tier: 'far', cursor: DESPAWN_Z, lots: [] },
+    { side: 1, tier: 'far', cursor: DESPAWN_Z, lots: [] },
   ]
+  /** The countryside lot being planned, and the placer the planners drive. */
+  private wildLot: Lot | null = null
+  private placer: WildPlacer
+  private generated: THREE.BufferGeometry[] = []
   private plots: THREE.InstancedMesh
   private plotGeometry = new THREE.BoxGeometry(1, 1, 1).translate(0, -0.5, 0)
   private plotMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 })
@@ -378,9 +470,31 @@ export class Districts {
   private colour = new THREE.Color()
   private up = new THREE.Vector3(0, 1, 0)
 
-  constructor(quality: QualityPreset, url: string, seed = 20261123) {
+  constructor(quality: QualityPreset, url: string, landscapeUrl: string | null = null, seed = 20261123) {
     this.quality = quality
     this.rng = makeRng(seed)
+    this.placer = {
+      rng: this.rng,
+      density: this.density(),
+      put: (keys, x, dz, options) => this.putWild(keys, x, dz, options),
+      plot: (x, width, length, dz, color) => {
+        if (this.wildLot) this.wildLot.plot = { x, width, length, dz, color, top: GROUND_Y + 0.05 }
+      },
+    }
+    for (const [key, geometry] of buildGeneratedModels()) {
+      this.generated.push(geometry)
+      this.addSlot(generatedModel(key, geometry), natureMaterial(), wildCapacity(key), true)
+    }
+    if (landscapeUrl) {
+      loadLandscapeModels(landscapeUrl).then(
+        (models) => {
+          if (this.disposed) return
+          for (const model of models.values()) this.addSlot(model, natureMaterial(), wildCapacity(model.key), true)
+          this.needsFill = true
+        },
+        (error: unknown) => console.warn('[districts] countryside pack failed to load', error)
+      )
+    }
     this.plots = new THREE.InstancedMesh(this.plotGeometry, this.plotMaterial, PLOT_CAPACITY)
     this.plots.frustumCulled = false
     this.plots.receiveShadow = true
@@ -392,20 +506,9 @@ export class Districts {
         if (this.disposed) return false
         for (const model of models.values()) {
           const capacity = /container|tree|fence|planter|parasol|tank/.test(model.key) ? PROP_CAPACITY : CAPACITY
-          // The baked pack is shared (module cache); each street gets its own copy to
-          // carry its per-instance light values.
-          const geometry = model.geometry.clone()
-          const lit = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1)
-          geometry.setAttribute('aLit', lit)
-          const mesh = new THREE.InstancedMesh(geometry, materials[model.kit], capacity)
-          mesh.frustumCulled = false
-          mesh.castShadow = this.quality.shadows
-          mesh.count = 0
-          mesh.visible = false
-          this.group.add(mesh)
-          this.slots.set(model.key, { model, geometry, mesh, lit, capacity, count: 0 })
+          this.addSlot(model, materials[model.kit as 'com' | 'sub' | 'ind'], capacity, false)
         }
-        this.ready = this.slots.size > 0
+        this.ready = models.size > 0
         this.needsFill = true
         if (this.ready) this.onReady?.()
         return this.ready
@@ -417,6 +520,34 @@ export class Districts {
     )
   }
 
+  /** One pooled InstancedMesh for `model`. */
+  private addSlot(model: DistrictModel, material: THREE.Material, capacity: number, tinted: boolean): void {
+    if (this.slots.has(model.key)) return
+    // The baked packs are shared (module cache); each street gets its own copy to carry
+    // its per-instance light values.
+    const geometry = model.kit === 'gen' ? model.geometry : model.geometry.clone()
+    const lit = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1)
+    geometry.setAttribute('aLit', lit)
+    const mesh = new THREE.InstancedMesh(geometry, material, capacity)
+    mesh.name = model.key
+    mesh.frustumCulled = false
+    mesh.castShadow = this.casts(model)
+    mesh.count = 0
+    mesh.visible = false
+    if (tinted) mesh.setColorAt(0, this.colour.setHex(0xffffff))
+    this.group.add(mesh)
+    this.slots.set(model.key, { model, geometry, mesh, lit, capacity, count: 0, tinted })
+  }
+
+  /** The far ring never casts: it is outside the shadow camera, and huge. */
+  private casts(model: DistrictModel): boolean {
+    return this.quality.shadows && !/^gen\.(mountain|hill|dune|pond|cropRow)/.test(model.key)
+  }
+
+  private density(): number {
+    return Math.min(1, Math.max(0.4, this.quality.cityBlocks / 170))
+  }
+
   /** Night factor (the biome blend's star level): windows light up as it rises. */
   setNight(amount: number): void {
     nightUniform.value = Math.min(1, Math.max(0, amount * 1.15))
@@ -424,7 +555,8 @@ export class Districts {
 
   setQuality(quality: QualityPreset): void {
     this.quality = quality
-    for (const slot of this.slots.values()) slot.mesh.castShadow = quality.shadows
+    for (const slot of this.slots.values()) slot.mesh.castShadow = this.casts(slot.model)
+    this.placer.density = this.density()
     this.needsFill = true
   }
 
@@ -472,7 +604,7 @@ export class Districts {
     for (const row of this.rows) {
       for (const lot of row.lots) {
         lots += 1
-        if (!row.sky) districts[lot.district] = (districts[lot.district] ?? 0) + 1
+        if (row.tier === 'front') districts[lot.district] = (districts[lot.district] ?? 0) + 1
       }
     }
     let instances = 0
@@ -491,6 +623,8 @@ export class Districts {
       slot.geometry.dispose()
       slot.mesh.dispose()
     }
+    for (const geometry of this.generated) geometry.dispose()
+    this.generated.length = 0
     this.plotGeometry.dispose()
     this.plotMaterial.dispose()
     this.plots.dispose()
@@ -551,12 +685,34 @@ export class Districts {
   private place(row: Row, distance: number): void {
     const worldFar = row.cursor + this.offset
     // The zone the road will be in when this spot reaches the runner.
-    const district = ZONE_DISTRICT[zoneAt(distance - worldFar)] ?? 'downtown'
+    const at = distance - worldFar
+    // Nothing stands in the mountain the tunnel runs through, nor just in front of its
+    // portal (tunnel.ts dresses that with boulders): a lot that started before the face
+    // could reach through the wall. The row jumps straight to the far portal.
+    const tunnel = tunnelAround(at)
+    if (at >= tunnel.start - TUNNEL_CLEAR && at < tunnel.end) {
+      this.advance(row, { z: 0, half: 0, district: 'tunnel', parts: [], plot: null }, tunnel.end - at + 0.5)
+      return
+    }
+    let zone = zoneAt(at)
+    // The tunnel owns a few metres past its exit portal (zones hand over at their
+    // midpoint); out there it is already the next zone.
+    if (zone === 'tunnel') zone = zoneAt(tunnel.end + 40)
+    if (WILDS.includes(zone)) {
+      this.placeWild(row, zone)
+      return
+    }
+    const district = ZONE_DISTRICT[zone] ?? 'downtown'
     const plan = PLANS[district]
     const side = row.side
     const lot: Lot = { z: 0, half: 0, district, parts: [], plot: null }
 
-    if (row.sky) {
+    if (row.tier === 'far') {
+      // The city's own skyline fills the distance.
+      this.advance(row, lot, 40)
+      return
+    }
+    if (row.tier === 'sky') {
       const sparse = this.quality.cityBlocks < 100 ? 1.6 : 1
       const gap = randRange(this.rng, plan.skyGap[0], plan.skyGap[1]) * sparse
       const slot = this.pickSlot(plan.sky)
@@ -596,9 +752,55 @@ export class Districts {
       scale,
       lit: this.lightFor(plan),
     })
-    lot.plot = { x: side * (FRONT_X - plan.forecourt + (across + plan.forecourt + 2) / 2), width: across + plan.forecourt + 2, length: length + gap, dz: -gap / 2 }
+    lot.plot = { x: side * (FRONT_X - plan.forecourt + (across + plan.forecourt + 2) / 2), width: across + plan.forecourt + 2, length: length + gap, dz: -gap / 2, color: plan.plot }
     this.dress(lot, district, side, length, gap)
     this.advance(row, lot, length + gap)
+  }
+
+  /**
+   * Appends a stretch of countryside to `row`: wilds.ts decides what stands on it, the
+   * parts are counted into their pools as they are placed.
+   */
+  private placeWild(row: Row, zone: string): void {
+    const lot: Lot = { z: 0, half: 0, district: zone, parts: [], plot: null }
+    this.wildLot = lot
+    const span = Math.max(4, planWild(zone, row.tier, row.side, this.placer))
+    this.wildLot = null
+    lot.z = row.cursor - span / 2
+    lot.half = span
+    row.cursor -= span
+    row.lots.push(lot)
+    this.dirty = true
+  }
+
+  private putWild(keys: string | readonly string[], x: number, dz: number, options: WildOptions = {}): ModelSize | null {
+    const lot = this.wildLot
+    if (!lot) return null
+    const slot = typeof keys === 'string' ? this.slot(keys) : this.pickSlot(keys as string[])
+    if (!slot) return null
+    const scale = options.scale ?? 1
+    // Keep everything clear of the pavement: a planner picks a spot before it knows
+    // which model (and how wide) the pool hands it, so a big crag or cliff aimed at
+    // 13 m could still lean over the kerb. Push the part out until its near edge is.
+    const rot = options.rot ?? 0
+    const reach = (Math.abs(Math.cos(rot)) * slot.model.width * (options.sx ?? 1) + Math.abs(Math.sin(rot)) * slot.model.depth * (options.sz ?? 1)) * scale / 2
+    if (Math.abs(x) - reach < WILD_CLEAR) x = (x < 0 ? -1 : 1) * (WILD_CLEAR + reach)
+    const part: Placement = {
+      slot,
+      x,
+      y: GROUND_Y + (options.y ?? 0),
+      dz,
+      rot: options.rot ?? 0,
+      scale,
+      lit: options.snow ? -Math.min(1, options.snow) : 0,
+      sx: options.sx,
+      sy: options.sy,
+      sz: options.sz,
+      tint: options.tint,
+    }
+    lot.parts.push(part)
+    slot.count += 1
+    return { width: slot.model.width * scale * (options.sx ?? 1), depth: slot.model.depth * scale * (options.sz ?? 1), height: slot.model.height * scale * (options.sy ?? 1) }
   }
 
   /** Small things around a building: café parasols, garden fences and trees. */
@@ -697,7 +899,7 @@ export class Districts {
       length += 1
       across += 1
     }
-    lot.plot = { x: side * (FRONT_X - 2.6 + (across + 2.6 + 2) / 2), width: across + 2.6 + 2, length: length + gap, dz: -gap / 2 }
+    lot.plot = { x: side * (FRONT_X - 2.6 + (across + 2.6 + 2) / 2), width: across + 2.6 + 2, length: length + gap, dz: -gap / 2, color: PLANS.industrial.plot }
     this.advance(row, lot, length + gap)
   }
 
@@ -727,19 +929,21 @@ export class Districts {
           if (slot.count >= slot.capacity) continue
           this.pos.set(part.x, part.y, lot.z + part.dz)
           this.quat.setFromAxisAngle(this.up, part.rot)
-          this.size.setScalar(part.scale)
+          this.size.set(part.scale * (part.sx ?? 1), part.scale * (part.sy ?? 1), part.scale * (part.sz ?? 1))
           this.matrix.compose(this.pos, this.quat, this.size)
           slot.mesh.setMatrixAt(slot.count, this.matrix)
           slot.lit.setX(slot.count, part.lit)
+          if (slot.tinted) slot.mesh.setColorAt(slot.count, this.colour.setHex(part.tint ?? 0xffffff))
           slot.count += 1
         }
         if (lot.plot && plots < PLOT_CAPACITY) {
-          this.pos.set(lot.plot.x, PLOT_TOP, lot.z + lot.plot.dz)
+          const top = lot.plot.top ?? PLOT_TOP
+          this.pos.set(lot.plot.x, top, lot.z + lot.plot.dz)
           this.quat.identity()
-          this.size.set(lot.plot.width, PLOT_TOP - GROUND_Y + 0.06, lot.plot.length)
+          this.size.set(lot.plot.width, top - GROUND_Y + 0.06, lot.plot.length)
           this.matrix.compose(this.pos, this.quat, this.size)
           this.plots.setMatrixAt(plots, this.matrix)
-          this.plots.setColorAt(plots, this.colour.setHex(PLANS[lot.district].plot))
+          this.plots.setColorAt(plots, this.colour.setHex(lot.plot.color))
           plots += 1
         }
       }
@@ -750,6 +954,7 @@ export class Districts {
       if (slot.count) {
         slot.mesh.instanceMatrix.needsUpdate = true
         slot.lit.needsUpdate = true
+        if (slot.mesh.instanceColor) slot.mesh.instanceColor.needsUpdate = true
       }
     }
     this.plots.count = plots

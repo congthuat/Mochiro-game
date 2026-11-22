@@ -201,7 +201,7 @@ export function cloudTexture(): THREE.CanvasTexture {
  * Clouds go in the red channel's alpha-weighted white; mountains are drawn into a
  * second sheet so the shader can tint them with the haze rather than the clouds.
  */
-export function skyLayerTextures(): { clouds: THREE.CanvasTexture; ridges: THREE.CanvasTexture } {
+export function skyLayerTextures(): { clouds: THREE.CanvasTexture; ridges: THREE.CanvasTexture; peaks: THREE.CanvasTexture; dunes: THREE.CanvasTexture } {
   const w = 1024
   const h = 512
 
@@ -258,11 +258,90 @@ export function skyLayerTextures(): { clouds: THREE.CanvasTexture; ridges: THREE
     ctx.fill()
   }
 
+  // A mountain range for the forest and the snowfields: sharp peaks, snow caps marked
+  // in the green channel (red is still the haze depth).
+  const peakSheet = canvas2d(w, h)
+  const peakRanges = [
+    { shade: 215, alpha: 0.7, peak: 70, step: 120 },
+    { shade: 150, alpha: 0.86, peak: 104, step: 170 },
+    { shade: 96, alpha: 0.96, peak: 128, step: 230 },
+  ]
+  for (const range of peakRanges) {
+    const ctx = peakSheet.ctx
+    const peaks: Array<{ x: number; y: number; left: number; right: number }> = []
+    ctx.beginPath()
+    ctx.moveTo(0, horizon)
+    let x = 0
+    while (x < w) {
+      const span = range.step * (0.55 + rng() * 0.8)
+      const top = range.peak * (0.5 + rng() * 0.6)
+      const apex = x + span * (0.35 + rng() * 0.3)
+      // A shoulder on the way up makes it a mountain, not a sawtooth.
+      ctx.lineTo(x + (apex - x) * 0.5, horizon - top * (0.45 + rng() * 0.25))
+      ctx.lineTo(apex, horizon - top)
+      peaks.push({ x: apex, y: horizon - top, left: (apex - x) * 0.5, right: (x + span - apex) * 0.5 })
+      x += span
+      ctx.lineTo(x, horizon - range.peak * 0.12 * rng())
+    }
+    ctx.lineTo(w, horizon)
+    ctx.lineTo(w, horizon + 24)
+    ctx.lineTo(0, horizon + 24)
+    ctx.closePath()
+    ctx.fillStyle = `rgba(${range.shade}, 0, 0, ${range.alpha})`
+    ctx.fill()
+    // Snow caps: the top third of each peak, with a ragged lower edge.
+    ctx.fillStyle = `rgba(${range.shade}, 255, 0, ${range.alpha})`
+    for (const peak of peaks) {
+      const depth = (horizon - peak.y) * (0.28 + rng() * 0.12)
+      const l = peak.left * (depth / (horizon - peak.y)) * 2
+      const r = peak.right * (depth / (horizon - peak.y)) * 2
+      ctx.beginPath()
+      ctx.moveTo(peak.x, peak.y)
+      ctx.lineTo(peak.x + r, peak.y + depth)
+      ctx.lineTo(peak.x + r * 0.45, peak.y + depth * 0.72)
+      ctx.lineTo(peak.x + r * 0.1, peak.y + depth * 1.05)
+      ctx.lineTo(peak.x - l * 0.35, peak.y + depth * 0.7)
+      ctx.lineTo(peak.x - l, peak.y + depth)
+      ctx.closePath()
+      ctx.fill()
+    }
+  }
+
+  // Dunes for the desert: long low swells.
+  const duneSheet = canvas2d(w, h)
+  const duneRanges = [
+    { shade: 220, alpha: 0.7, peak: 22, step: 150 },
+    { shade: 160, alpha: 0.85, peak: 34, step: 220 },
+    { shade: 110, alpha: 0.95, peak: 46, step: 300 },
+  ]
+  for (const range of duneRanges) {
+    const ctx = duneSheet.ctx
+    ctx.beginPath()
+    ctx.moveTo(0, horizon)
+    let x = 0
+    while (x < w) {
+      const span = range.step * (0.6 + rng() * 0.8)
+      const top = range.peak * (0.5 + rng() * 0.6)
+      // Wind-blown: a long gentle back and a steeper slip face.
+      ctx.quadraticCurveTo(x + span * 0.55, horizon - top * 1.25, x + span * 0.7, horizon - top)
+      ctx.quadraticCurveTo(x + span * 0.85, horizon - top * 0.2, x + span, horizon - range.peak * 0.08)
+      x += span
+    }
+    ctx.lineTo(w, horizon)
+    ctx.lineTo(w, horizon + 24)
+    ctx.lineTo(0, horizon + 24)
+    ctx.closePath()
+    ctx.fillStyle = `rgba(${range.shade}, 0, 0, ${range.alpha})`
+    ctx.fill()
+  }
+
   // Linear data, not colour: the shader reads these as masks.
   const clouds = new THREE.CanvasTexture(cloudSheet.canvas)
   const ridges = new THREE.CanvasTexture(ridgeSheet.canvas)
-  for (const texture of [clouds, ridges]) texture.anisotropy = 4
-  return { clouds, ridges }
+  const peaks = new THREE.CanvasTexture(peakSheet.canvas)
+  const dunes = new THREE.CanvasTexture(duneSheet.canvas)
+  for (const texture of [clouds, ridges, peaks, dunes]) texture.anisotropy = 4
+  return { clouds, ridges, peaks, dunes }
 }
 
 /** Small star decal (jacket, shoes, UI accents). */

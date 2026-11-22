@@ -1,7 +1,8 @@
 // The track: a daylit road with white lane markers, black/white kerbs, cone
 // markers and colourful gate arches. Everything recycles around the runner.
 import * as THREE from 'three'
-import { LANES, PALETTE, RUN, TRACK_HALF_WIDTH, type QualityPreset } from './config'
+import { LANES, PALETTE, RUN, TRACK_HALF_WIDTH, biomeAt, type QualityPreset } from './config'
+import { applySurface } from './surface'
 import { roadTexture } from './textures'
 import { makeRng, randRange } from './utils'
 
@@ -47,8 +48,11 @@ export class Track {
 
     // --- ground -------------------------------------------------------------
     const groundGeo = new THREE.PlaneGeometry(420, ROAD_LENGTH + 60)
-    const groundMat = new THREE.MeshStandardMaterial({ color: PALETTE.grass, roughness: 0.95, metalness: 0 })
+    // Grass, snow or sand: the zone's ground colour, blended along the road (surface.ts).
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 })
+    applySurface(groundMat, 'ground')
     const ground = new THREE.Mesh(groundGeo, groundMat)
+    ground.name = 'ground'
     ground.rotation.x = -Math.PI / 2
     ground.position.set(0, -0.34, -ROAD_LENGTH / 2 + 20)
     ground.receiveShadow = true
@@ -65,6 +69,7 @@ export class Track {
     })
     const roadGeo = new THREE.PlaneGeometry(9.6, ROAD_LENGTH)
     this.floor = new THREE.Mesh(roadGeo, roadMat)
+    this.floor.name = 'road'
     this.floor.rotation.x = -Math.PI / 2
     this.floor.position.z = -ROAD_LENGTH / 2 + 20
     this.floor.receiveShadow = true
@@ -136,13 +141,19 @@ export class Track {
     // A proper pavement (kerb + slabs + a garden strip) is what makes the street
     // read as a real road instead of a ribbon floating on grass.
     const walkGeo = new THREE.BoxGeometry(2.4, 0.3, ROAD_LENGTH)
-    const walkMat = new THREE.MeshStandardMaterial({ color: 0xcfcabd, roughness: 0.94, metalness: 0 })
+    // Paving in town, a gravel or snow shoulder out of it (the zone's verge colour; the
+    // edge and the joints a shade darker).
+    const walkMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.94, metalness: 0 })
     const edgeGeo = new THREE.BoxGeometry(0.16, 0.34, ROAD_LENGTH)
-    const edgeMat = new THREE.MeshStandardMaterial({ color: 0xb2ada1, roughness: 0.94 })
+    const edgeMat = new THREE.MeshStandardMaterial({ color: 0xe2e2e2, roughness: 0.94 })
     const slabGeo = new THREE.BoxGeometry(0.06, 0.02, 2.2)
-    const slabMat = new THREE.MeshStandardMaterial({ color: 0xa9a496, roughness: 0.96 })
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0xd6d6d6, roughness: 0.96 })
+    applySurface(walkMat, 'verge')
+    applySurface(edgeMat, 'verge')
+    applySurface(slabMat, 'verge')
     for (const side of [-1, 1]) {
       const walk = new THREE.Mesh(walkGeo, walkMat)
+      walk.name = 'verge'
       walk.position.set(side * (TRACK_HALF_WIDTH + 1.6), 0.15, -ROAD_LENGTH / 2 + 20)
       walk.receiveShadow = true
       this.group.add(walk)
@@ -228,7 +239,8 @@ export class Track {
     })
   }
 
-  update(dt: number, speed: number, time: number): void {
+  /** `distance` is the run's: the gate arches only stand in town, never in the tunnel. */
+  update(dt: number, speed: number, time: number, distance = 0): void {
     const dz = speed * dt
     this.roadTex.offset.y += dz / TILE
 
@@ -260,10 +272,11 @@ export class Track {
     this.cones.instanceMatrix.needsUpdate = true
 
     const archLoop = this.arches.length * ARCH_SPACING
-    for (const arch of this.arches) {
+    this.arches.forEach((arch, index) => {
       arch.position.z += dz
       if (arch.position.z > RUN.despawnZ + 6) arch.position.z -= archLoop
-    }
+      arch.visible = index < this.quality.arches && biomeAt(distance - arch.position.z).kind === 'city'
+    })
   }
 
   private writeDash(index: number): void {

@@ -668,8 +668,12 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
 export interface Biome {
   /** Metres at which this zone is fully in charge. */
   at: number
-  /** i18n key suffix: `biome.<name>`. */
+  /** i18n key suffix: `biome.<name>`; also the zone id the scenery and traffic key off. */
   name: string
+  /** City streets, open country, or the inside of the mountain tunnel. */
+  kind: 'city' | 'wild' | 'tunnel'
+  /** Metres over which the previous zone hands over to this one (default BIOME_BLEND). */
+  blend?: number
   /** Sky behind everything: zenith, the band halfway up, and (below) the fog colour at the horizon. */
   skyTop: string
   sky: string
@@ -688,31 +692,62 @@ export interface Biome {
   /** The cool fill from the camera side, so the runner's face never goes dark. */
   fillIntensity: number
   exposure: number
+  /** The open ground beside the road (grass, snow, sand) and the strip along the kerb. */
+  ground: string
+  verge: string
+  /** Far silhouettes on the sky dome: 0 = rolling ridges, `peaks` = snow-capped mountains, `dunes` = sand. */
+  peaks: number
+  dunes: number
+  /** Something in the air. */
+  weather?: 'snow' | 'leaves' | 'dust'
 }
 
+const GRASS = '#8adc7c'
+const PAVEMENT = '#cfcabd'
+
+/** Night to day is the biggest change of light in the lap, so the dawn takes longer. */
+export const BIOME_DAWN = 280
+
+/**
+ * The run is a road trip: out of downtown through the suburbs into farmland, up into
+ * the mountain forest, through a tunnel under the range and out onto the snowfields,
+ * down to the desert at sunset, and back into the city by the harbour as night falls.
+ */
 export const BIOMES: Biome[] = [
   // The daylight the game shipped with — a run always starts here.
-  { at: 0, name: 'day', skyTop: '#2b8ae8', sky: '#7ccbfb', cloudTint: '#ffffff', stars: 0, fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04 },
-  // Golden hour: low warm sun, long light, dust in the air.
-  { at: 520, name: 'golden', skyTop: '#6a78c0', sky: '#f0a266', cloudTint: '#ffd9bd', stars: 0, fog: '#ffd7ad', sun: '#ffcb84', skyBounce: '#ffc188', groundBounce: '#a87c47', sunIntensity: 1.06, hemiIntensity: 0.43, fillIntensity: 0.34, exposure: 1.01 },
-  // Dusk: the light goes violet and the shadows stop reading as warm.
-  { at: 1150, name: 'dusk', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97 },
+  { at: 0, name: 'city', kind: 'city', blend: BIOME_DAWN, skyTop: '#2b8ae8', sky: '#7ccbfb', cloudTint: '#ffffff', stars: 0, fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  // Leaving town: houses and gardens, a warmer afternoon light.
+  { at: 400, name: 'suburb', kind: 'city', skyTop: '#3a86d8', sky: '#93cdf2', cloudTint: '#fff6ea', stars: 0, fog: '#e8f0e4', sun: '#ffe9c2', skyBounce: '#cfe6f2', groundBounce: '#a6cc82', sunIntensity: 1.02, hemiIntensity: 0.45, fillIntensity: 0.37, exposure: 1.03, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  // Open farmland under a big clean sky.
+  { at: 750, name: 'plains', kind: 'wild', skyTop: '#1f7fe6', sky: '#8fd3ff', cloudTint: '#ffffff', stars: 0, fog: '#dff3ff', sun: '#fff2cc', skyBounce: '#c4e8ff', groundBounce: '#a8d37a', sunIntensity: 1.04, hemiIntensity: 0.46, fillIntensity: 0.36, exposure: 1.04, ground: '#9fd46a', verge: '#c8b08a', peaks: 0.25, dunes: 0 },
+  // Up into the pines: cooler light, a green haze, the range ahead.
+  { at: 1150, name: 'forest', kind: 'wild', skyTop: '#3a7cc2', sky: '#9fcbe0', cloudTint: '#f3f7f2', stars: 0, fog: '#c8dccd', sun: '#ffe9c4', skyBounce: '#b9d8d0', groundBounce: '#5f8f52', sunIntensity: 0.98, hemiIntensity: 0.47, fillIntensity: 0.37, exposure: 1.03, ground: '#5f9f4a', verge: '#9c8a6e', peaks: 1, dunes: 0, weather: 'leaves' },
+  // Under the mountain: sodium light and a dark, warm haze. The portal is a hard cut.
+  { at: 1560, name: 'tunnel', kind: 'tunnel', blend: 24, skyTop: '#1a1612', sky: '#2a2219', cloudTint: '#4a3a2a', stars: 0, fog: '#2e2318', sun: '#ffc27a', skyBounce: '#ffb766', groundBounce: '#3a2a1a', sunIntensity: 0.6, hemiIntensity: 0.6, fillIntensity: 0.36, exposure: 1.0, ground: '#4b4a46', verge: '#7b766c', peaks: 1, dunes: 0 },
+  // Out into the snow: blinding white after the tunnel, a cold blue sky.
+  { at: 1760, name: 'snow', kind: 'wild', blend: 24, skyTop: '#5b8fd2', sky: '#bcd6ef', cloudTint: '#ffffff', stars: 0, fog: '#e4edf6', sun: '#f4f8ff', skyBounce: '#dbe9fb', groundBounce: '#c9d6e6', sunIntensity: 1.12, hemiIntensity: 0.72, fillIntensity: 0.42, exposure: 1.08, ground: '#eef3f8', verge: '#cfd8e2', peaks: 1, dunes: 0, weather: 'snow' },
+  // Down to the desert as the sun sets.
+  { at: 2250, name: 'desert', kind: 'wild', skyTop: '#3f5fa8', sky: '#f2a65a', cloudTint: '#ffd2a8', stars: 0, fog: '#f4c48e', sun: '#ffbe73', skyBounce: '#ffcf96', groundBounce: '#c98f52', sunIntensity: 1.1, hemiIntensity: 0.52, fillIntensity: 0.34, exposure: 1.08, ground: '#ecc98e', verge: '#d6b07a', peaks: 0, dunes: 1, weather: 'dust' },
+  // Back into the city by the harbour at dusk: cranes, warehouses, container yards.
+  { at: 2750, name: 'port', kind: 'city', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
   // Neon night: dark sky, cold key light, the emissive lift on every prop doing the
   // work of keeping the runner and the traffic readable.
-  { at: 1900, name: 'neon', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95 },
+  { at: 3100, name: 'neon', kind: 'city', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
 ]
 
-/** Metres over which one zone hands over to the next. */
+/** Metres over which one zone hands over to the next, unless the zone sets its own. */
 export const BIOME_BLEND = 150
 
 /**
  * A long run loops the zones: after the neon night the sky eases back to day at this
- * distance and the cycle starts again, so a great run keeps changing scenery.
+ * distance and the trip starts again, so a great run keeps changing scenery.
  */
-export const BIOME_LAP = 2800
+export const BIOME_LAP = 3650
 
-/** Night to day is the biggest change of light in the lap, so the dawn takes longer. */
-export const BIOME_DAWN = 280
+/** Handover length into `zone`. */
+export function blendInto(zone: Biome): number {
+  return zone.blend ?? BIOME_BLEND
+}
 
 export interface BiomeMix {
   from: Biome
@@ -726,27 +761,67 @@ export interface BiomeMix {
  * is. Pure, so the check can walk the whole distance range without a browser.
  */
 export function biomeMix(distance: number): BiomeMix {
-  // `from` is the zone the run has *fully entered* — the last one whose `at` it has
-  // passed. Picking the last zone whose handover has merely *started* would swap the
-  // base colour a whole blend early, and the sky would cut in one metre rather than
-  // easing over 150: the check caught exactly that at 369 m.
-  const d = ((distance % BIOME_LAP) + BIOME_LAP) % BIOME_LAP
+  const span = biomeSpan(distance)
+  const raw = (distance - span.start) / (span.end - span.start)
+  const t = Math.min(1, Math.max(0, raw))
+  // Smoothstep: a handover that eases in and out reads as weather, not as a switch.
+  return { from: span.from, to: span.to, t: t * t * (3 - 2 * t) }
+}
+
+export interface BiomeSpan {
+  from: Biome
+  to: Biome
+  /** Absolute run distances at which the handover from `from` to `to` starts and ends. */
+  start: number
+  end: number
+}
+
+/**
+ * The handover the run is in or is heading for, in absolute run distance. `from` is the
+ * zone the run has *fully entered* — the last one whose `at` it has passed. Picking the
+ * last zone whose handover has merely *started* would swap the base colour a whole
+ * blend early, and the sky would cut in one metre rather than easing over the blend.
+ */
+export function biomeSpan(distance: number): BiomeSpan {
+  const lap = Math.floor(distance / BIOME_LAP) * BIOME_LAP
+  const d = distance - lap
   let index = 0
   for (let i = 0; i < BIOMES.length; i += 1) if (d >= BIOMES[i].at) index = i
   // After the last zone the lap closes back on the first one, at BIOME_LAP.
   const to = BIOMES[index + 1] ?? BIOMES[0]
   const toAt = BIOMES[index + 1] ? to.at : BIOME_LAP
-  const span = BIOMES[index + 1] ? BIOME_BLEND : BIOME_DAWN
-  const raw = (d - (toAt - span)) / span
-  const t = Math.min(1, Math.max(0, raw))
-  // Smoothstep: a handover that eases in and out reads as weather, not as a switch.
-  return { from: BIOMES[index], to, t: t * t * (3 - 2 * t) }
+  const end = lap + toAt
+  return { from: BIOMES[index], to, start: end - blendInto(to), end }
+}
+
+/** The zone owning `distance`, as a Biome (the nearer side of a handover). */
+export function biomeAt(distance: number): Biome {
+  const span = biomeSpan(distance)
+  return distance < (span.start + span.end) / 2 ? span.from : span.to
 }
 
 /** The zone that owns the road at `distance` (the nearer side of a handover). */
 export function zoneAt(distance: number): string {
-  const { from, to, t } = biomeMix(distance)
-  return t < 0.5 ? from.name : to.name
+  return biomeAt(distance).name
+}
+
+/**
+ * Where the mountain tunnel runs, in metres into a lap: from the portal (where the
+ * road becomes the tunnel's) to the far mouth (where it becomes the snowfield's).
+ */
+export function tunnelSpan(): { start: number; end: number } {
+  const index = BIOMES.findIndex((zone) => zone.kind === 'tunnel')
+  const zone = BIOMES[index]
+  const next = BIOMES[index + 1] ?? BIOMES[0]
+  const nextAt = BIOMES[index + 1] ? next.at : BIOME_LAP
+  return { start: zone.at - blendInto(zone) / 2, end: nextAt - blendInto(next) / 2 }
+}
+
+/** The tunnel of the lap `distance` is in, in absolute run distance. */
+export function tunnelAround(distance: number): { start: number; end: number } {
+  const span = tunnelSpan()
+  const lap = Math.floor(distance / BIOME_LAP) * BIOME_LAP
+  return { start: lap + span.start, end: lap + span.end }
 }
 
 /**
