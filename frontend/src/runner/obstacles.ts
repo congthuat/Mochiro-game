@@ -4,8 +4,11 @@
 // kind and recycled behind the camera.
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { LANES, OBSTACLES, RUN, type ObstacleSpec, type QualityPreset } from './config'
 import { blobShadowTexture, glowTexture, hazardTexture, panelTexture } from './textures'
+import { CAR_LAMPS, loadCarModels, type CarModel } from './cars'
+import carsUrl from '../assets/models/kaykit-cars.glb?url'
 import type { ObstacleKind } from './types'
 
 export type { ObstacleKind }
@@ -32,6 +35,8 @@ export interface Obstacle {
   honked: boolean
   /** Per-kind decorations (blinkers, headlights, laser beams), built on first use. */
   decor: Partial<Record<ObstacleKind, THREE.Object3D>>
+  /** The KayKit body this car is wearing (null for the stand-in or any other kind). */
+  car: CarModel | null
 }
 
 /** Kinds that are drawn as plain lane gates and pulse (the neon fences). */
@@ -54,44 +59,96 @@ function paint(source: THREE.BufferGeometry, hex: number, offset?: [number, numb
   return geometry
 }
 
-/** City car: tinted body, dark glass, wheels and lit lamps. Roof is walkable. */
-export function carGeometry(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = []
-  const wheel = (x: number, z: number) => {
-    const geo = new THREE.CylinderGeometry(0.32, 0.32, 0.22, 14)
+/** Rounded block — the soft bevels are what make the traffic read as toys, not crates. */
+function rbox(w: number, h: number, d: number, r: number, hex: number, at: [number, number, number]): THREE.BufferGeometry {
+  return paint(new RoundedBoxGeometry(w, h, d, 2, r), hex, at)
+}
+
+/** Tyre, rim and hub cap, axle along x, resting on the road. */
+function wheelParts(x: number, z: number, radius: number, width: number): THREE.BufferGeometry[] {
+  const part = (r: number, w: number, hex: number, segments: number) => {
+    const geo = new THREE.CylinderGeometry(r, r, w, segments)
     geo.rotateZ(Math.PI / 2)
-    return paint(geo, 0x1b1e26, [x, 0.32, z])
+    return paint(geo, hex, [x, radius, z])
   }
-  parts.push(paint(new THREE.BoxGeometry(1.94, 0.62, 4.3), 0xffffff, [0, 0.71, 0]))
-  parts.push(paint(new THREE.BoxGeometry(1.72, 0.56, 2.15), 0xffffff, [0, 1.24, -0.15]))
-  parts.push(paint(new THREE.BoxGeometry(1.78, 0.4, 2.05), 0x18222f, [0, 1.28, -0.15]))
-  parts.push(paint(new THREE.BoxGeometry(1.86, 0.18, 0.3), 0xfff0c4, [0, 0.78, 2.16]))
-  parts.push(paint(new THREE.BoxGeometry(1.86, 0.18, 0.24), 0xff5a4a, [0, 0.78, -2.16]))
-  parts.push(paint(new THREE.BoxGeometry(1.98, 0.22, 4.34), 0x2b3242, [0, 0.44, 0]))
-  parts.push(wheel(-0.98, 1.42), wheel(0.98, 1.42), wheel(-0.98, -1.42), wheel(0.98, -1.42))
+  return [part(radius, width, TYRE, 20), part(radius * 0.56, width + 0.04, RIM, 14), part(radius * 0.2, width + 0.08, HUB, 10)]
+}
+
+/** The KayKit city palette, so the hand-built vehicles sit next to the modelled cars. */
+const TYRE = 0x2e2e2e
+const RIM = 0x838e93
+const HUB = 0xc9d1d6
+const TRIM = 0x808a8f
+const GLASS = 0x2c3e4c
+const LAMP = 0xeaeeef
+const AMBER = 0xf68f40
+const TAIL = 0xdf4730
+
+function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const merged = mergeGeometries(parts, false) as THREE.BufferGeometry
   for (const part of parts) part.dispose()
   return merged
 }
 
-/** City bus: long, tall, unmissable — swerve, never jump. */
-export function busGeometry(): THREE.BufferGeometry {
+/**
+ * Stand-in city car, used only until the KayKit car pack has loaded (and by the fit
+ * check): same footprint and roof as the modelled cars, bonnet facing +z.
+ */
+export function carGeometry(): THREE.BufferGeometry {
+  const spec = OBSTACLES.car
+  const top = spec.platformTop ?? spec.height
+  const half = spec.depth / 2
   const parts: THREE.BufferGeometry[] = []
-  const wheel = (x: number, z: number) => {
-    const geo = new THREE.CylinderGeometry(0.42, 0.42, 0.26, 14)
-    geo.rotateZ(Math.PI / 2)
-    return paint(geo, 0x161a21, [x, 0.42, z])
+  parts.push(rbox(spec.width - 0.02, 0.62, spec.depth - 0.04, 0.16, 0xffffff, [0, 0.62, 0]))
+  parts.push(rbox(spec.width - 0.18, top - 0.9, 2.0, 0.16, 0xffffff, [0, (0.9 + top) / 2, -0.15]))
+  parts.push(rbox(spec.width - 0.14, top - 1.08, 1.86, 0.1, GLASS, [0, (0.94 + top - 0.14) / 2, -0.15]))
+  parts.push(rbox(spec.width + 0.02, 0.22, 0.24, 0.08, TRIM, [0, 0.38, half - 0.1]))
+  parts.push(rbox(spec.width + 0.02, 0.22, 0.24, 0.08, TRIM, [0, 0.38, -half + 0.1]))
+  for (const x of [-0.56, 0.56]) {
+    parts.push(rbox(0.36, 0.14, 0.08, 0.03, LAMP, [x, 0.68, half - 0.01]))
+    parts.push(rbox(0.36, 0.14, 0.08, 0.03, TAIL, [x, 0.72, -half + 0.01]))
   }
-  parts.push(paint(new THREE.BoxGeometry(2.3, 2.5, 6.9), 0x3f7fd0, [0, 1.55, 0]))
-  parts.push(paint(new THREE.BoxGeometry(2.34, 0.5, 6.94), 0xf2f6ff, [0, 1.35, 0]))
-  parts.push(paint(new THREE.BoxGeometry(2.36, 0.8, 6.3), 0x18222f, [0, 2.2, 0]))
-  parts.push(paint(new THREE.BoxGeometry(2.2, 1.1, 0.24), 0x18222f, [0, 2.0, 3.5]))
-  parts.push(paint(new THREE.BoxGeometry(2.2, 0.22, 0.26), 0xfff0c4, [0, 0.72, 3.56]))
-  parts.push(paint(new THREE.BoxGeometry(2.2, 0.22, 0.26), 0xff5a4a, [0, 0.72, -3.56]))
-  parts.push(wheel(-1.15, 2.3), wheel(1.15, 2.3), wheel(-1.15, -2.1), wheel(1.15, -2.1))
-  const merged = mergeGeometries(parts, false) as THREE.BufferGeometry
-  for (const part of parts) part.dispose()
-  return merged
+  for (const x of [-0.72, 0.72]) for (const z of [1.15, -1.15]) parts.push(...wheelParts(x, z, 0.3, 0.24))
+  return merge(parts)
+}
+
+/**
+ * City bus: blue skirt, white upper deck, a full glass band with pillars, a lit route
+ * sign and a big windscreen facing +z. Long, tall, unmissable — swerve, never jump.
+ */
+export function busGeometry(): THREE.BufferGeometry {
+  const spec = OBSTACLES.bus
+  const top = spec.height
+  const half = spec.depth / 2 - 0.05
+  const body = spec.width - 0.05
+  const parts: THREE.BufferGeometry[] = []
+  for (const z of [2.25, -2.1]) for (const x of [-1.0, 1.0]) parts.push(...wheelParts(x, z, 0.5, 0.34))
+  // Livery: blue lower half, white upper half, an amber pinstripe between.
+  parts.push(rbox(body, 1.06, half * 2, 0.14, 0x2f7fd6, [0, 0.32 + 0.53, 0]))
+  parts.push(rbox(body, top - 1.34, half * 2, 0.2, 0xf3f6f8, [0, (1.34 + top) / 2, 0]))
+  parts.push(rbox(body + 0.04, 0.12, half * 2 - 0.3, 0.04, AMBER, [0, 1.38, 0]))
+  // Side glass band with pillars, then the front door on the kerb side.
+  parts.push(rbox(body + 0.06, 0.8, 5.5, 0.06, GLASS, [0, 2.0, -0.45]))
+  for (let z = -3.1; z <= 2.25; z += 1.07) parts.push(rbox(body + 0.08, 0.84, 0.07, 0.02, 0xf3f6f8, [0, 2.0, z]))
+  parts.push(rbox(0.06, 1.78, 0.92, 0.04, GLASS, [body / 2 + 0.01, 1.3, 2.75]))
+  // Roof: a lighter cap and the air-con pod.
+  parts.push(rbox(body - 0.2, 0.06, half * 2 - 0.4, 0.03, 0xd9dfe4, [0, top - 0.02, 0]))
+  parts.push(rbox(1.3, 0.22, 1.8, 0.08, HUB, [0, top + 0.08, -0.6]))
+  // Nose: windscreen, route sign, bumper, lamps and mirrors.
+  parts.push(rbox(body - 0.24, 1.25, 0.08, 0.05, GLASS, [0, 1.85, half + 0.01]))
+  parts.push(rbox(1.6, 0.2, 0.06, 0.03, 0xffb340, [0, 2.6, half + 0.02]))
+  parts.push(rbox(body + 0.04, 0.32, 0.22, 0.08, TRIM, [0, 0.45, half]))
+  for (const side of [-1, 1]) {
+    parts.push(rbox(0.36, 0.2, 0.06, 0.03, LAMP, [side * 0.84, 0.76, half + 0.02]))
+    parts.push(rbox(0.14, 0.2, 0.06, 0.03, AMBER, [side * 1.06, 0.76, half + 0.02]))
+    parts.push(rbox(0.08, 0.32, 0.14, 0.03, 0x1f2a36, [side * (body / 2 + 0.12), 2.15, half - 0.2]))
+    parts.push(rbox(0.16, 0.05, 0.05, 0.02, 0x1f2a36, [side * (body / 2 + 0.06), 2.3, half - 0.2]))
+  }
+  // Tail: rear window, lamps, bumper.
+  parts.push(rbox(body - 0.4, 0.7, 0.06, 0.04, GLASS, [0, 2.1, -half - 0.01]))
+  parts.push(rbox(body + 0.04, 0.32, 0.22, 0.08, TRIM, [0, 0.45, -half]))
+  for (const side of [-1, 1]) parts.push(rbox(0.28, 0.42, 0.06, 0.03, TAIL, [side * 0.9, 0.86, -half - 0.02]))
+  return merge(parts)
 }
 
 /** Launch ramp: hazard-striped wedge that kicks the runner skyward. */
@@ -126,42 +183,52 @@ export function truckGeometry(): THREE.BufferGeometry {
   const top = spec.platformTop ?? spec.height
   const half = spec.depth / 2
   const parts: THREE.BufferGeometry[] = []
-  const wheel = (x: number, z: number) => {
-    const geo = new THREE.CylinderGeometry(0.38, 0.38, 0.26, 14)
-    geo.rotateZ(Math.PI / 2)
-    return paint(geo, 0x161a21, [x, 0.38, z])
-  }
   const cabLength = 2.3
   const boxLength = spec.depth - cabLength - 0.1
   const boxCentre = half - boxLength / 2
+  const boxHeight = top - 0.62
+  const boxMid = 0.62 + boxHeight / 2
   // Chassis rail under everything.
-  parts.push(paint(new THREE.BoxGeometry(2.0, 0.3, spec.depth - 0.2), 0x2b3242, [0, 0.5, 0]))
-  // Container: tinted body up to the platform height.
-  parts.push(paint(new THREE.BoxGeometry(2.2, top - 0.62, boxLength), 0xffffff, [0, 0.62 + (top - 0.62) / 2, boxCentre]))
+  parts.push(rbox(2.0, 0.3, spec.depth - 0.2, 0.06, 0x2b3242, [0, 0.5, 0]))
+  // Container: tinted body up to exactly the platform height, softly bevelled.
+  parts.push(rbox(2.2, boxHeight, boxLength, 0.08, 0xffffff, [0, boxMid, boxCentre]))
+  // Corrugation ribs down both sides.
+  for (let z = boxCentre - boxLength / 2 + 0.5; z < boxCentre + boxLength / 2 - 0.3; z += 0.8) {
+    parts.push(rbox(2.24, boxHeight - 0.12, 0.08, 0.02, 0xdfe5ec, [0, boxMid, z]))
+  }
   // Roof deck — a lighter tread so the high road reads as walkable.
-  parts.push(paint(new THREE.BoxGeometry(2.14, 0.04, boxLength - 0.1), 0xdfe6f2, [0, top - 0.02, boxCentre]))
+  parts.push(paint(new THREE.BoxGeometry(2.08, 0.04, boxLength - 0.16), 0xeef2f8, [0, top - 0.02, boxCentre]))
   // Hazard edges along both sides of the roof.
-  parts.push(paint(new THREE.BoxGeometry(0.1, 0.06, boxLength), 0xf7c33c, [-1.06, top - 0.03, boxCentre]))
-  parts.push(paint(new THREE.BoxGeometry(0.1, 0.06, boxLength), 0xf7c33c, [1.06, top - 0.03, boxCentre]))
+  parts.push(paint(new THREE.BoxGeometry(0.1, 0.06, boxLength - 0.08), 0xf7c33c, [-1.04, top - 0.03, boxCentre]))
+  parts.push(paint(new THREE.BoxGeometry(0.1, 0.06, boxLength - 0.08), 0xf7c33c, [1.04, top - 0.03, boxCentre]))
   // Side stripe.
-  parts.push(paint(new THREE.BoxGeometry(2.24, 0.16, boxLength - 0.6), 0x1b2433, [0, 1.05, boxCentre]))
-  // Rear doors facing the runner, with lamps and a bumper.
-  parts.push(paint(new THREE.BoxGeometry(2.0, top - 0.8, 0.06), 0xc9d2e0, [0, 0.62 + (top - 0.62) / 2, half + 0.01]))
-  parts.push(paint(new THREE.BoxGeometry(0.06, top - 0.8, 0.08), 0x2b3242, [0, 0.62 + (top - 0.62) / 2, half + 0.04]))
-  parts.push(paint(new THREE.BoxGeometry(0.34, 0.2, 0.1), 0xff4a3a, [-0.86, 0.72, half + 0.04]))
-  parts.push(paint(new THREE.BoxGeometry(0.34, 0.2, 0.1), 0xff4a3a, [0.86, 0.72, half + 0.04]))
-  parts.push(paint(new THREE.BoxGeometry(2.1, 0.18, 0.22), 0xf7c33c, [0, 0.42, half - 0.05]))
+  parts.push(rbox(2.28, 0.16, boxLength - 0.6, 0.04, 0x1b2433, [0, 1.05, boxCentre]))
+  // Rear doors facing the runner: seam, locking bars, lamps and a bumper.
+  const doorZ = half + 0.01
+  parts.push(rbox(2.04, boxHeight - 0.14, 0.06, 0.02, 0xc9d2e0, [0, boxMid, doorZ]))
+  parts.push(paint(new THREE.BoxGeometry(0.05, boxHeight - 0.16, 0.08), 0x2b3242, [0, boxMid, doorZ + 0.03]))
+  for (const x of [-0.62, -0.3, 0.3, 0.62]) {
+    parts.push(paint(new THREE.BoxGeometry(0.05, boxHeight - 0.24, 0.06), 0x8a94a3, [x, boxMid, doorZ + 0.05]))
+  }
+  for (const side of [-1, 1]) {
+    parts.push(rbox(0.34, 0.2, 0.1, 0.03, 0xff4a3a, [side * 0.86, 0.72, doorZ + 0.03]))
+    parts.push(rbox(0.12, 0.2, 0.1, 0.03, AMBER, [side * 0.6, 0.72, doorZ + 0.03]))
+  }
+  parts.push(rbox(2.1, 0.18, 0.22, 0.06, 0xf7c33c, [0, 0.42, half - 0.05]))
   // Cab at the far end, lower than the container so the roof stays the highest thing.
   const cabZ = -half + cabLength / 2
-  parts.push(paint(new THREE.BoxGeometry(2.1, 0.8, cabLength), 0xffffff, [0, 1.0, cabZ]))
-  parts.push(paint(new THREE.BoxGeometry(2.0, 0.42, cabLength * 0.62), 0x18222f, [0, 1.3, cabZ - 0.2]))
-  parts.push(paint(new THREE.BoxGeometry(1.9, 0.18, 0.12), 0xfff0c4, [0, 0.76, -half - 0.02]))
-  // Wheels: two at the cab, a tandem under the box.
-  parts.push(wheel(-1.05, cabZ), wheel(1.05, cabZ))
-  parts.push(wheel(-1.05, half - 1.4), wheel(1.05, half - 1.4), wheel(-1.05, half - 2.3), wheel(1.05, half - 2.3))
-  const merged = mergeGeometries(parts, false) as THREE.BufferGeometry
-  for (const part of parts) part.dispose()
-  return merged
+  const nose = -half
+  parts.push(rbox(2.1, 0.95, cabLength, 0.18, 0xffffff, [0, 0.98, cabZ]))
+  parts.push(rbox(2.14, 0.34, cabLength * 0.5, 0.06, GLASS, [0, 1.2, cabZ - 0.3]))
+  parts.push(rbox(1.84, 0.38, 0.06, 0.04, GLASS, [0, 1.2, nose - 0.01]))
+  parts.push(rbox(1.2, 0.26, 0.06, 0.03, 0x3a4048, [0, 0.8, nose - 0.02]))
+  parts.push(rbox(2.14, 0.22, 0.22, 0.06, TRIM, [0, 0.5, nose + 0.06]))
+  for (const side of [-1, 1]) parts.push(rbox(0.3, 0.16, 0.06, 0.03, 0xfff0c4, [side * 0.8, 0.8, nose - 0.02]))
+  // Wheels: two at the cab, a tandem under the box, with mud flaps behind.
+  parts.push(...wheelParts(-0.98, cabZ, 0.4, 0.28), ...wheelParts(0.98, cabZ, 0.4, 0.28))
+  for (const z of [half - 1.4, half - 2.3]) parts.push(...wheelParts(-0.98, z, 0.4, 0.28), ...wheelParts(0.98, z, 0.4, 0.28))
+  for (const x of [-0.98, 0.98]) parts.push(paint(new THREE.BoxGeometry(0.3, 0.42, 0.04), 0x1b1e26, [x, 0.36, half - 0.75]))
+  return merge(parts)
 }
 
 /** Beam heights (centre, thickness) for each laser fence; the outer beams are the box edges. */
@@ -252,7 +319,7 @@ export class ObstacleManager {
   private truckMaterials: THREE.MeshStandardMaterial[]
   private beamGeometries: Record<'laserLow' | 'laserHigh', THREE.BufferGeometry>
   private beamMaterials: Record<'laserLow' | 'laserHigh', THREE.MeshBasicMaterial>
-  private blinkerGeometry = new THREE.BoxGeometry(0.16, 0.14, 0.2)
+  private blinkerGeometry = new THREE.BoxGeometry(0.14, 0.12, 0.12)
   private blinkerMaterial = new THREE.MeshBasicMaterial({ color: 0xffa21a, toneMapped: false })
   private headGlowMaterial: THREE.SpriteMaterial
   private beamCone: THREE.PlaneGeometry = new THREE.PlaneGeometry(2.0, 9)
@@ -268,9 +335,24 @@ export class ObstacleManager {
     depthWrite: false,
   })
   private disposables: Array<{ dispose: () => void }> = []
+  /** Modelled cars once the pack has loaded; until then the stand-in car is used. */
+  private carModels: CarModel[] = []
+  private carMaterial: THREE.Material | null = null
+  private lastCar = -1
+  private disposed = false
 
   constructor(preset: QualityPreset) {
     this.cap = preset.maxObstacles
+    // The pack is shared by every run (cached in cars.ts), so it is never disposed here.
+    loadCarModels(carsUrl)
+      .then(({ models, material }) => {
+        if (this.disposed) return
+        this.carModels = models
+        this.carMaterial = material
+      })
+      .catch(() => {
+        // Offline or blocked: the stand-in cars keep the road playable.
+      })
 
     const hazard = hazardTexture()
     const panel = panelTexture()
@@ -413,9 +495,11 @@ export class ObstacleManager {
     obstacle.honked = false
     obstacle.mesh.visible = true
     obstacle.mesh.rotation.set(0, 0, 0)
-    if (kind === 'car') obstacle.mesh.material = this.trafficMaterials[Math.floor(Math.random() * this.trafficMaterials.length)]
+    obstacle.car = null
+    if (kind === 'car') this.dressCar(obstacle)
     if (kind === 'truck') obstacle.mesh.material = this.truckMaterials[Math.floor(Math.random() * this.truckMaterials.length)]
     this.decorate(obstacle)
+    if (kind === 'car') this.fitCarDecor(obstacle)
     obstacle.mesh.position.set(
       kind === 'tunnel' ? LANES[1] : LANES[Math.max(0, Math.min(LANES.length - 1, lane))],
       spec.bottom + spec.height / 2,
@@ -427,9 +511,48 @@ export class ObstacleManager {
     const shadow = obstacle.shadow
     shadow.visible = kind !== 'tunnel' && !LASER_KINDS.includes(kind)
     // A touch wider than the footprint so the soft edge spills out round the base.
-    shadow.scale.set(spec.width * 1.25, spec.depth * 1.18 + 0.5, 1)
+    shadow.scale.set(obstacle.spec.width * 1.25, obstacle.spec.depth * 1.18 + 0.5, 1)
     shadow.position.set(obstacle.mesh.position.x, 0.025, z)
     return obstacle
+  }
+
+  /**
+   * Puts a car on the road in one of the five KayKit bodies (never the same one twice
+   * running), with its own length as the collision box. Before the pack has loaded it
+   * falls back to the tinted stand-in.
+   */
+  private dressCar(item: Obstacle): void {
+    const models = this.carModels
+    if (models.length && this.carMaterial) {
+      let index = Math.floor(Math.random() * models.length)
+      if (index === this.lastCar && models.length > 1) index = (index + 1 + Math.floor(Math.random() * (models.length - 1))) % models.length
+      this.lastCar = index
+      const model = models[index]
+      item.car = model
+      item.spec = model.spec
+      item.mesh.geometry = model.geometry
+      item.mesh.material = this.carMaterial
+      return
+    }
+    item.spec = OBSTACLES.car
+    item.mesh.geometry = this.geometries.car
+    item.mesh.material = this.trafficMaterials[Math.floor(Math.random() * this.trafficMaterials.length)]
+  }
+
+  /** Moves the lamps onto the bumpers of whichever body the car is wearing. */
+  private fitCarDecor(item: Obstacle): void {
+    const node = item.decor.car
+    if (!node) return
+    const front = item.car ? item.car.front : OBSTACLES.car.depth / 2
+    const back = item.car ? item.car.back : -OBSTACLES.car.depth / 2
+    const lights = node.getObjectByName('headlights')
+    if (lights) lights.position.z = front
+    const blinkers = node.getObjectByName('blinkers')
+    for (const set of blinkers?.children ?? []) {
+      const [rear, nose] = set.children
+      if (rear) rear.position.z = back - 0.02
+      if (nose) nose.position.z = front + 0.02
+    }
   }
 
   /**
@@ -479,21 +602,22 @@ export class ObstacleManager {
     }
     if (kind !== 'car' && kind !== 'bus') return null
     const root = new THREE.Group()
-    const front = kind === 'car' ? 2.24 : 3.62
-    const lampY = kind === 'car' ? 0.78 : 0.72
-    const lampX = kind === 'car' ? 0.68 : 0.88
+    // Cars carry their lamps on a group slid onto the bumper per body (fitCarDecor).
+    const front = kind === 'car' ? 0 : 3.48
+    const [lampX, lampY] = kind === 'car' ? CAR_LAMPS.head : [0.84, 0.76]
     // Headlights: only lit for oncoming traffic, so "it is coming at you" reads at a glance.
     const lights = new THREE.Group()
     lights.name = 'headlights'
+    lights.position.z = front
     for (const x of [-lampX, lampX]) {
       const sprite = new THREE.Sprite(this.headGlowMaterial)
-      sprite.position.set(x, lampY, front + 0.1)
-      sprite.scale.setScalar(1.5)
+      sprite.position.set(x, lampY, 0.1)
+      sprite.scale.setScalar(kind === 'car' ? 1.35 : 1.6)
       lights.add(sprite)
     }
     const cone = new THREE.Mesh(this.beamCone, this.beamConeMaterial)
     cone.rotation.x = -Math.PI / 2
-    cone.position.set(0, 0.04, front + 4.6)
+    cone.position.set(0, 0.04, 4.6)
     lights.add(cone)
     root.add(lights)
     if (kind === 'car') {
@@ -503,9 +627,10 @@ export class ObstacleManager {
       for (const side of [-1, 1]) {
         const set = new THREE.Group()
         set.name = side < 0 ? 'left' : 'right'
-        for (const z of [-2.2, 2.2]) {
+        // Rear first, then nose: fitCarDecor slides them onto the bumpers.
+        for (const z of [-OBSTACLES.car.depth / 2, OBSTACLES.car.depth / 2]) {
           const lamp = new THREE.Mesh(this.blinkerGeometry, this.blinkerMaterial)
-          lamp.position.set(side * 0.94, 0.9, z)
+          lamp.position.set(side * CAR_LAMPS.blink[0], CAR_LAMPS.blink[1], z)
           set.add(lamp)
         }
         blinkers.add(set)
@@ -583,6 +708,7 @@ export class ObstacleManager {
   }
 
   dispose(): void {
+    this.disposed = true
     for (const item of this.disposables) item.dispose()
     this.group.clear()
     this.pool.length = 0
@@ -630,6 +756,7 @@ export class ObstacleManager {
       shift: null,
       honked: false,
       decor: {},
+      car: null,
     }
     this.pool.push(obstacle)
     return obstacle

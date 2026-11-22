@@ -1,6 +1,6 @@
 // Pickups: Arc coins (the real project icon on a glowing disc) and power-ups.
 import * as THREE from 'three'
-import { LANES, PALETTE, POWERS, POWER_BY_KIND, RUN, type QualityPreset } from './config'
+import { LANES, OBSTACLES, PALETTE, POWERS, POWER_BY_KIND, RUN, type QualityPreset } from './config'
 import { powerGlyph } from './glyphs'
 import { glowTexture } from './textures'
 import type { PowerKind } from './types'
@@ -203,7 +203,7 @@ export class PickupManager {
       if (style === 'arc') y = 0.95 + Math.sin(Math.PI * t) * 1.75
       if (style === 'wave') x = baseX + Math.sin(t * Math.PI * 2) * 0.55
       // Roof line: floats at car-roof height so the ramp launch pays out.
-      if (style === 'roof') y = 1.95 + Math.sin(Math.PI * t) * 0.35
+      if (style === 'roof') y = (OBSTACLES.car.platformTop ?? 1.48) + 0.93 + Math.sin(Math.PI * t) * 0.35
       // Sky line: rides along the skyway truck roofs.
       if (style === 'sky') y = 2.55 + Math.sin(Math.PI * t * 2) * 0.2
       coin.active = true

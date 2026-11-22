@@ -94,7 +94,9 @@ export const OBSTACLES: Record<ObstacleKind, ObstacleSpec> = {
   // camera that sits high behind the runner a 1.5 m gap reads as "I fit under that",
   // and the death that follows feels like a bug. At 1.25 m it never does.
   // City traffic: a car roof is a platform you can land on and sprint along.
-  car: { kind: 'car', width: 2.1, height: 1.02, bottom: 0, depth: 4.4, points: 55, platformTop: 1.02 },
+  // Sized to the KayKit cars (runner/cars.ts): 1.68 m wide, roof at 1.48 m. Each model
+  // narrows `depth` to its own length; this is the longest (sedan / station wagon).
+  car: { kind: 'car', width: 1.68, height: 1.48, bottom: 0, depth: 3.78, points: 55, platformTop: 1.48 },
   bus: { kind: 'bus', width: 2.35, height: 2.8, bottom: 0, depth: 7.0, points: 90 },
   // A ramp kicks you skyward — land on the car parked behind it.
   ramp: { kind: 'ramp', width: 2.05, height: 1.3, bottom: 0, depth: 2.9, points: 30, launch: 14.5 },

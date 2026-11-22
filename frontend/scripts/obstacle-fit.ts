@@ -11,6 +11,9 @@
  */
 import * as THREE from 'three'
 import { BODY, OBSTACLES, PHYSICS, RUN, type ObstacleKind } from '../src/runner/config'
+import { readFileSync } from 'node:fs'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeCars } from '../src/runner/cars'
 import { PILLAR_WIDTH, PILLAR_X, busGeometry, carGeometry, laserGeometry, rampGeometry, truckGeometry, tunnelGeometry } from '../src/runner/obstacles'
 
 const TOLERANCE = 0.08
@@ -99,6 +102,41 @@ for (const kind of Object.keys(meshes) as ObstacleKind[]) {
       bottomOk && topOk,
       `mesh y ${lowest.toFixed(2)}…${highest.toFixed(2)} vs box ${specBottom.toFixed(2)}…${specTop.toFixed(2)}`
     )
+  }
+}
+
+console.log('\nThe KayKit cars: every body stands on its own collision box')
+{
+  const file = readFileSync(new URL('../src/assets/models/kaykit-cars.glb', import.meta.url))
+  const data = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength)
+  // No DOM here, so the atlas texture cannot decode; geometry is all this needs.
+  const quiet = console.error
+  console.error = () => {}
+  const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => new GLTFLoader().parse(data, '', resolve, reject))
+  console.error = quiet
+  const models = bakeCars(gltf.scene)
+  check('all five cars baked', models.length === 5, models.map((model) => model.name).join(', '))
+  const roofTop = OBSTACLES.car.platformTop ?? OBSTACLES.car.height
+  for (const model of models) {
+    const mesh = new THREE.Mesh(model.geometry, new THREE.MeshBasicMaterial())
+    mesh.updateMatrixWorld(true)
+    // The roof is probed off-centre and behind the taxi sign / police light bar.
+    const ray = new THREE.Raycaster(new THREE.Vector3(0.45, 4, -0.6), new THREE.Vector3(0, -1, 0))
+    const roof = ray.intersectObject(mesh, false)[0]?.point.y ?? null
+    const box = (model.geometry.computeBoundingBox(), model.geometry.boundingBox as THREE.Box3)
+    const fits =
+      Math.abs(box.min.y) <= 0.02 &&
+      roof !== null &&
+      Math.abs(roof - roofTop) <= TOLERANCE &&
+      box.max.x - box.min.x <= model.spec.width + 0.02 &&
+      Math.max(model.front, -model.back) <= model.spec.depth / 2 + 0.01 &&
+      model.spec.depth <= OBSTACLES.car.depth
+    check(
+      `${model.name}: wheels on the road, roof is the platform, body inside the box`,
+      fits,
+      `y ${box.min.y.toFixed(2)}…roof ${roof?.toFixed(2) ?? '—'} (platform ${roofTop}), ${(box.max.x - box.min.x).toFixed(2)} × ${model.spec.depth} m`
+    )
+    ;(mesh.material as THREE.Material).dispose()
   }
 }
 

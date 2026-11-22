@@ -3006,11 +3006,19 @@ export class Runner {
 
   /** QA helper: wipe the road clean (lets a check undo its own spawns). */
   /** QA helper: what is on the road right now. */
-  debugObstacles(): Array<{ kind: string; x: number; y: number; z: number; vz: number }> {
+  debugObstacles(): Array<{ kind: string; model?: string; depth: number; x: number; y: number; z: number; vz: number }> {
     if (!import.meta.env.DEV) return []
     return this.obstacles.pool
       .filter((o) => o.active)
-      .map((o) => ({ kind: o.spec.kind, x: +o.mesh.position.x.toFixed(2), y: +o.mesh.position.y.toFixed(2), z: +o.z.toFixed(1), vz: +o.vz.toFixed(1) }))
+      .map((o) => ({
+        kind: o.spec.kind,
+        model: o.car?.name,
+        depth: o.spec.depth,
+        x: +o.mesh.position.x.toFixed(2),
+        y: +o.mesh.position.y.toFixed(2),
+        z: +o.z.toFixed(1),
+        vz: +o.vz.toFixed(1),
+      }))
   }
 
   debugClearObstacles(): void {
