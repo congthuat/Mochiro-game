@@ -307,7 +307,8 @@ export class ZoneDressing {
       // Far out on the skyline, jib reaching back over the street.
       this.side = -this.side
       const side = this.side
-      object.position.set(side * (26 + this.rng() * 10), 0, z)
+      // Behind the district's front row (districts.ts), so the mast never stands in a building.
+      object.position.set(side * (31 + this.rng() * 7), 0, z)
       object.scale.set(-side, 1, 1)
       object.rotation.y = (this.rng() - 0.5) * 0.6
     } else if (kind === 'barricade') {

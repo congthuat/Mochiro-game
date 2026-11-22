@@ -32,6 +32,8 @@ import {
 import { ObstacleManager, type Obstacle, type ObstacleKind } from './obstacles'
 import { PickupManager, type Coin, type PowerUp } from './pickups'
 import { Scenery } from './scenery'
+import { Districts } from './districts'
+import districtsUrl from '../assets/models/city-districts.glb?url'
 import { FlyCoins, ShockRings, SparkSystem, SpeedLines, speedLevel } from './effects'
 import { Track } from './track'
 import { ZoneDressing } from './zones'
@@ -308,6 +310,7 @@ export class Runner {
   private track: Track
   private zones: ZoneDressing
   private scenery: Scenery | null = null
+  private districts: Districts
   private obstacles: ObstacleManager
   private pickups: PickupManager | null = null
   private sparks: SparkSystem
@@ -423,6 +426,9 @@ export class Runner {
     this.scene.add(this.track.group)
     this.zones = new ZoneDressing(this.preset, 20261122)
     this.scene.add(this.zones.group)
+    this.districts = new Districts(this.preset, districtsUrl)
+    this.districts.onReady = () => this.scenery?.setTownVisible(false)
+    this.scene.add(this.districts.group)
     this.obstacles = new ObstacleManager(this.preset)
     this.scene.add(this.obstacles.group)
     this.sparks = new SparkSystem(this.preset.particles)
@@ -584,6 +590,7 @@ export class Runner {
       geometries: info.memory.geometries,
       textures: info.memory.textures,
       sceneChildren: this.scene.children.length,
+      districts: this.districts.debug(),
       avatarInScene: this.scene.children.includes(this.avatar.root),
       avatarParent: this.avatar.root.parent?.type ?? null,
       avatarWorld: this.avatar.root.position.toArray().map((v) => +v.toFixed(2)),
@@ -825,6 +832,7 @@ export class Runner {
     if (this.scenery) this.scenery.group.visible = !on
     this.track.group.visible = !on
     this.zones.group.visible = !on
+    this.districts.group.visible = !on
     this.obstacles.group.visible = !on
     if (this.pickups) this.pickups.group.visible = !on
     this.speedLines.mesh.visible = !on && this.preset.speedLines > 0
@@ -1029,6 +1037,11 @@ export class Runner {
     this.scene.add(this.flyCoins.group)
     this.scenery = new Scenery(this.preset, brand, mark, 90210)
     this.scene.add(this.scenery.group)
+    // The city pack is small; give it a moment so the menu opens on the real streets.
+    // If it is slow or fails, the procedural town stands in until (unless) it arrives.
+    await Promise.race([this.districts.whenReady, new Promise((resolve) => setTimeout(resolve, 3500))])
+    if (this.disposed) return
+    if (this.districts.ready) this.scenery.setTownVisible(false)
 
     this.emitProgress(0.86, translate('load.runner'))
     await this.loadCharacterModel()
@@ -1221,6 +1234,7 @@ export class Runner {
     this.audio.dispose()
     this.track.dispose()
     this.zones.dispose()
+    this.districts.dispose()
     this.scenery?.dispose()
     this.obstacles.dispose()
     this.pickups?.dispose()
@@ -1335,6 +1349,7 @@ export class Runner {
     this.applyEnvironment()
     this.track.setQuality(this.preset)
     this.zones.setQuality(this.preset)
+    this.districts.setQuality(this.preset)
     this.scenery?.setQuality(this.preset)
     this.obstacles.setQuality(this.preset)
     this.pickups?.setQuality(this.preset)
@@ -1371,6 +1386,7 @@ export class Runner {
     this.run.speed = 9
     this.track.update(dt, 9, this.clockTime)
     this.zones.update(dt, 9, 0, this.track.archPhase)
+    this.districts.update(dt, 9, 0)
     this.scenery?.update(dt, 9, this.clockTime)
     this.pickups?.update(dt, 9, this.clockTime, false, this.target)
     this.sparks.update(dt, 9 * dt)
@@ -1447,6 +1463,7 @@ export class Runner {
     this.target.set(run.laneX, run.y, 0)
     this.track.update(dt, run.speed, this.clockTime)
     this.zones.update(dt, run.speed, run.distance, this.track.archPhase)
+    this.districts.update(dt, run.speed, run.distance)
     this.scenery?.update(dt, run.speed, this.clockTime)
     this.obstacles.update(dt, run.speed)
     this.updateTraffic()
@@ -2272,6 +2289,7 @@ export class Runner {
       blendColor(from.cloudTint, to.cloudTint, t, SKY_CLOUD),
       from.stars + (to.stars - from.stars) * t
     )
+    this.districts.setNight(from.stars + (to.stars - from.stars) * t)
     this.biomeNow = t < 0.5 ? from.name : to.name
   }
 
@@ -2626,6 +2644,7 @@ export class Runner {
     const dz = run.speed * slow * dt
     this.track.update(dt, run.speed * slow, this.clockTime)
     this.zones.update(dt, run.speed * slow, run.distance, this.track.archPhase)
+    this.districts.update(dt, run.speed * slow, run.distance)
     this.scenery?.update(dt, run.speed * slow, this.clockTime)
     this.obstacles.update(dt, run.speed * slow)
     this.pickups?.update(dt, run.speed * slow, this.clockTime, false, this.target)

@@ -182,6 +182,8 @@ export class Scenery {
   private balloons: { group: THREE.Group; z: number; phase: number; speed: number }[] = []
   private quality: QualityPreset
   private disposables: Array<{ dispose: () => void }> = []
+  /** The procedural houses and skyline blocks: the town until the district pack is in. */
+  private town: THREE.InstancedMesh[] = []
 
   private billboardMat: THREE.MeshBasicMaterial | null = null
 
@@ -377,6 +379,7 @@ export class Scenery {
       // Houses: facades turned towards the road.
       houseGeos.forEach((geo, index) => {
         const mesh = layer(chunk, geo, HOUSES_PER_SIDE * 2, layers)
+        this.town.push(mesh)
         for (let i = 0; i < HOUSES_PER_SIDE; i++) {
           for (const side of [-1, 1]) {
             const slot = (i + index + c) % HOUSES_PER_SIDE
@@ -397,6 +400,7 @@ export class Scenery {
       // Distant skyline behind the houses.
       blockGeos.forEach((geo, index) => {
         const mesh = layer(chunk, geo, BLOCKS_PER_SIDE * 2, layers)
+        this.town.push(mesh)
         for (let i = 0; i < BLOCKS_PER_SIDE; i++) {
           for (const side of [-1, 1]) {
             const slot = (i + index) % BLOCKS_PER_SIDE
@@ -609,6 +613,11 @@ export class Scenery {
     this.cloudMat.color.copy(cloudTint)
   }
 
+  /** Stands the procedural houses and blocks down once the real districts are built. */
+  setTownVisible(visible: boolean): void {
+    for (const mesh of this.town) mesh.visible = visible
+  }
+
   setQuality(quality: QualityPreset): void {
     this.quality = quality
     const density = quality.cityBlocks > 150 ? 1 : quality.cityBlocks > 90 ? 0.75 : 0.5
@@ -654,6 +663,7 @@ export class Scenery {
     for (const item of this.disposables) item.dispose()
     this.group.clear()
     this.chunks.length = 0
+    this.town.length = 0
     this.clouds.length = 0
     this.balloons.length = 0
   }
