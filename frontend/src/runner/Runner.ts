@@ -14,6 +14,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { translate } from '../lib/i18n'
 import {
   BIOMES,
+  BIOME_LAP,
   CHARACTERS,
   CHARACTER_IDS,
   PURSUIT,
@@ -39,7 +40,8 @@ import { FlyCoins, ShockRings, SparkSystem, SpeedLines, speedLevel } from './eff
 import { Track } from './track'
 import { ZoneDressing } from './zones'
 import { Tunnel } from './tunnel'
-import { Weather, type WeatherKind } from './weather'
+import { Weather, WEATHER_KINDS, type WeatherKind } from './weather'
+import { Crossing } from './crossing'
 import { updateSurface } from './surface'
 import { buildCoinTexture, loadArcBrand, loadArcMark, type ArcMark } from './arc'
 import {
@@ -251,6 +253,10 @@ const ZONE_FLAVOR: Record<string, Partial<Record<PatternKind, number>>> = {
   tunnel: { traffic: 1.6, oncoming: 1.5, tunnel: 1.4, skyway: 0.5 },
   snow: { slalom: 1.6, jumpLine: 1.3, rushTraffic: 0.6 },
   desert: { rampCar: 1.7, oncoming: 1.3, double: 1.2 },
+  river: { slalom: 1.3, rampCar: 1.3 },
+  volcano: { gauntlet: 1.4, jumpLine: 1.4, slideGate: 1.2 },
+  beach: { single: 1.3, jumpLine: 1.3, rampCar: 1.2 },
+  seabridge: { traffic: 1.4, oncoming: 1.3, merge: 1.2 },
   port: { skyway: 2.2, merge: 1.6, rampCar: 1.4 },
   neon: { laserGrid: 2.2, oncoming: 1.3, gauntlet: 1.2 },
 }
@@ -324,7 +330,8 @@ export class Runner {
   private scenery: Scenery | null = null
   private tunnel!: Tunnel
   private weather!: Weather
-  private weatherAmounts: Record<WeatherKind, number> = { snow: 0, leaves: 0, dust: 0 }
+  private weatherAmounts: Record<WeatherKind, number> = { snow: 0, leaves: 0, dust: 0, ash: 0, embers: 0 }
+  private crossing!: Crossing
   private districts: Districts
   private obstacles: ObstacleManager
   private pickups: PickupManager | null = null
@@ -448,6 +455,8 @@ export class Runner {
     this.scene.add(this.tunnel.group)
     this.weather = new Weather(this.preset)
     this.scene.add(this.weather.group)
+    this.crossing = new Crossing(this.preset)
+    this.scene.add(this.crossing.group)
     this.obstacles = new ObstacleManager(this.preset)
     this.scene.add(this.obstacles.group)
     this.sparks = new SparkSystem(this.preset.particles)
@@ -890,6 +899,7 @@ export class Runner {
     this.districts.group.visible = !on
     this.tunnel.group.visible = !on
     this.weather.group.visible = !on
+    this.crossing.group.visible = !on
     this.obstacles.group.visible = !on
     if (this.pickups) this.pickups.group.visible = !on
     this.speedLines.mesh.visible = !on && this.preset.speedLines > 0
@@ -1294,6 +1304,7 @@ export class Runner {
     this.districts.dispose()
     this.tunnel.dispose()
     this.weather.dispose()
+    this.crossing.dispose()
     this.scenery?.dispose()
     this.obstacles.dispose()
     this.pickups?.dispose()
@@ -1411,6 +1422,7 @@ export class Runner {
     this.districts.setQuality(this.preset)
     this.tunnel.setQuality(this.preset)
     this.weather.setQuality(this.preset)
+    this.crossing.setQuality(this.preset)
     this.scenery?.setQuality(this.preset)
     this.obstacles.setQuality(this.preset)
     this.pickups?.setQuality(this.preset)
@@ -2355,12 +2367,17 @@ export class Runner {
 
     // Out of town: the ground's colour, the mountains or dunes on the horizon, the
     // weather, and the tunnel through the range.
-    updateSurface(distance)
-    this.scenery?.setHorizon(from.peaks + (to.peaks - from.peaks) * t, from.dunes + (to.dunes - from.dunes) * t)
+    // Water: the lakes and the sea are painted on the ground; a bridge crossing in view
+    // brings up the deep water, the banks and the bridge itself.
+    const crossingInView = updateSurface(distance, this.clockTime, this.preset.fogFar + 40)
+    this.crossing.update(distance, this.clockTime, crossingInView)
+    const mix = (a = 0, b = 0) => a + (b - a) * t
+    this.scenery?.setHorizon(mix(from.peaks, to.peaks), mix(from.dunes, to.dunes), mix(from.sea, to.sea), mix(from.volcano, to.volcano))
     const amounts = this.weatherAmounts
-    for (const kind of ['snow', 'leaves', 'dust'] as const) {
+    for (const kind of WEATHER_KINDS) {
       amounts[kind] = (from.weather === kind ? 1 - t : 0) + (to.weather === kind ? t : 0)
     }
+    amounts.embers = amounts.ash
     const height = this.renderer.domElement.height || 720
     this.weather.update(this.clockTime, distance, amounts, height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)))
     this.tunnel.update(distance)
@@ -2955,6 +2972,8 @@ export class Runner {
       tierName: tier.name,
       tierKey: tier.key,
       biome: this.biomeNow,
+      lap: Math.floor(run.distance / BIOME_LAP),
+      lapProgress: (run.distance % BIOME_LAP) / BIOME_LAP,
       heat: this.run.heat,
       canRevive: !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
       reviveCost: reviveCostFor(this.diff, this.run.coins),

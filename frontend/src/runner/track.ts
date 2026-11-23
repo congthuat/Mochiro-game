@@ -47,7 +47,9 @@ export class Track {
     this.rng = makeRng(seed)
 
     // --- ground -------------------------------------------------------------
-    const groundGeo = new THREE.PlaneGeometry(420, ROAD_LENGTH + 60)
+    // Wide enough that the sea beside the road and the water under a bridge (both
+    // painted or cut here) run on to the fog on every preset.
+    const groundGeo = new THREE.PlaneGeometry(1000, ROAD_LENGTH + 60)
     // Grass, snow or sand: the zone's ground colour, blended along the road (surface.ts).
     const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0 })
     applySurface(groundMat, 'ground')

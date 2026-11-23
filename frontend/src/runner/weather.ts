@@ -1,5 +1,5 @@
 // Weather: snow on the snowfields, falling leaves in the mountain forest, blowing
-// dust in the desert. Each is one Points cloud whose motion is worked out entirely in
+// dust in the desert, ash and rising embers by the volcano. Each is one Points cloud whose motion is worked out entirely in
 // the vertex shader from the run's clock and distance, so a frame costs a handful of
 // uniform writes however many flakes are falling. The cloud is a box around the
 // runner; particles wrap through it as the world scrolls, fading at the box's ends so
@@ -8,7 +8,8 @@ import * as THREE from 'three'
 import type { QualityPreset } from './config'
 import { makeRng } from './utils'
 
-export type WeatherKind = 'snow' | 'leaves' | 'dust'
+export type WeatherKind = 'snow' | 'leaves' | 'dust' | 'ash' | 'embers'
+export const WEATHER_KINDS: WeatherKind[] = ['snow', 'leaves', 'dust', 'ash', 'embers']
 
 interface Spec {
   /** Particles at full quality; scaled down with the preset. */
@@ -35,6 +36,9 @@ interface Spec {
 const SPECS: Record<WeatherKind, Spec> = {
   snow: { count: 1400, half: 34, height: 22, near: 14, far: -90, fall: 1.7, drift: 0.5, sway: 0.7, size: 0.13, colors: [0xffffff, 0xf2f7ff], opacity: 0.92, tumble: false, low: false },
   leaves: { count: 260, half: 26, height: 14, near: 12, far: -70, fall: 1.1, drift: 0.9, sway: 1.4, size: 0.3, colors: [0xe8742a, 0xd94e1f, 0xf2b33d, 0x9bbf3f, 0xc9561e], opacity: 1, tumble: true, low: false },
+  ash: { count: 900, half: 34, height: 20, near: 14, far: -90, fall: 0.8, drift: 1.1, sway: 0.9, size: 0.11, colors: [0x8d8580, 0x6f6863, 0xa49b94], opacity: 0.8, tumble: false, low: false },
+  // Embers rise (a negative fall) from the lava fields.
+  embers: { count: 260, half: 30, height: 12, near: 14, far: -80, fall: -1.6, drift: 0.4, sway: 0.8, size: 0.1, colors: [0xff7a2a, 0xffb347, 0xff4f1a], opacity: 1, tumble: false, low: true },
   dust: { count: 520, half: 38, height: 7, near: 14, far: -90, fall: 0, drift: 7.5, sway: 0.5, size: 0.75, colors: [0xf2cf9a, 0xe9b77d, 0xfbe2bb], opacity: 0.32, tumble: false, low: true },
 }
 
@@ -191,6 +195,8 @@ export class Weather {
       snow: new Cloud(SPECS.snow, 71),
       leaves: new Cloud(SPECS.leaves, 72),
       dust: new Cloud(SPECS.dust, 73),
+      ash: new Cloud(SPECS.ash, 74),
+      embers: new Cloud(SPECS.embers, 75),
     }
     for (const cloud of Object.values(this.clouds)) this.group.add(cloud.points)
     this.setQuality(quality)

@@ -24,7 +24,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import { tunnelAround, zoneAt, type QualityPreset } from './config'
+import { DEEP_WATER_Y, shoreAt, tunnelAround, waterAt, zoneAt, type QualityPreset } from './config'
 import { makeRng, pick, randRange } from './utils'
 import { WILDS, buildGeneratedModels, planWild, wildCapacity, type ModelSize, type Tier, type WildOptions, type WildPlacer } from './wilds'
 
@@ -269,6 +269,10 @@ if (vLit < -0.001) {
   float cover = -vLit * smoothstep(0.2, 0.5, upness);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.94, 0.99), max(cover, -vLit * 0.14));
 }
+#ifndef USE_MAP
+// Countryside glow (lava, a lighthouse lamp): only the bright warm faces light up.
+if (vLit > 0.001) totalEmissiveRadiance += diffuseColor.rgb * smoothstep(0.35, 0.7, diffuseColor.r - diffuseColor.b) * vLit;
+#endif
 #ifdef USE_MAP
 {
   float lum = vLit > 0.0 ? fract(vLit) : 0.0;
@@ -405,6 +409,9 @@ interface Placement {
   sy?: number
   sz?: number
   tint?: number
+  /** Countryside, while planning: half its footprint, and how it relates to water. */
+  reach?: number
+  water?: 'float' | 'island' | 'wade'
 }
 
 interface Lot {
@@ -452,6 +459,8 @@ export class Districts {
   ]
   /** The countryside lot being planned, and the placer the planners drive. */
   private wildLot: Lot | null = null
+  /** Run distance at the near edge of the lot being planned. */
+  private wildAt = 0
   private placer: WildPlacer
   private generated: THREE.BufferGeometry[] = []
   private plots: THREE.InstancedMesh
@@ -480,6 +489,7 @@ export class Districts {
       plot: (x, width, length, dz, color) => {
         if (this.wildLot) this.wildLot.plot = { x, width, length, dz, color, top: GROUND_Y + 0.05 }
       },
+      water: (side) => (waterAt(this.wildAt, 0) === 'deep' ? 0 : shoreAt(this.wildAt, side)),
     }
     for (const [key, geometry] of buildGeneratedModels()) {
       this.generated.push(geometry)
@@ -699,7 +709,7 @@ export class Districts {
     // midpoint); out there it is already the next zone.
     if (zone === 'tunnel') zone = zoneAt(tunnel.end + 40)
     if (WILDS.includes(zone)) {
-      this.placeWild(row, zone)
+      this.placeWild(row, zone, at)
       return
     }
     const district = ZONE_DISTRICT[zone] ?? 'downtown'
@@ -761,16 +771,49 @@ export class Districts {
    * Appends a stretch of countryside to `row`: wilds.ts decides what stands on it, the
    * parts are counted into their pools as they are placed.
    */
-  private placeWild(row: Row, zone: string): void {
+  private placeWild(row: Row, zone: string, at: number): void {
     const lot: Lot = { z: 0, half: 0, district: zone, parts: [], plot: null }
     this.wildLot = lot
+    this.wildAt = at
     const span = Math.max(4, planWild(zone, row.tier, row.side, this.placer))
     this.wildLot = null
+    this.settle(lot, at + span / 2)
     lot.z = row.cursor - span / 2
     lot.half = span
     row.cursor -= span
     row.lots.push(lot)
     this.dirty = true
+  }
+
+  /**
+   * Sorts a planned countryside lot against the water (config.ts WATERS): nothing on dry
+   * land stands in the water, nothing that floats sits on grass, and under a bridge the
+   * boats and islets go down to the river. `centre` is the run distance at the lot's centre.
+   */
+  private settle(lot: Lot, centre: number): void {
+    const wet = (dz: number, x: number) => waterAt(centre - dz, x) !== 'land'
+    const sink = DEEP_WATER_Y - GROUND_Y
+    if (lot.plot && wet(lot.plot.dz, lot.plot.x)) lot.plot = null
+    lot.parts = lot.parts.filter((part) => {
+      const r = (part.reach ?? 0) * 0.7
+      const kind = part.water
+      const middle = waterAt(centre - part.dz, part.x)
+      let keep: boolean
+      if (kind === 'wade') keep = middle !== 'deep'
+      else if (kind === 'island') keep = true
+      else {
+        const points = [wet(part.dz, part.x), wet(part.dz, part.x - r), wet(part.dz, part.x + r), wet(part.dz - r, part.x), wet(part.dz + r, part.x)]
+        keep = kind === 'float' ? points.every(Boolean) : !points.some(Boolean)
+      }
+      if (!keep) {
+        part.slot.count -= 1
+        return false
+      }
+      if (middle === 'deep' && (kind === 'float' || kind === 'island')) part.y += sink
+      part.reach = undefined
+      part.water = undefined
+      return true
+    })
   }
 
   private putWild(keys: string | readonly string[], x: number, dz: number, options: WildOptions = {}): ModelSize | null {
@@ -792,11 +835,13 @@ export class Districts {
       dz,
       rot: options.rot ?? 0,
       scale,
-      lit: options.snow ? -Math.min(1, options.snow) : 0,
+      lit: options.glow ? options.glow : options.snow ? -Math.min(1, options.snow) : 0,
       sx: options.sx,
       sy: options.sy,
       sz: options.sz,
       tint: options.tint,
+      reach,
+      water: options.onWater ? 'float' : options.island ? 'island' : options.wade ? 'wade' : undefined,
     }
     lot.parts.push(part)
     slot.count += 1

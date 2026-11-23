@@ -201,11 +201,11 @@ export class Tunnel {
     const fanMat = new THREE.MeshStandardMaterial({ color: 0x5d6168, roughness: 0.6, metalness: 0.4 })
     const fan = new THREE.CylinderGeometry(0.62, 0.62, 3.4, 12)
     fan.rotateX(Math.PI / 2)
-    const fans = new THREE.InstancedMesh(fan, fanMat, 6)
+    const fans = new THREE.InstancedMesh(fan, fanMat, 14)
     let fanCount = 0
-    for (let z = -46; z > -this.length + 30 && fanCount < 6; z -= 58) {
+    for (let z = -46; z > -this.length + 30 && fanCount < 14; z -= 58) {
       for (const side of [-1, 1]) {
-        if (fanCount >= 6) break
+        if (fanCount >= 14) break
         matrix.makeTranslation(side * 1.05, CROWN - 1.25, z)
         fans.setMatrixAt(fanCount++, matrix)
       }
@@ -215,11 +215,11 @@ export class Tunnel {
 
     const signMat = new THREE.MeshBasicMaterial({ color: 0x35d07f })
     const sign = new THREE.BoxGeometry(0.08, 0.36, 0.8)
-    const signs = new THREE.InstancedMesh(sign, signMat, 12)
+    const signs = new THREE.InstancedMesh(sign, signMat, 30)
     let signCount = 0
-    for (let z = -20; z > -this.length + 8 && signCount < 12; z -= 36) {
+    for (let z = -20; z > -this.length + 8 && signCount < 30; z -= 36) {
       for (const side of [-1, 1]) {
-        if (signCount >= 12) break
+        if (signCount >= 30) break
         matrix.makeTranslation(side * (HALF - 0.05), 2.4, z - (side > 0 ? 18 : 0))
         signs.setMatrixAt(signCount++, matrix)
       }

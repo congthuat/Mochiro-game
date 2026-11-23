@@ -698,8 +698,12 @@ export interface Biome {
   /** Far silhouettes on the sky dome: 0 = rolling ridges, `peaks` = snow-capped mountains, `dunes` = sand. */
   peaks: number
   dunes: number
+  /** A flat sea horizon instead of the far ridges (0..1). */
+  sea?: number
+  /** The erupting volcano on the horizon (0..1). */
+  volcano?: number
   /** Something in the air. */
-  weather?: 'snow' | 'leaves' | 'dust'
+  weather?: 'snow' | 'leaves' | 'dust' | 'ash'
 }
 
 const GRASS = '#8adc7c'
@@ -709,31 +713,50 @@ const PAVEMENT = '#cfcabd'
 export const BIOME_DAWN = 280
 
 /**
- * The run is a road trip: out of downtown through the suburbs into farmland, up into
- * the mountain forest, through a tunnel under the range and out onto the snowfields,
- * down to the desert at sunset, and back into the city by the harbour as night falls.
+ * The run is a road trip of about ten minutes a lap: out of downtown through the
+ * suburbs into farmland, over the big river, up into the mountain forest and through
+ * the tunnel onto the snowfields, down across the desert at noon, past the volcano to
+ * a tropical beach, over the long sea bridge into the harbour at dusk, and through
+ * the neon night back to the city at dawn.
+ *
+ * `at` is where each zone is fully in charge; the spacing follows the speed ramp so
+ * that, on Normal, a zone comes round every 40–60 s (see scripts/biome-check.ts).
  */
 export const BIOMES: Biome[] = [
   // The daylight the game shipped with — a run always starts here.
   { at: 0, name: 'city', kind: 'city', blend: BIOME_DAWN, skyTop: '#2b8ae8', sky: '#7ccbfb', cloudTint: '#ffffff', stars: 0, fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
   // Leaving town: houses and gardens, a warmer afternoon light.
-  { at: 400, name: 'suburb', kind: 'city', skyTop: '#3a86d8', sky: '#93cdf2', cloudTint: '#fff6ea', stars: 0, fog: '#e8f0e4', sun: '#ffe9c2', skyBounce: '#cfe6f2', groundBounce: '#a6cc82', sunIntensity: 1.02, hemiIntensity: 0.45, fillIntensity: 0.37, exposure: 1.03, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  { at: 740, name: 'suburb', kind: 'city', skyTop: '#3a86d8', sky: '#93cdf2', cloudTint: '#fff6ea', stars: 0, fog: '#e8f0e4', sun: '#ffe9c2', skyBounce: '#cfe6f2', groundBounce: '#a6cc82', sunIntensity: 1.02, hemiIntensity: 0.45, fillIntensity: 0.37, exposure: 1.03, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
   // Open farmland under a big clean sky.
-  { at: 750, name: 'plains', kind: 'wild', skyTop: '#1f7fe6', sky: '#8fd3ff', cloudTint: '#ffffff', stars: 0, fog: '#dff3ff', sun: '#fff2cc', skyBounce: '#c4e8ff', groundBounce: '#a8d37a', sunIntensity: 1.04, hemiIntensity: 0.46, fillIntensity: 0.36, exposure: 1.04, ground: '#9fd46a', verge: '#c8b08a', peaks: 0.25, dunes: 0 },
+  { at: 1820, name: 'plains', kind: 'wild', skyTop: '#1f7fe6', sky: '#8fd3ff', cloudTint: '#ffffff', stars: 0, fog: '#dff3ff', sun: '#fff2cc', skyBounce: '#c4e8ff', groundBounce: '#a8d37a', sunIntensity: 1.04, hemiIntensity: 0.46, fillIntensity: 0.36, exposure: 1.04, ground: '#9fd46a', verge: '#c8b08a', peaks: 0.25, dunes: 0 },
+  // The river valley: lakes beside the road, then the big cable-stayed bridge.
+  { at: 3540, name: 'river', kind: 'wild', skyTop: '#2f84dc', sky: '#94d0f2', cloudTint: '#ffffff', stars: 0, fog: '#d9efe9', sun: '#fff1cf', skyBounce: '#c2e4f2', groundBounce: '#8fc97a', sunIntensity: 1.02, hemiIntensity: 0.46, fillIntensity: 0.37, exposure: 1.04, ground: '#86cf6c', verge: '#bfae8a', peaks: 0.45, dunes: 0 },
   // Up into the pines: cooler light, a green haze, the range ahead.
-  { at: 1150, name: 'forest', kind: 'wild', skyTop: '#3a7cc2', sky: '#9fcbe0', cloudTint: '#f3f7f2', stars: 0, fog: '#c8dccd', sun: '#ffe9c4', skyBounce: '#b9d8d0', groundBounce: '#5f8f52', sunIntensity: 0.98, hemiIntensity: 0.47, fillIntensity: 0.37, exposure: 1.03, ground: '#5f9f4a', verge: '#9c8a6e', peaks: 1, dunes: 0, weather: 'leaves' },
+  { at: 5400, name: 'forest', kind: 'wild', skyTop: '#3a7cc2', sky: '#9fcbe0', cloudTint: '#f3f7f2', stars: 0, fog: '#c8dccd', sun: '#ffe9c4', skyBounce: '#b9d8d0', groundBounce: '#5f8f52', sunIntensity: 0.98, hemiIntensity: 0.47, fillIntensity: 0.37, exposure: 1.03, ground: '#5f9f4a', verge: '#9c8a6e', peaks: 1, dunes: 0, weather: 'leaves' },
   // Under the mountain: sodium light and a dark, warm haze. The portal is a hard cut.
-  { at: 1560, name: 'tunnel', kind: 'tunnel', blend: 24, skyTop: '#1a1612', sky: '#2a2219', cloudTint: '#4a3a2a', stars: 0, fog: '#2e2318', sun: '#ffc27a', skyBounce: '#ffb766', groundBounce: '#3a2a1a', sunIntensity: 0.6, hemiIntensity: 0.6, fillIntensity: 0.36, exposure: 1.0, ground: '#4b4a46', verge: '#7b766c', peaks: 1, dunes: 0 },
+  { at: 7720, name: 'tunnel', kind: 'tunnel', blend: 24, skyTop: '#1a1612', sky: '#2a2219', cloudTint: '#4a3a2a', stars: 0, fog: '#2e2318', sun: '#ffc27a', skyBounce: '#ffb766', groundBounce: '#3a2a1a', sunIntensity: 0.6, hemiIntensity: 0.6, fillIntensity: 0.36, exposure: 1.0, ground: '#4b4a46', verge: '#7b766c', peaks: 1, dunes: 0 },
   // Out into the snow: blinding white after the tunnel, a cold blue sky.
-  { at: 1760, name: 'snow', kind: 'wild', blend: 24, skyTop: '#5b8fd2', sky: '#bcd6ef', cloudTint: '#ffffff', stars: 0, fog: '#e4edf6', sun: '#f4f8ff', skyBounce: '#dbe9fb', groundBounce: '#c9d6e6', sunIntensity: 1.12, hemiIntensity: 0.72, fillIntensity: 0.42, exposure: 1.08, ground: '#eef3f8', verge: '#cfd8e2', peaks: 1, dunes: 0, weather: 'snow' },
-  // Down to the desert as the sun sets.
-  { at: 2250, name: 'desert', kind: 'wild', skyTop: '#3f5fa8', sky: '#f2a65a', cloudTint: '#ffd2a8', stars: 0, fog: '#f4c48e', sun: '#ffbe73', skyBounce: '#ffcf96', groundBounce: '#c98f52', sunIntensity: 1.1, hemiIntensity: 0.52, fillIntensity: 0.34, exposure: 1.08, ground: '#ecc98e', verge: '#d6b07a', peaks: 0, dunes: 1, weather: 'dust' },
+  { at: 8240, name: 'snow', kind: 'wild', blend: 24, skyTop: '#5b8fd2', sky: '#bcd6ef', cloudTint: '#ffffff', stars: 0, fog: '#e4edf6', sun: '#f4f8ff', skyBounce: '#dbe9fb', groundBounce: '#c9d6e6', sunIntensity: 1.12, hemiIntensity: 0.72, fillIntensity: 0.42, exposure: 1.08, ground: '#eef3f8', verge: '#cfd8e2', peaks: 1, dunes: 0, weather: 'snow' },
+  // Down to the desert under the noon sun: a hard blue sky, a hot pale haze.
+  { at: 10660, name: 'desert', kind: 'wild', skyTop: '#3d7fd6', sky: '#a9cfe9', cloudTint: '#fff8ee', stars: 0, fog: '#f0dcb4', sun: '#fff0d2', skyBounce: '#f3dcb5', groundBounce: '#d6a868', sunIntensity: 1.08, hemiIntensity: 0.5, fillIntensity: 0.34, exposure: 1.05, ground: '#ecc98e', verge: '#d6b07a', peaks: 0, dunes: 1, weather: 'dust' },
+  // The volcano: black basalt, lava in the fields, ash falling from a red sky.
+  { at: 12760, name: 'volcano', kind: 'wild', skyTop: '#3a1a1e', sky: '#b5503a', cloudTint: '#7a5550', stars: 0, fog: '#8a5444', sun: '#ffb27a', skyBounce: '#ff9a6a', groundBounce: '#4a2a22', sunIntensity: 0.96, hemiIntensity: 0.56, fillIntensity: 0.36, exposure: 1.0, ground: '#4a433f', verge: '#625a54', peaks: 0, dunes: 0, volcano: 1, weather: 'ash' },
+  // A tropical beach: white sand, palms, the sea along the right of the road.
+  { at: 15280, name: 'beach', kind: 'wild', blend: 230, skyTop: '#1b84e0', sky: '#86d6f6', cloudTint: '#ffffff', stars: 0, fog: '#d6f1f6', sun: '#fff4d8', skyBounce: '#bfeaf6', groundBounce: '#e8d3a0', sunIntensity: 1.06, hemiIntensity: 0.5, fillIntensity: 0.37, exposure: 1.05, ground: '#f1dca8', verge: '#e6cf98', peaks: 0, dunes: 0, sea: 1 },
+  // The sea bridge: open water on both sides as the afternoon turns gold.
+  { at: 17600, name: 'seabridge', kind: 'wild', skyTop: '#2a6fd0', sky: '#a8d4ee', cloudTint: '#fff3e0', stars: 0, fog: '#e6eef0', sun: '#ffe2b0', skyBounce: '#cfe2ee', groundBounce: '#8fb3c4', sunIntensity: 1.04, hemiIntensity: 0.48, fillIntensity: 0.36, exposure: 1.04, ground: '#e0d0a4', verge: '#c4c2bc', peaks: 0, dunes: 0, sea: 1 },
   // Back into the city by the harbour at dusk: cranes, warehouses, container yards.
-  { at: 2750, name: 'port', kind: 'city', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  { at: 19900, name: 'port', kind: 'city', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
   // Neon night: dark sky, cold key light, the emissive lift on every prop doing the
   // work of keeping the runner and the traffic readable.
-  { at: 3100, name: 'neon', kind: 'city', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  { at: 21800, name: 'neon', kind: 'city', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
 ]
+
+/** Emoji for each zone, for the HUD's title card and journey bar. */
+export const ZONE_ICONS: Record<string, string> = {
+  city: '🏙️', suburb: '🏡', plains: '🌾', river: '🌉', forest: '🌲', tunnel: '🚇', snow: '❄️',
+  desert: '🏜️', volcano: '🌋', beach: '🏖️', seabridge: '🌊', port: '⚓', neon: '🌃',
+}
 
 /** Metres over which one zone hands over to the next, unless the zone sets its own. */
 export const BIOME_BLEND = 150
@@ -742,7 +765,7 @@ export const BIOME_BLEND = 150
  * A long run loops the zones: after the neon night the sky eases back to day at this
  * distance and the trip starts again, so a great run keeps changing scenery.
  */
-export const BIOME_LAP = 3650
+export const BIOME_LAP = 23900
 
 /** Handover length into `zone`. */
 export function blendInto(zone: Biome): number {
@@ -822,6 +845,97 @@ export function tunnelAround(distance: number): { start: number; end: number } {
   const span = tunnelSpan()
   const lap = Math.floor(distance / BIOME_LAP) * BIOME_LAP
   return { start: lap + span.start, end: lap + span.end }
+}
+
+/**
+ * Water. Two kinds:
+ *  - beside the road (side ±1): a lake, a river or the sea beyond `shore` metres from
+ *    the centre line, painted onto the ground at ground level. Its shore curls away
+ *    over WATER_TAPER at both ends, so a body of water never ends in a ruled line.
+ *  - under the road (side 0): the road crosses on a bridge; the ground is cut away
+ *    right across and the water lies DEEP_WATER_Y below, with a bank at each end.
+ * Spans are in metres into a lap; the shader in surface.ts and the scenery placement
+ * in districts.ts share the shapes below, so a boat never sits on grass.
+ */
+export interface WaterSpan {
+  start: number
+  end: number
+  side: -1 | 0 | 1
+  /** Beside the road: distance of the shore from the centre line (m). */
+  shore: number
+  /** Under the road: what carries it. */
+  bridge?: 'cable' | 'viaduct'
+  /** Salt water: dolphins, sailing boats. */
+  sea?: boolean
+  color: string
+}
+
+export const WATERS: WaterSpan[] = [
+  // The river valley: a lake on the left, the river crossing, the river on the right.
+  { start: 3700, end: 4330, side: -1, shore: 24, color: '#3a9ab4' },
+  { start: 4420, end: 4660, side: 0, shore: 0, bridge: 'cable', color: '#2f8fb0' },
+  { start: 4760, end: 5260, side: 1, shore: 24, color: '#3a9ab4' },
+  // The beach: the sea on the right all along, then the bridge right across it.
+  { start: 15330, end: 17520, side: 1, shore: 30, sea: true, color: '#22b0c8' },
+  { start: 17640, end: 19820, side: 0, shore: 0, bridge: 'viaduct', sea: true, color: '#1f8cc2' },
+]
+
+export const WATER_TAPER = 150
+/** How far the shore curls away at the very end of a span (beyond the fog on every preset). */
+export const WATER_CURL = 460
+/** Water level under a bridge. */
+export const DEEP_WATER_Y = -5.5
+
+/** Metres into the water (negative: on land) at `rel` metres into a side span, `x` across. */
+export function sideWaterDepth(span: WaterSpan, rel: number, x: number): number {
+  if (span.side === 0) return -1e4
+  const into = Math.min(rel, span.end - span.start - rel)
+  if (into <= 0) return -1e4
+  const t = Math.min(1, Math.max(0, 1 - into / WATER_TAPER))
+  const shore = span.shore + t * t * WATER_CURL + Math.sin(rel * 0.031) * 3 + Math.sin(rel * 0.087 + 1.3) * 1.4
+  return x * span.side - shore
+}
+
+export interface WaterHere {
+  span: WaterSpan
+  /** Absolute run distances of the span. */
+  start: number
+  end: number
+}
+
+/** The water spans overlapping [from, to] (absolute run distance), nearest first. */
+export function watersBetween(from: number, to: number): WaterHere[] {
+  const out: WaterHere[] = []
+  const first = Math.floor(from / BIOME_LAP) - 1
+  const last = Math.floor(to / BIOME_LAP)
+  for (let lap = first; lap <= last; lap += 1) {
+    const base = lap * BIOME_LAP
+    for (const span of WATERS) {
+      const start = base + span.start
+      const end = base + span.end
+      if (end >= from && start <= to) out.push({ span, start, end })
+    }
+  }
+  return out
+}
+
+/** What is at run distance `distance`, `x` metres across: land, side water (at ground level) or deep water under a bridge. */
+export function waterAt(distance: number, x: number): 'land' | 'side' | 'deep' {
+  for (const here of watersBetween(distance, distance)) {
+    if (here.span.side === 0) return 'deep'
+    if (sideWaterDepth(here.span, distance - here.start, x) > 0) return 'side'
+  }
+  return 'land'
+}
+
+/** Where the side water's shore is on `side` at `distance`, or null if there is none. */
+export function shoreAt(distance: number, side: -1 | 1): number | null {
+  for (const here of watersBetween(distance, distance)) {
+    if (here.span.side !== side) continue
+    const depth = sideWaterDepth(here.span, distance - here.start, 0)
+    if (depth > -1e3) return -depth
+  }
+  return null
 }
 
 /**

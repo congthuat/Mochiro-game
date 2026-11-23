@@ -118,6 +118,8 @@ uniform sampler2D peaks;
 uniform sampler2D dunes;
 uniform float peakAmount;
 uniform float duneAmount;
+uniform float seaAmount;
+uniform float volcanoAmount;
 uniform vec3 top;
 uniform vec3 mid;
 uniform vec3 horizon;
@@ -153,7 +155,11 @@ void main() {
   // Out of town the ridges give way to a mountain range or to dunes.
   vec4 r = texture2D(ridges, vUv);
   vec3 ridge = mix(mix(horizon, top, 0.62), horizon, r.r);
-  col = mix(col, ridge, r.a * (1.0 - max(peakAmount, duneAmount)));
+  col = mix(col, ridge, r.a * (1.0 - max(max(peakAmount, duneAmount), max(seaAmount, volcanoAmount))));
+  // At sea the horizon is open: a bright line of haze where the water meets the sky.
+  if (seaAmount > 0.001) {
+    col = mix(col, mix(horizon, vec3(1.0), 0.35), seaAmount * (1.0 - smoothstep(0.0, 0.035, abs(dir.y - 0.004))) * 0.7);
+  }
   if (peakAmount > 0.001) {
     vec4 m = texture2D(peaks, vUv);
     vec3 rock = mix(mix(horizon, top, 0.7), horizon, m.r);
@@ -164,6 +170,38 @@ void main() {
     vec4 d = texture2D(dunes, vUv);
     vec3 sand = mix(mix(horizon, vec3(0.78, 0.42, 0.2), 0.45), horizon, d.r);
     col = mix(col, sand, d.a * duneAmount);
+  }
+  // The volcano: a lone cone off to the right, lava running down from the crater,
+  // the crater glowing and a plume of ash rolling away on the wind.
+  if (volcanoAmount > 0.001) {
+    float a = atan(dir.x, -dir.z) - 0.32;
+    float w = abs(a);
+    float e = dir.y;
+    float rim = 0.142 + 0.004 * sin(a * 160.0);
+    float prof = min(0.215 * exp(-w * 6.5) - 0.004 + 0.004 * sin(a * 41.0) + 0.003 * sin(a * 97.0 + 1.7), rim);
+    prof -= 0.012 * (1.0 - smoothstep(0.018, 0.036, w));
+    float cone = smoothstep(prof + 0.0015, prof - 0.0015, e) * step(-0.05, e);
+    vec3 rock = mix(vec3(0.13, 0.1, 0.1), horizon, 0.28 + 0.25 * smoothstep(0.14, 0.0, e));
+    float lava = 0.0;
+    for (int i = 0; i < 3; i++) {
+      float k = float(i) * 0.031 - 0.03;
+      float path = k + 0.012 * sin(e * 70.0 + float(i) * 2.1) + (0.142 - e) * k * 3.0;
+      lava = max(lava, smoothstep(0.0035, 0.0, abs(a - path)) * smoothstep(0.02, 0.09, 0.142 - e) * smoothstep(0.0, 0.06, e) * (0.75 + 0.25 * sin(time * 2.0 + e * 90.0)));
+    }
+    rock = mix(rock, vec3(1.0, 0.42, 0.1) * 1.6, lava);
+    col = mix(col, rock, cone * volcanoAmount);
+    // Crater glow lighting the underside of the plume.
+    float glow = exp(-pow(w / 0.05, 2.0)) * exp(-max(e - 0.142, 0.0) * 28.0) * step(prof, e);
+    col += vec3(1.0, 0.36, 0.08) * glow * 0.55 * volcanoAmount * (0.85 + 0.15 * sin(time * 3.1));
+    // The plume.
+    float rise = max(e - 0.13, 0.0);
+    float drift = rise * 0.9 + 0.01 * sin(time * 0.3);
+    float width = 0.028 + rise * 0.55;
+    float billow = sin(e * 55.0 - time * 0.9 + a * 18.0) * sin(a * 31.0 + e * 23.0 - time * 0.6);
+    float plume = smoothstep(width, width * 0.35, abs(a - drift + 0.06 * billow * rise)) * step(0.13, e) * smoothstep(0.52, 0.22, e);
+    plume *= 0.62 + 0.25 * billow;
+    vec3 smoke = mix(vec3(0.22, 0.19, 0.19), horizon, 0.35 + rise * 0.6);
+    col = mix(col, smoke, clamp(plume, 0.0, 1.0) * volcanoAmount);
   }
 
   gl_FragColor = vec4(col, 1.0);
@@ -221,6 +259,8 @@ export class Scenery {
         dunes: { value: skyLayers.dunes },
         peakAmount: { value: 0 },
         duneAmount: { value: 0 },
+        seaAmount: { value: 0 },
+        volcanoAmount: { value: 0 },
         top: { value: new THREE.Color(PALETTE.skyTop) },
         mid: { value: new THREE.Color(PALETTE.skyMid) },
         horizon: { value: new THREE.Color(PALETTE.skyHorizon) },
@@ -634,9 +674,11 @@ export class Scenery {
   }
 
   /** How much of the far horizon is a mountain range, and how much is dunes (0..1). */
-  setHorizon(peaks: number, dunes: number): void {
+  setHorizon(peaks: number, dunes: number, sea = 0, volcano = 0): void {
     this.skyMat.uniforms.peakAmount.value = peaks
     this.skyMat.uniforms.duneAmount.value = dunes
+    this.skyMat.uniforms.seaAmount.value = sea
+    this.skyMat.uniforms.volcanoAmount.value = volcano
   }
 
   /** Stands the procedural houses and blocks down once the real districts are built. */
