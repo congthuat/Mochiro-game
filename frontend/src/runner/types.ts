@@ -1,7 +1,7 @@
 // Shared types for Mochiro (endless runner).
 import type { CharacterId, DifficultyId, MissionId } from './config'
 
-export type Phase = 'boot' | 'loading' | 'menu' | 'playing' | 'paused' | 'gameover'
+export type Phase = 'boot' | 'loading' | 'menu' | 'playing' | 'paused' | 'gameover' | 'spectate'
 
 export type Quality = 'auto' | 'low' | 'medium' | 'high'
 export type ResolvedQuality = 'low' | 'medium' | 'high'

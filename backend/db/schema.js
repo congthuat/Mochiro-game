@@ -192,6 +192,23 @@ exports.arc_challenges = pgTable("arc_challenges", {
   ip: text("ip"),
 });
 
+// Live races ("Đua Trực Tiếp"), one row per finished race, filed by the realtime server
+// (routes/race.js creates it on first use in production). `players` is the JSON standings,
+// `pids` is ",pid1,pid2," for lookups.
+exports.race_results = pgTable("race_results", {
+  match_id: text("match_id").primaryKey(),
+  room: text("room"),
+  winner_pid: text("winner_pid"),
+  pids: text("pids").notNull().default(","),
+  players: text("players").notNull(),
+  rewarded: boolean("rewarded").notNull().default(false),
+  gold: integer("gold").notNull().default(0),
+  reason: text("reason"),
+  started_at: timestamp("started_at"),
+  ended_at: timestamp("ended_at"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
 // ---------------------------------------------------------------------------
 // Indexes (created by hand on the production database — the schema sync does not run
 // there). Kept here so the list lives next to the tables:
@@ -204,4 +221,5 @@ exports.arc_challenges = pgTable("arc_challenges", {
 //   arc_challenges  (expires_at), (ip, created_at)
 //   arc_sessions    (account_id)
 //   runner_topups   (client_id, created_at)
+//   race_results    (winner_pid, created_at)             -- daily win cap (made by routes/race.js)
 // ---------------------------------------------------------------------------

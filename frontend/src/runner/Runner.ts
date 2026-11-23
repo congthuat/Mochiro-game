@@ -38,6 +38,7 @@ import { ObstacleManager, type Obstacle, type ObstacleKind } from './obstacles'
 import { CROSSING_PERIOD, HAULER, MOVER_NEAR_MISS, PENDULUM, ROLLER, SLIDER, SNOWBALL, SWEEPER, moverBox, type HitBox, type MoverType } from './movers'
 import { themeOf } from './obstacleSkins'
 import { PickupManager, type Coin, type PowerUp } from './pickups'
+import { PROTECTED, RIVAL_FLAG, RivalLayer, type RivalInfo, type RivalSample } from './rivals'
 import { Scenery } from './scenery'
 import { Districts } from './districts'
 import districtsUrl from '../assets/models/city-districts.glb?url'
@@ -61,6 +62,7 @@ import {
   QUALITY_PRESETS,
   RUN,
   gapTimeAt,
+  raceClock,
   guessDeviceQuality,
   resolveQuality,
   speedAt,
@@ -82,6 +84,13 @@ import type {
 } from './types'
 
 const MAX_DT = 0.05
+/**
+ * A live race runs on the wall clock: a device that cannot hold 20 fps takes several
+ * steps per frame instead of falling into slow motion (which would also let it outlast
+ * the others on time). A longer stall than this (a hidden tab) is time lost; the referee
+ * takes a racer who falls far behind the clock out of the race.
+ */
+const RACE_CATCH_UP = 0.5
 /** Minimum seconds between two shields being offered on the road. */
 const SHIELD_GAP = 30
 
@@ -192,6 +201,26 @@ interface RunState {
   /** Seconds spent up on the skyway this convoy, and whether it has been called out. */
   roofTime: number
   roofToasted: boolean
+}
+
+/** A live race on this device. */
+interface RaceRun {
+  seed: number
+  /** The metre the next pattern starts at. */
+  nextSpawnAt: number
+  /** Race clock of the last shield laid on the road (shields are rationed by the road). */
+  lastShieldClock: number
+  /** The racer the camera follows once this runner is out. */
+  target: string | null
+  /** Obstacles already reported by the fair-play check. */
+  checked: Set<string>
+  strikes: number
+  /**
+   * performance.now() of the start. The road is built and drawn during the countdown
+   * (the first frames of a new road are the slowest), and the runner waits at the line.
+   * 0 once the race is under way.
+   */
+  goAt: number
 }
 
 interface LineTracker {
@@ -373,6 +402,8 @@ export class Runner {
     pauseKey: undefined,
     pickup: PickupEvent
     action: RushAction
+    raceOut: { distance: number; elapsed: number; busted: boolean; score: number }
+    raceStrike: { id: string; at: number; kind: string }
   }>()
 
   /** Shop upgrade levels (0–5) per helpful power; each level stretches it by `upgradeStep`. */
@@ -461,6 +492,18 @@ export class Runner {
   private grazed = new Set<Obstacle>()
   private moverHit: HitBox = { x: 0, width: 0, bottom: 0, top: 0, depth: 0, platform: 0 }
   private target = new THREE.Vector3()
+  /**
+   * A live race. Its road comes from the shared seed and is laid out by distance (the
+   * race clock), never by this device's stopwatch, so every racer meets the same thing
+   * at the same metre whatever their frame rate or power-ups.
+   */
+  private race: RaceRun | null = null
+  private rivals: RivalLayer | null = null
+  /** The speed a pattern is laid out for: the runner's own, or a race's plain ramp. */
+  private spawnSpeed = RUN.startSpeed
+  /** DEV: every obstacle a race laid out, as [kind, lane, metre]. */
+  private raceLog: Array<[string, number, number]> = []
+  private godMode = false
 
   constructor(container: HTMLElement, settings: Settings, bestScore = 0) {
     this.container = container
@@ -1217,6 +1260,8 @@ export class Runner {
   // ----------------------------------------------------------------- perks --
   /** Multiplier for the active hero's perk, or `fallback` for a different perk. */
   private perkScale(id: PerkId, fallback = 1): number {
+    // A race is the same for everyone: no hero perks.
+    if (this.race) return fallback
     const perk = CHARACTERS[this.character]?.perk
     return perk && perk.id === id ? perk.value : fallback
   }
@@ -1232,6 +1277,7 @@ export class Runner {
   }
 
   private upgradeScale(kind: PowerKind): number {
+    if (this.race) return 1
     const level = Math.max(0, Math.min(5, Math.floor(this.upgrades[kind] ?? 0)))
     return 1 + level * this.upgradeStep
   }
@@ -1304,11 +1350,96 @@ export class Runner {
   }
 
   startRun(): void {
+    this.endRaceState()
     if (this.journeyUsed) this.rollJourney()
     this.journeyUsed = true
+    this.beginRun()
+  }
+
+  /**
+   * Starts this device's run of a live race. Everyone in the match calls this with the
+   * same seed when the countdown begins and runs off at `goAt`: same zones, same
+   * obstacles, same pickups, no perks, no bought power-ups, no revive, no road events.
+   */
+  startRace(seed: number, rivals: RivalInfo[], goAt = 0): void {
+    this.endRaceState()
+    const s = seed >>> 0
+    this.race = { seed: s, nextSpawnAt: RUN.spawnAhead + 18, lastShieldClock: -Infinity, target: null, checked: new Set(), strikes: 0, goAt }
+    this.rollJourney(s, null)
+    this.journeyUsed = true
+    // freshRun() draws the first pickup timer from the rng, so seed it first.
+    this.rng = makeRng((s ^ 0x9e3779b9) >>> 0)
+    this.raceLog = []
+    this.obstacles.minCap = 44
+    this.rivals = new RivalLayer(this.scene, this.quality)
+    for (const info of rivals) this.rivals.add(info)
+    this.beginRun()
+  }
+
+  /** True while this device is in a race (running or spectating). */
+  get racing(): boolean {
+    return this.race !== null
+  }
+
+  /** A position report from another racer. */
+  raceSample(id: string, sample: RivalSample): void {
+    if (!this.rivals) return
+    this.rivals.push(id, sample)
+    if (this.phase === 'spectate' && this.race?.target === id) this.crossCheck(id, sample)
+  }
+
+  /** Another racer is out (or back, if the referee says so). */
+  raceOut(id: string, out = true): void {
+    this.rivals?.setOut(id, out)
+  }
+
+  /** Who the camera follows once this runner is out. */
+  setSpectateTarget(id: string | null): void {
+    if (this.race) this.race.target = id
+  }
+
+  /** What this device sends the others, ten times a second. */
+  raceState(): { d: number; x: number; y: number; sl: boolean; f: number; out: boolean } | null {
+    if (!this.race) return null
+    const run = this.run
+    let f = 0
+    if (run.shield > 0) f |= RIVAL_FLAG.shield
+    if (run.boostUntil > run.elapsed) f |= RIVAL_FLAG.boost
+    if (run.ghostUntil > run.elapsed) f |= RIVAL_FLAG.ghost
+    if (run.invulnUntil > run.elapsed) f |= RIVAL_FLAG.invuln
+    return {
+      d: Math.round(run.distance * 100) / 100,
+      x: Math.round(run.laneX * 100) / 100,
+      y: Math.round(run.y * 100) / 100,
+      sl: run.sliding,
+      f,
+      out: this.phase !== 'playing',
+    }
+  }
+
+  /** The referee says this runner is out (lost connection too long): stop where they are. */
+  raceEliminate(): void {
+    if (this.race && this.phase === 'playing') this.eliminate(false)
+  }
+
+  /** Leaves the race view entirely (back to the menu). */
+  leaveRace(): void {
+    this.quitToMenu()
+  }
+
+  private endRaceState(): void {
+    this.race = null
+    this.rivals?.dispose()
+    this.rivals = null
+    this.obstacles.minCap = 0
+    this.avatar.root.visible = true
+  }
+
+  private beginRun(): void {
+    const race = this.race
     this.run = this.freshRun()
-    this.diff = difficulty(this.settings.difficulty)
-    this.missionRolls = rollMissions(() => Math.random())
+    this.diff = difficulty(race ? 'normal' : this.settings.difficulty)
+    this.missionRolls = race ? [] : rollMissions(() => Math.random())
     this.run.missions = this.missionRolls.map((roll) => ({
       id: roll.id,
       target: roll.target,
@@ -1321,7 +1452,7 @@ export class Runner {
     if (this.run.shield > 0) this.avatar.setShieldLevel(this.run.shield)
     this.lineTrackers.clear()
     this.grazed.clear()
-    this.rng = makeRng(Math.floor(Math.random() * 0xffffffff))
+    if (!race) this.rng = makeRng(Math.floor(Math.random() * 0xffffffff))
     this.obstacles.reset()
     this.pickups?.reset()
     this.zones.reset()
@@ -1334,10 +1465,10 @@ export class Runner {
       this.audio.setVolumes(this.settings.master, this.settings.music, this.settings.sfx)
       this.audio.setIntensity(0)
       this.audio.startMusic()
-      this.audio.play('start')
+      if (!this.holding()) this.audio.play('start')
     })
     this.beginIntro()
-    this.toast(translate('runner.toast.go'), 'good')
+    if (!this.holding()) this.toast(translate('runner.toast.go'), 'good')
     this.setPhase('playing')
     this.emitHud(true)
   }
@@ -1362,7 +1493,8 @@ export class Runner {
   }
 
   pause(): void {
-    if (this.phase !== 'playing') return
+    // A race runs on for everyone; there is no stopping the clock.
+    if (this.phase !== 'playing' || this.race) return
     this.setPhase('paused')
     this.audio.setIntensity(0)
     // The music used to play on under the pause menu.
@@ -1383,6 +1515,7 @@ export class Runner {
   }
 
   quitToMenu(): void {
+    this.endRaceState()
     if (this.journeyUsed) this.rollJourney()
     this.obstacles.reset()
     this.pickups?.reset()
@@ -1456,8 +1589,9 @@ export class Runner {
     let dt = (now - this.lastTime) / 1000
     this.lastTime = now
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60
+    let raceDt = this.race ? Math.min(RACE_CATCH_UP, dt) : 0
     dt = Math.min(MAX_DT, dt)
-    this.clockTime += dt
+    this.clockTime += Math.max(dt, raceDt)
 
     this.measureFps(dt)
 
@@ -1468,9 +1602,20 @@ export class Runner {
       return
     }
 
-    if (this.phase === 'playing') this.updatePlaying(dt)
+    if (this.phase === 'playing' && this.holding()) this.updateHold(dt)
+    else if (this.phase === 'playing' && this.race && this.race.goAt > 0) {
+      // The off: run from goAt itself, not from this frame.
+      raceDt = Math.min(RACE_CATCH_UP, (now - this.race.goAt) / 1000)
+      this.race.goAt = 0
+      this.toast(translate('runner.toast.go'), 'good')
+      this.audio.play('start')
+      for (let left = raceDt; left > 1e-6 && this.phase === 'playing'; left -= MAX_DT) this.updatePlaying(Math.min(MAX_DT, left))
+    } else if (this.phase === 'playing' && raceDt > MAX_DT) {
+      for (let left = raceDt; left > 1e-6 && this.phase === 'playing'; left -= MAX_DT) this.updatePlaying(Math.min(MAX_DT, left))
+    } else if (this.phase === 'playing') this.updatePlaying(dt)
     else if (this.phase === 'menu') this.updateMenu(dt)
     else if (this.phase === 'gameover') this.updateCrash(dt)
+    else if (this.phase === 'spectate') this.updateSpectate(dt)
 
     this.render()
   }
@@ -1479,6 +1624,51 @@ export class Runner {
    * The current frame as a JPEG data URL (for the share card). The drawing buffer is not
    * preserved between frames, so render and read in the same task.
    */
+  /** DEV only: crashes never end the run (long automated race checks). */
+  debugGod(on: boolean): void {
+    if (import.meta.env.DEV) this.godMode = on
+  }
+
+  /** DEV only: what the race has laid out so far, as [kind, lane, metre]. */
+  debugRaceLog(): Array<[string, number, number]> {
+    return import.meta.env.DEV ? this.raceLog.slice() : []
+  }
+
+  /**
+   * DEV only: runs a whole race off-screen with a given frame time (optionally jittered)
+   * and a boost every `boostEvery` seconds, and returns what was laid out. Two calls with
+   * the same seed must agree on every obstacle, whatever the frame times and boosts.
+   */
+  debugRaceSim(seed: number, opts: { dt?: number; jitter?: number; seconds?: number; boostEvery?: number } = {}): {
+    log: Array<[string, number, number]>
+    distance: number
+    elapsed: number
+  } {
+    if (!import.meta.env.DEV) return { log: [], distance: 0, elapsed: 0 }
+    const dt0 = opts.dt ?? 1 / 60
+    const jitter = opts.jitter ?? 0
+    const seconds = opts.seconds ?? 120
+    const boostEvery = opts.boostEvery ?? 0
+    this.startRace(seed, [])
+    this.godMode = true
+    let nextBoost = boostEvery
+    let wobble = 1
+    while (this.run.elapsed < seconds && this.phase === 'playing') {
+      wobble = (wobble * 16807) % 2147483647
+      const dt = Math.min(MAX_DT, dt0 * (1 + jitter * ((wobble / 2147483647) * 2 - 1)))
+      if (boostEvery > 0 && this.run.elapsed >= nextBoost) {
+        nextBoost += boostEvery
+        this.run.boostUntil = this.run.elapsed + RUN.boostTime
+      }
+      this.clockTime += dt
+      this.updatePlaying(dt)
+    }
+    this.godMode = false
+    const result = { log: this.raceLog.slice(), distance: this.run.distance, elapsed: this.run.elapsed }
+    this.quitToMenu()
+    return result
+  }
+
   /** DEV only: end the current run as if the runner crashed (QA of the results screen). */
   debugFinish(): void {
     if (!import.meta.env.DEV) return
@@ -1614,6 +1804,30 @@ export class Runner {
   }
 
   // --------------------------------------------------------------- gameplay --
+  /** At the start line of a race, before the off. */
+  private holding(): boolean {
+    return this.race !== null && performance.now() < this.race.goAt
+  }
+
+  private updateHold(dt: number): void {
+    const run = this.run
+    // Nothing moves before the off; taps during the countdown are dropped, not saved up.
+    for (const action of ['left', 'right', 'jump', 'slide'] as const) while (this.input.consume(action, Infinity));
+    run.speed = 0
+    // Lay out the first stretch now (the race road is placed by distance, not time), so
+    // its obstacles are drawn — and their shaders built — before the off, not after it.
+    this.spawnIfNeeded(0)
+    this.track.update(dt, 0, this.clockTime, 0)
+    this.zones.update(dt, 0, 0, this.track.archPhase)
+    this.districts.update(dt, 0, 0)
+    this.scenery?.update(dt, 0, this.clockTime, 0)
+    this.obstacles.update(dt, 0)
+    this.pickups?.update(dt, 0, this.clockTime, false, this.target)
+    this.updateAvatar(dt, false)
+    this.updateCamera(dt, false)
+    this.rivals?.lineUp(dt, this.clockTime)
+  }
+
   private updatePlaying(dt: number): void {
     const run = this.run
     run.elapsed += dt
@@ -1653,7 +1867,7 @@ export class Runner {
     this.applyBiome(run.distance)
     this.updatePursuit(dt)
     this.updateMissions()
-    this.updateEvents()
+    if (!this.race) this.updateEvents()
     this.applyInput(dt, boosting)
     this.updatePhysics(dt)
     this.spawnIfNeeded(dt)
@@ -1703,6 +1917,7 @@ export class Runner {
 
     this.updateAvatar(dt, boosting)
     this.updateCamera(dt, boosting)
+    this.rivals?.update(realDt, run.distance, run.laneX, this.clockTime)
 
     this.avatar.setShieldLevel(run.shield > 0 ? 1 : 0)
 
@@ -1973,6 +2188,11 @@ export class Runner {
   private spawnIfNeeded(dt: number): void {
     const run = this.run
     if (this.spawnFrozen) return
+    if (this.race) {
+      this.spawnRace()
+      return
+    }
+    this.spawnSpeed = run.speed
     run.spawnCursor -= run.speed * dt
     if (run.spawnCursor > 0) return
     const difficulty = clamp01((run.elapsed - 5) / 130)
@@ -2046,6 +2266,82 @@ export class Runner {
     return 'magnet'
   }
 
+  /**
+   * A race's road. Each pattern has an exact metre (`nextSpawnAt`) and the difficulty,
+   * gaps and pickups are read off the race clock at that metre, so the road depends on
+   * nothing but the seed. A frame that lands past the metre lays the pattern out as if
+   * it had landed on it and shifts it into place; a long jump (spectating) lays out
+   * every pattern it skipped, in order, so the rng stays in step.
+   */
+  private spawnRace(): void {
+    const run = this.run
+    const race = this.race
+    if (!race) return
+    let guard = 0
+    while (run.distance + RUN.spawnAhead >= race.nextSpawnAt && guard++ < 48) {
+      const at = race.nextSpawnAt
+      const startAt = at - RUN.spawnAhead
+      const clock = raceClock(startAt, this.diff.speed)
+      const speed = speedAt(clock) * this.diff.speed
+      const difficulty = clamp01((clock - 5) / 130)
+      const zone = zoneAt(at)
+      const beat = run.beat
+      run.beat = (run.beat + 1) % PHRASE
+      const breather = run.breatherNext || (beat === PHRASE - 1 && difficulty >= 0.12)
+      run.breatherNext = false
+      const pattern: PatternKind = this.forcedPattern ?? (breather ? 'breather' : this.pickPattern(difficulty, zone))
+      this.forcedPattern = null
+      let rhythm = breather ? BREATHER_GAP : beat === BURST_BEAT && difficulty >= 0.3 ? BURST_GAP : 1
+      if (MOVER_PATTERNS.has(pattern)) {
+        if (difficulty < 0.6) run.breatherNext = true
+        if (rhythm < 1) rhythm = 1
+      }
+      run.lastPattern = pattern
+      if (import.meta.env.DEV) this.patternLog.push(`${Math.round(clock)}s:${pattern}@${zone}`)
+      const shift = run.distance - startAt
+      this.obstacles.zShift = shift
+      if (this.pickups) this.pickups.zShift = shift
+      this.spawnSpeed = speed
+      run.reserve = 0
+      const before = import.meta.env.DEV ? new Set(this.obstacles.pool.filter((item) => item.active)) : null
+      const length = this.spawnPattern(pattern, -RUN.spawnAhead, difficulty)
+      if (before) {
+        for (const item of this.obstacles.pool) {
+          if (!item.active || before.has(item)) continue
+          this.raceLog.push([item.mover ? `mover.${item.mover.type}` : item.kind, item.lane, Math.round((run.distance - item.z) * 100) / 100])
+        }
+      }
+      race.nextSpawnAt = at + Math.max(length + speed * gapTimeAt(clock) * this.diff.gaps * rhythm, run.reserve)
+      run.powerTimer -= 1
+      if (run.powerTimer <= 0) {
+        run.powerTimer = Math.round(randRange(this.rng, 5, 9))
+        const kind = this.pickRacePower(clock)
+        const lane = Math.floor(this.rng() * LANES.length)
+        this.pickups?.spawnPower(kind, lane, -RUN.spawnAhead - length - 6)
+        if (import.meta.env.DEV) this.raceLog.push([`power.${kind}`, lane, Math.round((startAt + RUN.spawnAhead + length + 6) * 100) / 100])
+      }
+      this.obstacles.zShift = 0
+      if (this.pickups) this.pickups.zShift = 0
+    }
+  }
+
+  /** The race's pickup draw: the same catalogue, rationed by the road rather than the runner. */
+  private pickRacePower(clock: number): PowerKind {
+    const race = this.race
+    const shieldOk = !race || clock - race.lastShieldClock >= SHIELD_GAP
+    const pool = POWERS.filter((spec) => (clock >= 22 || !spec.harmful) && (spec.kind !== 'shield' || shieldOk))
+    const total = pool.reduce((sum, spec) => sum + spec.weight, 0)
+    let roll = this.rng() * total
+    for (const spec of pool) {
+      roll -= spec.weight
+      if (roll <= 0) {
+        if (spec.kind === 'shield' && race) race.lastShieldClock = clock
+        return spec.kind
+      }
+    }
+    return 'magnet'
+  }
+
   private pickPattern(difficulty: number, zone = 'city'): PatternKind {
     const pool = (PATTERN_POOLS.find((entry) => difficulty < entry.until) ?? PATTERN_POOLS[PATTERN_POOLS.length - 1]).weights
     const flavor = ZONE_FLAVOR[zone] ?? {}
@@ -2089,7 +2385,7 @@ export class Runner {
     // further up the road and drives at them; while it is still behind the spawn line
     // the next pattern is held back (run.reserve) so it never drives through one.
     const oncoming = (type: ObstacleKind, lane: number, slot: number) => {
-      const s = Math.max(8, this.run.speed)
+      const s = Math.max(8, this.spawnSpeed)
       const reach = -slot
       // Never start further than ~280 m out (deep in the fog on every tier).
       const v = Math.min(9 + 7 * difficulty, s * (280 / reach) - s)
@@ -2107,7 +2403,7 @@ export class Runner {
     const pair = (): { lanes: number[]; open: number } => (this.rng() < 0.5 ? { lanes: [0, 1], open: 2 } : { lanes: [1, 2], open: 0 })
     const phase = (period: number) => this.rng() * period
     const rolling = (type: MoverType, lane: number, slot: number, v: number) => {
-      const s = Math.max(8, this.run.speed)
+      const s = Math.max(8, this.spawnSpeed)
       const reach = -slot
       const speed = Math.min(v, s * (280 / reach) - s)
       const at = slot * ((s + speed) / s)
@@ -2183,7 +2479,7 @@ export class Runner {
         // Rockslide: two rocks a beat apart in two lanes; the third is the way through.
         const order = [...lanes].sort(() => this.rng() - 0.5)
         const [first, second, open] = order
-        const step = Math.max(12, this.run.speed * 0.7)
+        const step = Math.max(12, this.spawnSpeed * 0.7)
         this.obstacles.spawnMover('rockfall', [first], z)
         this.obstacles.spawnMover('rockfall', [second], z - step)
         line(open, z + 2, 4 + Math.floor(step / 2.45), 'flat')
@@ -2204,7 +2500,7 @@ export class Runner {
         // the load and ride the roof for the coins over it.
         const order = [...lanes].sort(() => this.rng() - 0.5)
         const [lane, , open] = order
-        const s = Math.max(8, this.run.speed)
+        const s = Math.max(8, this.spawnSpeed)
         const u = HAULER.speed
         const D = HAULER.depth
         if (!this.obstacles.spawnMover('hauler', [lane], z, { vz: -u })) return 6
@@ -2248,7 +2544,7 @@ export class Runner {
       case 'slalom': {
         const order = [...lanes].sort(() => this.rng() - 0.5)
         // Spacing follows speed (about 0.3 s per step) so the weave stays possible at the top end.
-        const span = Math.max(13, this.run.speed * 0.9)
+        const span = Math.max(13, this.spawnSpeed * 0.9)
         order.forEach((lane, index) => {
           const at = z - index * (span / 3)
           spawn(index === 1 ? 'low' : 'tall', lane, at)
@@ -2260,7 +2556,7 @@ export class Runner {
         spawn('tunnel', 1, z)
         const lane = free()
         // Slide, then jump: the hurdle sits far enough behind the lintel to stand up first.
-        const after = Math.max(7, this.run.speed * 0.32)
+        const after = Math.max(7, this.spawnSpeed * 0.32)
         spawn('low', lane, z - after)
         const safe = lanes.filter((item) => item !== lane)
         line(safe[0], z + 2.5, 3, 'flat')
@@ -2314,7 +2610,7 @@ export class Runner {
         // Two oncoming vehicles a beat apart plus a parked car: thread the gap.
         const order = [...lanes].sort(() => this.rng() - 0.5)
         const [a, b, c] = order
-        const step = Math.max(9, this.run.speed * 0.55)
+        const step = Math.max(9, this.spawnSpeed * 0.55)
         oncoming(difficulty >= 0.5 && this.rng() < 0.3 ? 'bus' : 'car', a, z)
         oncoming('car', b, z - step)
         spawn('car', c, z - step)
@@ -2328,7 +2624,7 @@ export class Runner {
         const to = from === 1 ? (this.rng() < 0.5 ? 0 : 2) : 1
         const other = lanes.find((item) => item !== from && item !== to) ?? 0
         const car = spawn('car', from, z)
-        const s = this.run.speed
+        const s = this.spawnSpeed
         if (car) this.obstacles.makeMerge(car, to, -Math.max(60, s * 2.1), -Math.max(30, s * 1.05))
         if (difficulty > 0.35) spawn('low', other, z)
         line(from, z - 3.5, 5, 'flat')
@@ -2337,7 +2633,7 @@ export class Runner {
       case 'skyway': {
         // The high road: a ramp up onto a convoy of box trucks, a coin line and a points
         // trickle along the roofs. Below, one lane of hurdles and one open lane.
-        const s = this.run.speed
+        const s = this.spawnSpeed
         const trucks = s < 22 ? 2 : s < 38 ? 3 : 4
         const pitch = OBSTACLES.truck.depth + 0.6
         const gapR = Math.max(2.4, s * 0.2)
@@ -2345,7 +2641,7 @@ export class Runner {
         const backEnd = firstCentre - (trucks - 1) * pitch - OBSTACLES.truck.depth / 2
         const step = Math.max(10, s * 0.9)
         const hurdles = Math.max(1, Math.floor((z - 4 - (backEnd + 2)) / step) + 1)
-        if (this.obstacles.available() < 1 + trucks + hurdles + 1) return this.spawnPattern('rampCar', z, difficulty)
+        if (!this.race && this.obstacles.available() < 1 + trucks + hurdles + 1) return this.spawnPattern('rampCar', z, difficulty)
         const order = [...lanes].sort(() => this.rng() - 0.5)
         const [high, ground, open] = order
         spawn('ramp', high, z)
@@ -2370,7 +2666,7 @@ export class Runner {
         const lowLane = row(z)
         line(lowLane, z + 2.2, 5, 'arc')
         if (difficulty < 0.45) return 6
-        const gap = Math.max(14, this.run.speed * 0.6)
+        const gap = Math.max(14, this.spawnSpeed * 0.6)
         row(z - gap)
         return gap + 6
       }
@@ -2788,6 +3084,7 @@ export class Runner {
   private hit(obstacle: Obstacle): void {
     const run = this.run
     if (run.invulnUntil > run.elapsed) return
+    if (import.meta.env.DEV && this.godMode) return
     run.contacts += 1
     this.shake = Math.min(1.4, this.shake + 0.9)
     // Every contact adds danger, shield or not: a ward absorbs the impact, not the
@@ -2903,6 +3200,10 @@ export class Runner {
 
   /** Heat reaches its ceiling: the run is over. */
   private bust(): void {
+    if (import.meta.env.DEV && this.godMode) {
+      this.run.heat = 0
+      return
+    }
     this.run.busted = true
     this.run.heat = PURSUIT.bustedAt
     this.camKick = Math.min(4, this.camKick + 3)
@@ -2951,7 +3252,7 @@ export class Runner {
   revive(): boolean {
     const run = this.run
     const cost = reviveCostFor(this.diff, run.coins)
-    if (this.phase !== 'gameover' || run.revived || run.coins < cost) return false
+    if (this.race || this.phase !== 'gameover' || run.revived || run.coins < cost) return false
     run.coins -= cost
     run.revived = true
     run.busted = false
@@ -2981,6 +3282,10 @@ export class Runner {
     // The meter can fill in the same frame a hazard lands. Whichever gets there first
     // owns the result screen.
     if (this.phase === 'gameover') return
+    if (this.race) {
+      this.eliminate(busted)
+      return
+    }
     const run = this.run
     run.busted = busted
     const record = run.score > this.bestScore
@@ -3007,6 +3312,111 @@ export class Runner {
     this.setPhase('gameover')
     this.emitHud(true)
     this.events.emit('result', summary)
+  }
+
+  /** Out of the race: the crash plays, then the camera goes to whoever is leading. */
+  private eliminate(busted: boolean): void {
+    if (this.phase === 'spectate') return
+    const run = this.run
+    run.busted = busted
+    this.gameOverAt = this.clockTime
+    this.audio.play('gameover')
+    this.audio.stopMusic()
+    this.setPhase('spectate')
+    this.emitHud(true)
+    this.events.emit('raceOut', { distance: run.distance, elapsed: run.elapsed, busted, score: Math.floor(run.score) })
+  }
+
+  /**
+   * Spectating: the world is driven by the followed racer's distance instead of this
+   * runner's, the road is laid out exactly as theirs is, and their character runs at
+   * the camera's focus. While watching, the followed racer's reports are checked against
+   * the obstacles they are passing (see crossCheck).
+   */
+  private updateSpectate(dt: number): void {
+    const race = this.race
+    const rivals = this.rivals
+    const run = this.run
+    const pose = race?.target && rivals ? rivals.pose(race.target) : null
+    if (!race || !rivals || !pose || this.clockTime - this.gameOverAt < 1.5) {
+      this.updateCrash(dt)
+      rivals?.update(dt, run.distance, null, this.clockTime)
+      return
+    }
+    run.elapsed += dt
+    if (this.avatar.root.visible) {
+      this.avatar.root.visible = false
+      this.avatar.setShieldLevel(0)
+      // Ease the camera into the chase view from wherever the crash left it.
+      this.beginIntro()
+    }
+    // Follow with the racer's own speed plus a pull on the gap, so the view neither lags
+    // nor overshoots; a big gap (just switched to a racer far ahead) closes quickly.
+    const before = run.distance
+    let gap = pose.d - before
+    if (gap > 420) {
+      run.distance = pose.d - 420
+      gap = 420
+    }
+    const step = Math.max(0, pose.speed * dt + gap * (1 - Math.exp(-(gap > 40 ? 2.2 : 5) * dt)))
+    run.distance = Math.max(run.distance, run.distance + Math.min(step, Math.max(0, gap) + pose.speed * dt))
+    const moved = run.distance - before
+    const speed = dt > 0 ? moved / dt : 0
+    run.speed = speed
+    run.laneX = pose.x
+    run.y = pose.y
+    run.sliding = pose.sliding
+    this.target.set(run.laneX, run.y, 0)
+    this.avatar.root.position.set(run.laneX, run.y, 0)
+    this.applyBiome(run.distance)
+    this.spawnRace()
+    this.track.update(dt, speed, this.clockTime, run.distance)
+    this.zones.update(dt, speed, run.distance, this.track.archPhase)
+    this.districts.update(dt, speed, run.distance)
+    this.scenery?.update(dt, speed, this.clockTime, run.distance)
+    this.obstacles.update(dt, speed)
+    this.obstacles.drainMoverEvents()
+    this.pickups?.update(dt, speed, this.clockTime, false, this.target)
+    this.sparks.update(dt, moved)
+    this.updatePickupFx(dt, moved)
+    this.speedLines.update(dt, Math.min(speed, 60), speedLevel(Math.min(speed, 60)), pose.flags & RIVAL_FLAG.boost ? 1 : 0)
+    this.updateCamera(dt, Boolean(pose.flags & RIVAL_FLAG.boost))
+    rivals.update(dt, run.distance, null, this.clockTime)
+    this.hudTimer += dt
+    if (this.hudTimer > 0.08) {
+      this.hudTimer = 0
+      this.emitHud(false)
+    }
+  }
+
+  /**
+   * Fair-play check while spectating. Each raw report from the followed racer is the
+   * pose their own game had on that frame; if it sits deep inside a solid, standing
+   * obstacle of this (identical) road, with nothing protecting them, their game did not
+   * crash them where it should have. Moving obstacles and thin ones are skipped, and the
+   * box is shrunk well inside the real one, so an honest close call never counts.
+   */
+  private crossCheck(id: string, sample: RivalSample): void {
+    const race = this.race
+    if (!race || sample.f & PROTECTED) return
+    const run = this.run
+    const height = sample.sl ? BODY.slideHeight : BODY.standHeight
+    for (const obstacle of this.obstacles.pool) {
+      if (!obstacle.active || obstacle.smashing || obstacle.mover || obstacle.vz !== 0 || obstacle.shift) continue
+      const spec = obstacle.spec
+      if (spec.launch || obstacle.kind === 'tunnel' || spec.depth < 0.9) continue
+      const at = run.distance - obstacle.z
+      if (Math.abs(at - sample.d) > spec.depth / 2 - 0.35) continue
+      if (Math.abs(obstacle.mesh.position.x - sample.x) > spec.width / 2 - 0.25) continue
+      const bottom = spec.bottom
+      const top = spec.bottom + spec.height
+      if (sample.y + height <= bottom + 0.45 || sample.y >= top - 0.45) continue
+      const key = `${obstacle.kind}@${Math.round(at)}`
+      if (race.checked.has(key)) continue
+      race.checked.add(key)
+      race.strikes += 1
+      this.events.emit('raceStrike', { id, at: Math.round(at), kind: obstacle.kind })
+    }
   }
 
   private updateCrash(dt: number): void {
@@ -3291,7 +3701,7 @@ export class Runner {
       lapProgress: journey.lapProgress,
       journeyTicks: journey.ticks,
       heat: this.run.heat,
-      canRevive: !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
+      canRevive: !this.race && !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
       reviveCost: reviveCostFor(this.diff, this.run.coins),
       missions: this.run.missions,
       event: this.eventHud(),

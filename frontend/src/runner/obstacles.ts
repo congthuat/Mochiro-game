@@ -534,8 +534,11 @@ export class ObstacleManager {
   }
 
   /** How many more obstacles can be put on the road right now. */
+  /** A race raises the pool's floor so no device drops an obstacle its rivals have. */
+  minCap = 0
+
   available(): number {
-    let free = Math.max(0, this.cap - this.pool.length)
+    let free = Math.max(0, Math.max(this.cap, this.minCap) - this.pool.length)
     for (const item of this.pool) if (!item.active) free++
     return free
   }
@@ -561,7 +564,18 @@ export class ObstacleManager {
     this.shadowMaterial.opacity = preset.shadows ? 0.34 : 0.5
   }
 
+  /**
+   * Added to every spawn's z. A race lays each pattern out at its exact metre even when
+   * the frame that spawns it lands a little past that point; the pattern is computed
+   * at its nominal spot and moved here, so its layout never depends on the frame rate.
+   */
+  zShift = 0
+
   spawn(kind: ObstacleKind, lane: number, z: number): Obstacle | null {
+    return this.place(kind, lane, z + this.zShift)
+  }
+
+  private place(kind: ObstacleKind, lane: number, z: number): Obstacle | null {
     const obstacle = this.acquire(kind)
     if (!obstacle) return null
     const spec = OBSTACLES[kind]
@@ -609,7 +623,8 @@ export class ObstacleManager {
     z: number,
     opts: { side?: 1 | -1; phase?: number; vz?: number; look?: MoverLook } = {}
   ): Obstacle | null {
-    const item = this.spawn('mover', lanes[0], z)
+    z += this.zShift
+    const item = this.place('mover', lanes[0], z)
     if (!item) return null
     const zone = this.zoneAt ? this.zoneAt(z) : 'city'
     const look = opts.look ?? lookFor(type, themeOf(zone), zone)
@@ -885,7 +900,7 @@ export class ObstacleManager {
     for (const item of this.pool) {
       if (!item.active && item.kind === kind) return item
     }
-    if (this.pool.length >= this.cap) {
+    if (this.pool.length >= Math.max(this.cap, this.minCap)) {
       // Steal the farthest recycled mesh rather than dropping the spawn.
       const fallback = this.pool.find((item) => !item.active)
       if (fallback) {

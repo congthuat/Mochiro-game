@@ -183,6 +183,35 @@ export function gapTimeAt(elapsed: number): number {
   return RUN.gapTimeStart + (RUN.gapTimeEnd - RUN.gapTimeStart) * t
 }
 
+/** Metres covered after `seconds` at the base speed ramp (no boost), times `mult`. */
+export function baseDistanceAt(seconds: number, mult = 1): number {
+  const R = RUN.rampSeconds
+  const span = RUN.maxSpeed - RUN.startSpeed
+  const t = Math.max(0, seconds)
+  const ramp = (u: number) => RUN.startSpeed * u + span * (u - (R / 3.1) * (1 - Math.pow(1 - u / R, 3.1)))
+  if (t <= R) return ramp(t) * mult
+  return (ramp(R) + RUN.maxSpeed * (t - R)) * mult
+}
+
+/**
+ * The race clock: how long a runner on the plain speed ramp takes to reach `distance`.
+ * In a race the road is laid out by this clock rather than by the runner's own
+ * stopwatch, so a boost, a hit-stop or a dropped frame never changes what lies ahead —
+ * every racer meets the same obstacles at the same metre.
+ */
+export function raceClock(distance: number, mult = 1): number {
+  if (distance <= 0) return 0
+  let lo = 0
+  let hi = 60
+  while (baseDistanceAt(hi, mult) < distance) hi *= 2
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (baseDistanceAt(mid, mult) < distance) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
 export interface QualityPreset {
   pixelRatio: number
   bloom: boolean

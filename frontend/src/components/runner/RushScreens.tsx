@@ -10,6 +10,7 @@ import type { AuthAccount } from '../../lib/auth'
 import { loadRunnerName, type BoardScope, type EconomyState, type NameState, type SeasonInfo } from '../../lib/runnerApi'
 import { BankChip, RushToday, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
 import { AccountChip } from './AuthGate'
+import { RaceMenuButton } from './RushRace'
 import { ZoneBookEntry } from './RushZoneBook'
 import type {
   ArcBrand,
@@ -94,7 +95,12 @@ export function RushMenu({
   canInstall,
   onInstall,
   inviteFrom,
+  onRace,
+  raceWins = null,
 }: {
+  /** Live race entry; absent while the race server is not set up. */
+  onRace?: () => void
+  raceWins?: number | null
   economy: EconomyState | null
   buying: boolean
   onUnlock: (id: CharacterId) => void
@@ -175,9 +181,17 @@ export function RushMenu({
   // simply keeps the name already on the profile. A dead start button is a wall: it
   // stops the player playing over a label.
   const startBlock = heroUnlocked(economy, character) ? (
-    <button className="ar-btn ar-btn-primary ar-start" onClick={onStart}>
-      <Play size={18} /> {t('menu.start')}
-    </button>
+    <>
+      <button className="ar-btn ar-btn-primary ar-start" onClick={onStart}>
+        <Play size={18} /> {t('menu.start')}
+      </button>
+      {onRace && (
+        <>
+          <RaceMenuButton onClick={onRace} />
+          {raceWins !== null && raceWins > 0 && <p className="ar-race-wins">{t('race.wins', { n: formatNumber(raceWins) })}</p>}
+        </>
+      )}
+    </>
   ) : (
     <>
       <button

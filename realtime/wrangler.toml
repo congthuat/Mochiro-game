@@ -1,0 +1,24 @@
+name = "mochiro-race"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+BACKEND_URL = "https://mochiro.xyz"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[durable_objects.bindings]]
+name = "MATCHMAKER"
+class_name = "Matchmaker"
+
+# The free plan only runs SQLite-backed Durable Objects.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room", "Matchmaker"]
+
+# Secret (set at deploy, never committed):
+#   RESULT_KEY  base64url PKCS#8 Ed25519 key that signs race results.

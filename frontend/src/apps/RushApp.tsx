@@ -71,6 +71,21 @@ import {
 } from '../components/runner/RushEconomy'
 import { RushWallet } from '../components/runner/RushWallet'
 import { RushBadges } from '../components/runner/RushBadges'
+import { RaceHud, RaceLobby, RaceRecap, RaceResult, raceDisplayName } from '../components/runner/RushRace'
+import {
+  RaceClient,
+  clearPendingMatch,
+  createPrivateRoom,
+  fetchMatch,
+  fetchRaceStats,
+  idleRace,
+  loadPendingMatch,
+  raceAvailable,
+  takeRaceLink,
+  type RaceHandlers,
+  type RaceStanding,
+  type RaceStatus,
+} from '../runner/race'
 
 const SETTINGS_KEY = 'arcrush.settings'
 const BEST_KEY = 'arcrush.best'
@@ -139,7 +154,7 @@ function storeBest(value: number): void {
   }
 }
 
-type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet' | 'badges' | 'book'
+type Panel = 'none' | 'race' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet' | 'badges' | 'book'
 
 /**
  * Dev-server only: the browser checks in `scripts/` drive the menu and the run without a
@@ -234,6 +249,19 @@ export default function RushApp() {
   const [inviteFrom, setInviteFrom] = useState<{ name: string; welcome: number } | null>(null)
   const [pwa, setPwa] = useState<PwaInstall | null>(null)
   const inviteTried = useRef<string | null>(null)
+
+  // ---- live race ----
+  const raceRef = useRef<RaceClient | null>(null)
+  const [race, setRace] = useState<RaceStatus>(idleRace)
+  const raceStageRef = useRef(race.stage)
+  raceStageRef.current = race.stage
+  const [raceCreating, setRaceCreating] = useState(false)
+  const [watching, setWatching] = useState<string | null>(null)
+  const [raceWins, setRaceWins] = useState<number | null>(null)
+  const [recap, setRecap] = useState<{ standings: RaceStanding[]; reward: RaceStatus['reward']; won: boolean } | null>(null)
+  const raceGoTimer = useRef(0)
+  /** A ?race=CODE invite the page was opened with, joined once the menu is up. */
+  const raceLink = useRef<string | null>(typeof window === 'undefined' ? null : takeRaceLink())
 
   settingsRef.current = settings
   const economyRef = useRef<EconomyState | null>(null)
@@ -524,6 +552,9 @@ export default function RushApp() {
       runner.events.on('pickup', (event) => setPickup(event)),
       runner.events.on('brand', (value) => setBrand(value)),
       runner.events.on('damage', () => setHitCount((count) => count + 1)),
+      // Live race: this runner crashed, or (spectating) saw the leader go through something.
+      runner.events.on('raceOut', (out) => raceRef.current?.sendOut(out.distance)),
+      runner.events.on('raceStrike', (strike) => raceRef.current?.sendStrike(strike.id, strike.at, strike.kind)),
       runner.events.on('action', (action) =>
         setCoach((step) => (step && step !== 'done' ? nextCoachStep(step, action) : step))
       ),
@@ -622,6 +653,13 @@ export default function RushApp() {
         pause: () => runnerRef.current?.pause(),
         resume: () => runnerRef.current?.resume(),
         finish: () => runnerRef.current?.debugFinish(),
+        god: (on: boolean) => runnerRef.current?.debugGod(on),
+        raceSim: (seed: number, opts?: { dt?: number; jitter?: number; seconds?: number; boostEvery?: number }) =>
+          runnerRef.current?.debugRaceSim(seed, opts),
+        raceLog: () => runnerRef.current?.debugRaceLog() ?? [],
+        raceStatus: () => raceRef.current?.state ?? null,
+        raceSelf: () => runnerRef.current?.raceState() ?? null,
+        ui: () => ({ panel: panelRef.current, phase: phaseRef.current, economy: economyRef.current !== null }),
       }
     }
 
@@ -649,7 +687,7 @@ export default function RushApp() {
 
   // First run ever: a three-step coach (lane, jump, slide) over the live game.
   useEffect(() => {
-    if (phase === 'playing' && coach === null && !tutorialDone()) setCoach('lane')
+    if (phase === 'playing' && coach === null && !tutorialDone() && raceStageRef.current === 'idle') setCoach('lane')
   }, [phase, coach])
   useEffect(() => {
     if (coach !== 'done') return
@@ -906,6 +944,200 @@ export default function RushApp() {
     setPanel(next)
   }, [])
 
+  // ------------------------------------------------------------ live race --
+  // The race client speaks to the race server; the runner draws the shared road and the
+  // other racers. Everything the player sees about the race comes from `race`.
+  const raceHandlers = useRef<RaceHandlers>({
+    change: (status) => setRace(status),
+    start: (seed, players, you, goAt) => {
+      window.clearTimeout(raceGoTimer.current)
+      setPanel('none')
+      setRecap(null)
+      setWatching(null)
+      // Joined a race that is well under way (a reload mid-race): the road cannot be
+      // caught up with, so step out; the result still shows on the menu when it ends.
+      if (performance.now() - goAt > 3000) {
+        raceRef.current?.leave()
+        pushToast({ id: nextAppToastId(), kind: 'warn', text: translate('race.err.started') })
+        return
+      }
+      const rivals = players
+        .filter((p) => p.id !== you)
+        .map((p) => ({ id: p.id, name: raceDisplayName(p.name), character: (CHARACTERS[p.ch] ? p.ch : 'kai') as CharacterId }))
+      // The road is built now, during the countdown; the runner waits at the line until goAt.
+      // Next tick, so the countdown is on screen before the (heavy) build.
+      raceGoTimer.current = window.setTimeout(() => {
+        const client = raceRef.current
+        if (!client || client.state.matchId === null || client.state.stage === 'idle' || client.state.stage === 'error') return
+        setHitCount(0)
+        runnerRef.current?.startRace(seed, rivals, goAt)
+      }, 30)
+    },
+    sample: (id, sample) => runnerRef.current?.raceSample(id, sample),
+    out: (id, _out, self) => {
+      if (self) runnerRef.current?.raceEliminate()
+      else runnerRef.current?.raceOut(id)
+    },
+  })
+
+  const joinRace = useCallback((target: { quick: true } | { code: string }) => {
+    raceRef.current?.dispose()
+    const client = new RaceClient(raceHandlers.current, clientIdRef.current || getRunnerClientId(), settingsRef.current.character)
+    raceRef.current = client
+    setRecap(null)
+    setPanel('race')
+    runnerRef.current?.uiSound('click')
+    void client.join(target)
+  }, [])
+
+  /** The menu's "Live race" button: the lobby, with nothing joined yet. */
+  const joinRaceLobby = useCallback(() => {
+    if (!heroUnlocked(economyRef.current, settingsRef.current.character)) {
+      setPanel('shop')
+      return
+    }
+    runnerRef.current?.uiSound('click')
+    if (raceRef.current?.state.stage === 'error') setRace(idleRace())
+    setRecap(null)
+    setPanel('race')
+  }, [])
+
+  const createRace = useCallback(async () => {
+    setRaceCreating(true)
+    const code = await createPrivateRoom()
+    setRaceCreating(false)
+    if (code.length === 4) joinRace({ code })
+    else setRace({ ...idleRace(), stage: 'error', error: code as RaceStatus['error'] })
+  }, [joinRace])
+
+  /** Out of the race view, back to the menu. A race still running goes on without us. */
+  const exitRace = useCallback((toast: boolean) => {
+    window.clearTimeout(raceGoTimer.current)
+    const client = raceRef.current
+    const running = client?.state.stage === 'running' || client?.state.stage === 'countdown'
+    client?.leave()
+    client?.dispose()
+    raceRef.current = null
+    setRace(idleRace())
+    setWatching(null)
+    if (runnerRef.current?.racing) runnerRef.current.leaveRace()
+    if (toast && running) pushToast({ id: nextAppToastId(), kind: 'good', text: translate('race.leftToast') })
+  }, [pushToast])
+
+  const raceAgain = useCallback(() => {
+    const kind = raceRef.current?.state.kind ?? 'quick'
+    exitRace(false)
+    // A private room closes with its race; the lobby lets the host open a new one.
+    if (kind === 'quick') joinRace({ quick: true })
+    else {
+      setRace(idleRace())
+      setPanel('race')
+    }
+  }, [exitRace, joinRace])
+
+  // Ten position reports a second while this runner is in the race.
+  const racing = race.stage === 'countdown' || race.stage === 'running'
+  useEffect(() => {
+    if (!racing) return undefined
+    const timer = window.setInterval(() => {
+      const state = runnerRef.current?.raceState()
+      if (state && !state.out) raceRef.current?.sendState(state)
+    }, 100)
+    return () => window.clearInterval(timer)
+  }, [racing])
+
+  // Out and watching: the camera follows whoever is furthest ahead among those still running.
+  const spectating = phase === 'spectate' && race.stage !== 'idle'
+  useEffect(() => {
+    if (!spectating) return undefined
+    const pick = () => {
+      const status = raceRef.current?.state
+      if (!status) return
+      let best: string | null = null
+      let far = -1
+      for (const p of status.players) {
+        if (p.id === status.you || status.outs[p.id]) continue
+        const d = status.distances[p.id] ?? 0
+        if (d > far) {
+          far = d
+          best = p.id
+        }
+      }
+      if (!best) return
+      runnerRef.current?.setSpectateTarget(best)
+      setWatching((current) => (current === best ? current : best))
+    }
+    pick()
+    const timer = window.setInterval(pick, 500)
+    return () => window.clearInterval(timer)
+  }, [spectating])
+
+  // The connection gave out (or another tab took over) mid-race: back to the menu.
+  useEffect(() => {
+    if (race.stage !== 'error' || !runnerRef.current?.racing) return
+    const error = race.error
+    window.clearTimeout(raceGoTimer.current)
+    runnerRef.current.leaveRace()
+    raceRef.current?.dispose()
+    raceRef.current = null
+    setRace(idleRace())
+    pushToast({ id: nextAppToastId(), kind: 'warn', text: translate(`race.err.${error ?? 'lost'}`) })
+  }, [race.stage, race.error, pushToast])
+
+  // On the menu: an invite link to join, the race tally, and the result of a race left early.
+  const onMenu = phase === 'menu' && !gated
+  useEffect(() => {
+    if (!onMenu || !raceAvailable()) return undefined
+    const code = raceLink.current
+    if (code) {
+      raceLink.current = null
+      joinRace({ code })
+    }
+    let cancelled = false
+    const clientId = clientIdRef.current || getRunnerClientId()
+    void fetchRaceStats(clientId).then((stats) => {
+      if (!cancelled && stats) setRaceWins(stats.wins)
+    })
+    const check = () => {
+      const pending = loadPendingMatch()
+      if (!pending || raceStageRef.current !== 'idle') return
+      // A race has an hour's cap; one not filed long after that never will be.
+      if (Date.now() - pending.at > 75 * 60 * 1000) {
+        clearPendingMatch(pending.matchId)
+        return
+      }
+      void fetchMatch(pending).then((outcome) => {
+        if (cancelled || outcome === null) return
+        clearPendingMatch(pending.matchId)
+        if (outcome === 'gone') return
+        setRecap({ standings: outcome.standings, reward: outcome.reward, won: outcome.you })
+        if (outcome.you) void fetchEconomy(clientId).then((state) => state && setEconomy(state))
+      })
+    }
+    check()
+    const timer = window.setInterval(check, 15000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [onMenu, joinRace])
+
+  // A paid win lands in the wallet: refresh the bank and the tally.
+  useEffect(() => {
+    if (!race.reward?.rewarded) return
+    const clientId = clientIdRef.current || getRunnerClientId()
+    void fetchEconomy(clientId).then((state) => state && setEconomy(state))
+    setRaceWins((n) => (n ?? 0) + 1)
+  }, [race.reward])
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(raceGoTimer.current)
+      raceRef.current?.dispose()
+    },
+    []
+  )
+
   if (fatal) {
     return (
       <div className="ar-root ar-fill flex w-full items-center justify-center bg-[#04050f] p-6">
@@ -918,6 +1150,7 @@ export default function RushApp() {
   }
 
   const inRun = phase === 'playing' || phase === 'paused'
+  const inRace = race.stage === 'countdown' || race.stage === 'running' || race.stage === 'done'
 
   if (gated && phase !== 'boot' && phase !== 'loading') {
     return (
@@ -941,7 +1174,14 @@ export default function RushApp() {
           showFps={settings.showFps}
           isTouch={isTouch}
           onAction={handleAction}
+          race={inRace}
         />
+      )}
+      {inRace && race.stage !== 'done' && (phase === 'playing' || phase === 'spectate' || phase === 'menu') && (
+        <RaceHud status={race} spectating={phase === 'spectate'} watching={watching} onLeave={() => exitRace(true)} />
+      )}
+      {race.stage === 'done' && race.standings && (
+        <RaceResult status={race} signedIn={Boolean(account)} onAgain={raceAgain} onMenu={() => exitRace(false)} />
       )}
       {inRun && (
         <HitOverlay
@@ -951,7 +1191,7 @@ export default function RushApp() {
         />
       )}
       <RushToasts toasts={toasts} />
-      {phase === 'playing' && coach && (
+      {phase === 'playing' && coach && !inRace && (
         <TutorialCoach
           step={coach}
           isTouch={isTouch}
@@ -965,7 +1205,7 @@ export default function RushApp() {
 
       {(phase === 'boot' || phase === 'loading') && <RushLoading progress={progress} />}
 
-      {phase === 'menu' && (
+      {phase === 'menu' && !inRace && (
         <RushMenu
           brand={brand}
           name={name}
@@ -995,6 +1235,33 @@ export default function RushApp() {
             else void pwa.prompt().then((accepted) => accepted && setPwa(null))
           }}
           inviteFrom={inviteFrom}
+          onRace={raceAvailable() ? () => joinRaceLobby() : undefined}
+          raceWins={raceWins}
+        />
+      )}
+
+      {panel === 'race' && phase === 'menu' && !inRace && (
+        <RaceLobby
+          status={race}
+          creating={raceCreating}
+          onQuick={() => joinRace({ quick: true })}
+          onCreate={() => void createRace()}
+          onJoin={(code) => joinRace({ code })}
+          onStartNow={() => raceRef.current?.startNow()}
+          onCancel={() => exitRace(false)}
+          onClose={() => {
+            exitRace(false)
+            setPanel('none')
+          }}
+        />
+      )}
+      {recap && phase === 'menu' && !inRace && panel === 'none' && (
+        <RaceRecap
+          standings={recap.standings}
+          reward={recap.reward}
+          won={recap.won}
+          signedIn={Boolean(account)}
+          onClose={() => setRecap(null)}
         />
       )}
 

@@ -70,7 +70,10 @@ export function RushHud({
   showFps,
   isTouch,
   onAction,
+  race = false,
 }: {
+  /** Live race: no pause, no combo, no Gold counter; the score is the distance. */
+  race?: boolean
   hud: HudState
   pickup: PickupEvent | null
   brandLogo: string | null
@@ -153,12 +156,14 @@ export function RushHud({
       <div className={`ar-rush${hud.boost > 0 ? ' is-on' : ''}`} aria-hidden />
       <div className="ar-hud-top">
         <div>
-          <div className="ar-score-label">{t('hud.score')}</div>
-          <div className="ar-score">{formatScore(hud.score)}</div>
+          <div className="ar-score-label">{t(race ? 'race.distance' : 'hud.score')}</div>
+          <div className="ar-score">{race ? `${formatNumber(hud.distance)} m` : formatScore(hud.score)}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="ar-chip">
-              {t('hud.best')} <strong>{formatScore(Math.max(hud.best, hud.score))}</strong>
-            </span>
+            {!race && (
+              <span className="ar-chip">
+                {t('hud.best')} <strong>{formatScore(Math.max(hud.best, hud.score))}</strong>
+              </span>
+            )}
             <span className="ar-chip">
               <Gauge size={13} /> {hud.tierKey ? t(hud.tierKey) : hud.tierName}
             </span>
@@ -173,7 +178,7 @@ export function RushHud({
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
+        {!race && <div className="flex flex-col items-end gap-2">
           <button className="ar-btn ar-btn-sm ar-hud-btn" onClick={onPause} aria-label={t('hud.pause')}>
             <Pause size={14} /> {t('hud.pause')}
           </button>
@@ -184,7 +189,7 @@ export function RushHud({
               <span className="ml-2 text-[12px] tracking-[0.2em] text-[#5d7096]">{hud.combo} GOLD</span>
             </div>
           </div>
-        </div>
+        </div>}
       </div>
 
       <div className="ar-hud-track">
@@ -247,7 +252,7 @@ export function RushHud({
       </div>
 
       <div className="ar-badge-row">
-        {pop && <span className="ar-toast ar-toast-good ar-mult-pop">{t('hud.combo')} ×{hud.multiplier}</span>}
+        {pop && !race && <span className="ar-toast ar-toast-good ar-mult-pop">{t('hud.combo')} ×{hud.multiplier}</span>}
       </div>
 
       {banner && (
@@ -290,7 +295,7 @@ export function RushHud({
 
       <div className="ar-hud-bottom">
         <div className="flex flex-col gap-2">
-          <div className={`ar-coin-counter${bump ? ' ar-bump' : ''}`}>
+          {!race && <div className={`ar-coin-counter${bump ? ' ar-bump' : ''}`}>
             <ArcIcon logo={brandLogo} />
             <div>
               <div className={`ar-coin-count${bump ? ' ar-bump-num' : ''}`}>{hud.coins}</div>
@@ -301,11 +306,13 @@ export function RushHud({
                 {item.text}
               </span>
             ))}
-          </div>
+          </div>}
           <div className="ar-hud-trip flex gap-2">
-            <span className="ar-chip">
-              <strong>{hud.distance}</strong> m
-            </span>
+            {!race && (
+              <span className="ar-chip">
+                <strong>{hud.distance}</strong> m
+              </span>
+            )}
             <span className="ar-chip">
               {t('hud.top')} <strong>{formatSpeed(hud.topSpeed)}</strong> km/h
             </span>

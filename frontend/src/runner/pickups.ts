@@ -189,7 +189,11 @@ export class PickupManager {
    *  - arc:  a jump arc (rewards clearing a low obstacle)
    *  - wave: sine wave across the lane (keeps the player weaving)
    */
+  /** Added to every spawn's z (see ObstacleManager.zShift). */
+  zShift = 0
+
   spawnLine(lane: number, z: number, count: number, style: 'flat' | 'arc' | 'wave' | 'roof' | 'sky', line: number): number {
+    z += this.zShift
     const baseX = LANES[Math.max(0, Math.min(LANES.length - 1, lane))]
     let spawned = 0
     for (let i = 0; i < count; i++) {
@@ -220,6 +224,7 @@ export class PickupManager {
   }
 
   spawnPower(kind: PowerKind, lane: number, z: number): void {
+    z += this.zShift
     const power = this.acquirePower(kind)
     if (!power) return
     power.active = true
