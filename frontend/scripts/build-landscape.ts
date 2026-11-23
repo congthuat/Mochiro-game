@@ -41,6 +41,9 @@ export const MODELS = [
   'cactus_tall', 'cactus_short', 'tree_palm', 'tree_palmTall', 'tree_palmBend', 'tree_palmShort',
   'statue_obelisk', 'statue_column', 'statue_columnDamaged', 'statue_head', 'statue_ring', 'statue_block',
   'tent_smallOpen', 'tent_detailedClosed',
+  // River, beach and volcano
+  'canoe', 'lily_large', 'lily_small', 'grass_leafsLarge', 'plant_flatTall',
+  'tree_palmDetailedTall', 'tree_palmDetailedShort', 'rock_tallF', 'rock_tallJ', 'tree_thin_dark', 'tree_simple_dark',
 ] as const
 
 /**

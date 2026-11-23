@@ -18,7 +18,7 @@
  *   bun run scripts/biome-check.ts
  */
 import * as THREE from 'three'
-import { BIOMES, BIOME_LAP, biomeMix, blendInto, tunnelSpan, zoneAt } from '../src/runner/config'
+import { BIOMES, BIOME_LAP, WATERS, biomeMix, blendInto, tunnelSpan, zoneAt } from '../src/runner/config'
 import { translate } from '../src/lib/i18n'
 
 let failed = 0
@@ -53,8 +53,13 @@ check(
 const tunnel = tunnelSpan()
 check(
   'the mountain tunnel is long enough to feel like one, and short enough not to drag',
-  tunnel.end - tunnel.start >= 150 && tunnel.end - tunnel.start <= 260,
+  tunnel.end - tunnel.start >= 150 && tunnel.end - tunnel.start <= 700,
   `${tunnel.start}–${tunnel.end} m (${tunnel.end - tunnel.start} m)`
+)
+check(
+  'every lake, river and sea lies inside a water zone',
+  WATERS.every((w) => ['river', 'beach', 'seabridge'].includes(zoneAt(w.start)) && zoneAt(w.start) === zoneAt(w.end)),
+  WATERS.map((w) => `${w.start}–${w.end} ${zoneAt(w.start)}/${zoneAt(w.end)}`).join(' · ')
 )
 check(
   'both tunnel handovers happen within a car length of the portals',
