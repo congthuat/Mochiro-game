@@ -658,22 +658,18 @@ export const CHARACTERS: Record<CharacterId, CharacterSpec> = {
 /**
  * The zones a run travels through.
  *
- * This is how a runner gets real visual variety for almost nothing: a zone is not new
- * geometry, it is a lighting palette — sky, fog, the sun's colour, the sky/ground
- * bounce and the exposure. Blended over a stretch of track the whole world changes
- * mood with them, and because the zones are keyed to distance a long run sees all four
- * while a short one still sees two. Taken from the same idea `Blue Run` uses for its
- * biomes and Subway Surfers for its city/neon themes.
+ * A zone is first of all a lighting palette — sky, fog, the sun's colour, the sky/ground
+ * bounce and the exposure — blended over a stretch of track so the whole world changes
+ * mood with it; wilds.ts and districts.ts then dress the roadside to match. The zones
+ * are a catalogue: every run draws its own journey through them (see `setJourney`).
  */
+export type Weather = 'snow' | 'leaves' | 'dust' | 'ash' | 'petals' | 'fireflies' | 'rain' | 'butterflies' | 'lanterns' | 'fireworks'
+
 export interface Biome {
-  /** Metres at which this zone is fully in charge. */
-  at: number
   /** i18n key suffix: `biome.<name>`; also the zone id the scenery and traffic key off. */
   name: string
-  /** City streets, open country, or the inside of the mountain tunnel. */
+  /** City streets, open country, or the inside of a tunnel (the mountain, the ice cave). */
   kind: 'city' | 'wild' | 'tunnel'
-  /** Metres over which the previous zone hands over to this one (default BIOME_BLEND). */
-  blend?: number
   /** Sky behind everything: zenith, the band halfway up, and (below) the fog colour at the horizon. */
   skyTop: string
   sky: string
@@ -702,74 +698,449 @@ export interface Biome {
   sea?: number
   /** The erupting volcano on the horizon (0..1). */
   volcano?: number
+  /** Northern lights over the sky dome (0..1). */
+  aurora?: number
+  /** A big low sun with a warm halo on the horizon: sunrise and sunset (0..1). */
+  glow?: number
+  /** Low mist over the ground and a heavier haze (0..1): the haunted wood, the waterfall's spray, a dawn meadow. */
+  mist?: number
+  /** A rainbow in the sky (0..1): the waterfall's spray. */
+  rainbow?: number
   /** Something in the air. */
-  weather?: 'snow' | 'leaves' | 'dust' | 'ash'
+  weather?: Weather
 }
 
 const GRASS = '#8adc7c'
 const PAVEMENT = '#cfcabd'
 
-/** Night to day is the biggest change of light in the lap, so the dawn takes longer. */
-export const BIOME_DAWN = 280
-
 /**
- * The run is a road trip of about ten minutes a lap: out of downtown through the
- * suburbs into farmland, over the big river, up into the mountain forest and through
- * the tunnel onto the snowfields, down across the desert at noon, past the volcano to
- * a tropical beach, over the long sea bridge into the harbour at dusk, and through
- * the neon night back to the city at dawn.
- *
- * `at` is where each zone is fully in charge; the spacing follows the speed ramp so
- * that, on Normal, a zone comes round every 40–60 s (see scripts/biome-check.ts).
+ * Every zone, in the order the zone book lists them. A run visits them all — shuffled,
+ * see ZONE_GROUPS for the ones that always travel together — before the order is drawn
+ * again.
  */
 export const BIOMES: Biome[] = [
-  // The daylight the game shipped with — a run always starts here.
-  { at: 0, name: 'city', kind: 'city', blend: BIOME_DAWN, skyTop: '#2b8ae8', sky: '#7ccbfb', cloudTint: '#ffffff', stars: 0, fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
-  // Leaving town: houses and gardens, a warmer afternoon light.
-  { at: 740, name: 'suburb', kind: 'city', skyTop: '#3a86d8', sky: '#93cdf2', cloudTint: '#fff6ea', stars: 0, fog: '#e8f0e4', sun: '#ffe9c2', skyBounce: '#cfe6f2', groundBounce: '#a6cc82', sunIntensity: 1.02, hemiIntensity: 0.45, fillIntensity: 0.37, exposure: 1.03, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  // The daylight the game shipped with.
+  { name: 'city', kind: 'city', skyTop: '#2b8ae8', sky: '#7ccbfb', cloudTint: '#ffffff', stars: 0, fog: '#e0f2ff', sun: '#fff3d6', skyBounce: '#bfe6ff', groundBounce: '#9fd08a', sunIntensity: 1, hemiIntensity: 0.45, fillIntensity: 0.38, exposure: 1.04, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  // Houses and gardens, a warmer afternoon light.
+  { name: 'suburb', kind: 'city', skyTop: '#3a86d8', sky: '#93cdf2', cloudTint: '#fff6ea', stars: 0, fog: '#e8f0e4', sun: '#ffe9c2', skyBounce: '#cfe6f2', groundBounce: '#a6cc82', sunIntensity: 1.02, hemiIntensity: 0.45, fillIntensity: 0.37, exposure: 1.03, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
   // Open farmland under a big clean sky.
-  { at: 1820, name: 'plains', kind: 'wild', skyTop: '#1f7fe6', sky: '#8fd3ff', cloudTint: '#ffffff', stars: 0, fog: '#dff3ff', sun: '#fff2cc', skyBounce: '#c4e8ff', groundBounce: '#a8d37a', sunIntensity: 1.04, hemiIntensity: 0.46, fillIntensity: 0.36, exposure: 1.04, ground: '#9fd46a', verge: '#c8b08a', peaks: 0.25, dunes: 0 },
+  { name: 'plains', kind: 'wild', skyTop: '#1f7fe6', sky: '#8fd3ff', cloudTint: '#ffffff', stars: 0, fog: '#dff3ff', sun: '#fff2cc', skyBounce: '#c4e8ff', groundBounce: '#a8d37a', sunIntensity: 1.04, hemiIntensity: 0.46, fillIntensity: 0.36, exposure: 1.04, ground: '#9fd46a', verge: '#c8b08a', peaks: 0.25, dunes: 0 },
   // The river valley: lakes beside the road, then the big cable-stayed bridge.
-  { at: 3540, name: 'river', kind: 'wild', skyTop: '#2f84dc', sky: '#94d0f2', cloudTint: '#ffffff', stars: 0, fog: '#d9efe9', sun: '#fff1cf', skyBounce: '#c2e4f2', groundBounce: '#8fc97a', sunIntensity: 1.02, hemiIntensity: 0.46, fillIntensity: 0.37, exposure: 1.04, ground: '#86cf6c', verge: '#bfae8a', peaks: 0.45, dunes: 0 },
+  { name: 'river', kind: 'wild', skyTop: '#2f84dc', sky: '#94d0f2', cloudTint: '#ffffff', stars: 0, fog: '#d9efe9', sun: '#fff1cf', skyBounce: '#c2e4f2', groundBounce: '#8fc97a', sunIntensity: 1.02, hemiIntensity: 0.46, fillIntensity: 0.37, exposure: 1.04, ground: '#86cf6c', verge: '#bfae8a', peaks: 0.45, dunes: 0 },
   // Up into the pines: cooler light, a green haze, the range ahead.
-  { at: 5400, name: 'forest', kind: 'wild', skyTop: '#3a7cc2', sky: '#9fcbe0', cloudTint: '#f3f7f2', stars: 0, fog: '#c8dccd', sun: '#ffe9c4', skyBounce: '#b9d8d0', groundBounce: '#5f8f52', sunIntensity: 0.98, hemiIntensity: 0.47, fillIntensity: 0.37, exposure: 1.03, ground: '#5f9f4a', verge: '#9c8a6e', peaks: 1, dunes: 0, weather: 'leaves' },
-  // Under the mountain: sodium light and a dark, warm haze. The portal is a hard cut.
-  { at: 7720, name: 'tunnel', kind: 'tunnel', blend: 24, skyTop: '#1a1612', sky: '#2a2219', cloudTint: '#4a3a2a', stars: 0, fog: '#2e2318', sun: '#ffc27a', skyBounce: '#ffb766', groundBounce: '#3a2a1a', sunIntensity: 0.6, hemiIntensity: 0.6, fillIntensity: 0.36, exposure: 1.0, ground: '#4b4a46', verge: '#7b766c', peaks: 1, dunes: 0 },
+  { name: 'forest', kind: 'wild', skyTop: '#3a7cc2', sky: '#9fcbe0', cloudTint: '#f3f7f2', stars: 0, fog: '#c8dccd', sun: '#ffe9c4', skyBounce: '#b9d8d0', groundBounce: '#5f8f52', sunIntensity: 0.98, hemiIntensity: 0.47, fillIntensity: 0.37, exposure: 1.03, ground: '#5f9f4a', verge: '#9c8a6e', peaks: 1, dunes: 0, weather: 'leaves' },
+  // Under the mountain: sodium light and a dark, warm haze. The portals are hard cuts.
+  { name: 'tunnel', kind: 'tunnel', skyTop: '#1a1612', sky: '#2a2219', cloudTint: '#4a3a2a', stars: 0, fog: '#2e2318', sun: '#ffc27a', skyBounce: '#ffb766', groundBounce: '#3a2a1a', sunIntensity: 0.6, hemiIntensity: 0.6, fillIntensity: 0.36, exposure: 1.0, ground: '#4b4a46', verge: '#7b766c', peaks: 1, dunes: 0 },
   // Out into the snow: blinding white after the tunnel, a cold blue sky.
-  { at: 8240, name: 'snow', kind: 'wild', blend: 24, skyTop: '#5b8fd2', sky: '#bcd6ef', cloudTint: '#ffffff', stars: 0, fog: '#e4edf6', sun: '#f4f8ff', skyBounce: '#dbe9fb', groundBounce: '#c9d6e6', sunIntensity: 1.12, hemiIntensity: 0.72, fillIntensity: 0.42, exposure: 1.08, ground: '#eef3f8', verge: '#cfd8e2', peaks: 1, dunes: 0, weather: 'snow' },
-  // Down to the desert under the noon sun: a hard blue sky, a hot pale haze.
-  { at: 10660, name: 'desert', kind: 'wild', skyTop: '#3d7fd6', sky: '#a9cfe9', cloudTint: '#fff8ee', stars: 0, fog: '#f0dcb4', sun: '#fff0d2', skyBounce: '#f3dcb5', groundBounce: '#d6a868', sunIntensity: 1.08, hemiIntensity: 0.5, fillIntensity: 0.34, exposure: 1.05, ground: '#ecc98e', verge: '#d6b07a', peaks: 0, dunes: 1, weather: 'dust' },
+  { name: 'snow', kind: 'wild', skyTop: '#5b8fd2', sky: '#bcd6ef', cloudTint: '#ffffff', stars: 0, fog: '#e4edf6', sun: '#f4f8ff', skyBounce: '#dbe9fb', groundBounce: '#c9d6e6', sunIntensity: 1.12, hemiIntensity: 0.72, fillIntensity: 0.42, exposure: 1.08, ground: '#eef3f8', verge: '#cfd8e2', peaks: 1, dunes: 0, weather: 'snow' },
+  // The desert under the noon sun: a hard blue sky, a hot pale haze.
+  { name: 'desert', kind: 'wild', skyTop: '#3d7fd6', sky: '#a9cfe9', cloudTint: '#fff8ee', stars: 0, fog: '#f0dcb4', sun: '#fff0d2', skyBounce: '#f3dcb5', groundBounce: '#d6a868', sunIntensity: 1.08, hemiIntensity: 0.5, fillIntensity: 0.34, exposure: 1.05, ground: '#ecc98e', verge: '#d6b07a', peaks: 0, dunes: 1, weather: 'dust' },
   // The volcano: black basalt, lava in the fields, ash falling from a red sky.
-  { at: 12760, name: 'volcano', kind: 'wild', skyTop: '#3a1a1e', sky: '#b5503a', cloudTint: '#7a5550', stars: 0, fog: '#8a5444', sun: '#ffb27a', skyBounce: '#ff9a6a', groundBounce: '#4a2a22', sunIntensity: 0.96, hemiIntensity: 0.56, fillIntensity: 0.36, exposure: 1.0, ground: '#4a433f', verge: '#625a54', peaks: 0, dunes: 0, volcano: 1, weather: 'ash' },
+  { name: 'volcano', kind: 'wild', skyTop: '#3a1a1e', sky: '#b5503a', cloudTint: '#7a5550', stars: 0, fog: '#8a5444', sun: '#ffb27a', skyBounce: '#ff9a6a', groundBounce: '#4a2a22', sunIntensity: 0.96, hemiIntensity: 0.56, fillIntensity: 0.36, exposure: 1.0, ground: '#4a433f', verge: '#625a54', peaks: 0, dunes: 0, volcano: 1, weather: 'ash' },
   // A tropical beach: white sand, palms, the sea along the right of the road.
-  { at: 15280, name: 'beach', kind: 'wild', blend: 230, skyTop: '#1b84e0', sky: '#86d6f6', cloudTint: '#ffffff', stars: 0, fog: '#d6f1f6', sun: '#fff4d8', skyBounce: '#bfeaf6', groundBounce: '#e8d3a0', sunIntensity: 1.06, hemiIntensity: 0.5, fillIntensity: 0.37, exposure: 1.05, ground: '#f1dca8', verge: '#e6cf98', peaks: 0, dunes: 0, sea: 1 },
+  { name: 'beach', kind: 'wild', skyTop: '#1b84e0', sky: '#86d6f6', cloudTint: '#ffffff', stars: 0, fog: '#d6f1f6', sun: '#fff4d8', skyBounce: '#bfeaf6', groundBounce: '#e8d3a0', sunIntensity: 1.06, hemiIntensity: 0.5, fillIntensity: 0.37, exposure: 1.05, ground: '#f1dca8', verge: '#e6cf98', peaks: 0, dunes: 0, sea: 1 },
   // The sea bridge: open water on both sides as the afternoon turns gold.
-  { at: 17600, name: 'seabridge', kind: 'wild', skyTop: '#2a6fd0', sky: '#a8d4ee', cloudTint: '#fff3e0', stars: 0, fog: '#e6eef0', sun: '#ffe2b0', skyBounce: '#cfe2ee', groundBounce: '#8fb3c4', sunIntensity: 1.04, hemiIntensity: 0.48, fillIntensity: 0.36, exposure: 1.04, ground: '#e0d0a4', verge: '#c4c2bc', peaks: 0, dunes: 0, sea: 1 },
-  // Back into the city by the harbour at dusk: cranes, warehouses, container yards.
-  { at: 19900, name: 'port', kind: 'city', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  { name: 'seabridge', kind: 'wild', skyTop: '#2a6fd0', sky: '#a8d4ee', cloudTint: '#fff3e0', stars: 0, fog: '#e6eef0', sun: '#ffe2b0', skyBounce: '#cfe2ee', groundBounce: '#8fb3c4', sunIntensity: 1.04, hemiIntensity: 0.48, fillIntensity: 0.36, exposure: 1.04, ground: '#e0d0a4', verge: '#c4c2bc', peaks: 0, dunes: 0, sea: 1 },
+  // The harbour at dusk: cranes, warehouses, container yards.
+  { name: 'port', kind: 'city', skyTop: '#25215a', sky: '#5b4b9a', cloudTint: '#c9a6e6', stars: 0.35, fog: '#9382c6', sun: '#cdaaff', skyBounce: '#9182d6', groundBounce: '#453c72', sunIntensity: 0.86, hemiIntensity: 0.4, fillIntensity: 0.31, exposure: 0.97, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
   // Neon night: dark sky, cold key light, the emissive lift on every prop doing the
   // work of keeping the runner and the traffic readable.
-  { at: 21800, name: 'neon', kind: 'city', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  { name: 'neon', kind: 'city', skyTop: '#04081a', sky: '#141d40', cloudTint: '#3b4c86', stars: 1, fog: '#28376d', sun: '#8fdcff', skyBounce: '#33549f', groundBounce: '#161d38', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95, ground: GRASS, verge: PAVEMENT, peaks: 0, dunes: 0 },
+  // Ha Long Bay: jade water, limestone karsts standing out of it, junks under brown sails.
+  { name: 'halong', kind: 'wild', skyTop: '#4a8fcc', sky: '#a9d4e4', cloudTint: '#f6faf6', stars: 0, fog: '#cfe5e0', sun: '#fff1d8', skyBounce: '#c8e6e2', groundBounce: '#8fb89e', sunIntensity: 1.0, hemiIntensity: 0.5, fillIntensity: 0.37, exposure: 1.04, ground: '#a8cf86', verge: '#cbbf9c', peaks: 0, dunes: 0, sea: 1, mist: 0.35 },
+  // A valley of cherry blossom and red maples, petals on the wind.
+  { name: 'blossom', kind: 'wild', skyTop: '#5a8fd8', sky: '#c2d8f0', cloudTint: '#fff0f4', stars: 0, fog: '#f2dfe6', sun: '#fff0e6', skyBounce: '#f0d8e4', groundBounce: '#a8c98a', sunIntensity: 1.02, hemiIntensity: 0.5, fillIntensity: 0.37, exposure: 1.05, ground: '#9ccf78', verge: '#d8c2a6', peaks: 0.6, dunes: 0, weather: 'petals' },
+  // A green canyon: sheer cliffs, waterfalls into the river, spray and a rainbow.
+  { name: 'waterfall', kind: 'wild', skyTop: '#3f86c8', sky: '#a4d0e6', cloudTint: '#ffffff', stars: 0, fog: '#d2eae4', sun: '#fff4dc', skyBounce: '#c6e6ea', groundBounce: '#6fa878', sunIntensity: 1.0, hemiIntensity: 0.5, fillIntensity: 0.37, exposure: 1.04, ground: '#6fb85a', verge: '#a89a80', peaks: 1, dunes: 0, mist: 0.45, rainbow: 1 },
+  // The savanna at sunset: acacias, a huge orange sky, giraffes and elephants against it.
+  { name: 'savanna', kind: 'wild', skyTop: '#3d4f92', sky: '#f0a46a', cloudTint: '#ffd0a6', stars: 0, fog: '#f0bf8c', sun: '#ffc07a', skyBounce: '#ffcf9a', groundBounce: '#b8863e', sunIntensity: 1.0, hemiIntensity: 0.5, fillIntensity: 0.35, exposure: 1.02, ground: '#d2b25e', verge: '#c09a5a', peaks: 0.15, dunes: 0, glow: 1 },
+  // Ruins of an old temple city: mossy towers, stone gates over the road, statues.
+  { name: 'temple', kind: 'wild', skyTop: '#4a86b8', sky: '#b2d0d6', cloudTint: '#f2f2ea', stars: 0, fog: '#cdd9c4', sun: '#fff0c8', skyBounce: '#cfe0d0', groundBounce: '#6f9a58', sunIntensity: 1.0, hemiIntensity: 0.5, fillIntensity: 0.36, exposure: 1.03, ground: '#77a85a', verge: '#a8a088', peaks: 0.35, dunes: 0, weather: 'butterflies' },
+  // The floating market: a road between two canals, boats heaped with fruit, stilt houses.
+  { name: 'floatmarket', kind: 'wild', skyTop: '#2a88dc', sky: '#9ad6f0', cloudTint: '#ffffff', stars: 0, fog: '#dcefe2', sun: '#fff2d0', skyBounce: '#c8eaee', groundBounce: '#8ec86e', sunIntensity: 1.04, hemiIntensity: 0.48, fillIntensity: 0.36, exposure: 1.04, ground: '#7fc860', verge: '#c8a878', peaks: 0, dunes: 0 },
+  // A windy coast: green clifftops over the sea, white turbines turning.
+  { name: 'windcoast', kind: 'wild', skyTop: '#2d7ad8', sky: '#9ecff4', cloudTint: '#ffffff', stars: 0, fog: '#e0eef6', sun: '#fff6e0', skyBounce: '#cfe6f6', groundBounce: '#8fc878', sunIntensity: 1.04, hemiIntensity: 0.48, fillIntensity: 0.37, exposure: 1.05, ground: '#8fcf6e', verge: '#bdb59a', peaks: 0, dunes: 0, sea: 1 },
+  // The city of the future at dusk: glass towers, glowing tubes, a rocket on its pad.
+  { name: 'future', kind: 'wild', skyTop: '#1c2a6a', sky: '#6c80cf', cloudTint: '#d8c8ff', stars: 0.2, fog: '#9ba8de', sun: '#d8e8ff', skyBounce: '#a8b8f0', groundBounce: '#4a5288', sunIntensity: 0.9, hemiIntensity: 0.44, fillIntensity: 0.33, exposure: 0.99, ground: '#7c9ab8', verge: '#b8c2d4', peaks: 0, dunes: 0 },
+  // The haunted wood at night: fog, dead trees, fireflies, glowing pumpkins, gravestones.
+  { name: 'haunted', kind: 'wild', skyTop: '#080a16', sky: '#1e2238', cloudTint: '#4a4f6a', stars: 0.6, fog: '#30364a', sun: '#a8b8e8', skyBounce: '#3c4672', groundBounce: '#1c202c', sunIntensity: 0.72, hemiIntensity: 0.44, fillIntensity: 0.32, exposure: 0.95, ground: '#3e4838', verge: '#4c4a40', peaks: 0.3, dunes: 0, mist: 1, weather: 'fireflies' },
+  // The ice cave: a tunnel of blue ice under the glacier, icicles overhead.
+  { name: 'icecave', kind: 'tunnel', skyTop: '#0e2a3e', sky: '#1e4a66', cloudTint: '#6aa0c0', stars: 0, fog: '#2a6a8a', sun: '#bfeaff', skyBounce: '#8fd8ff', groundBounce: '#2a5a78', sunIntensity: 0.7, hemiIntensity: 0.66, fillIntensity: 0.38, exposure: 1.02, ground: '#a8d0e0', verge: '#c8e4f0', peaks: 1, dunes: 0 },
+  // The frozen lake under the northern lights.
+  { name: 'icelake', kind: 'wild', skyTop: '#06102a', sky: '#16325c', cloudTint: '#4a6a9a', stars: 1, fog: '#2c4c74', sun: '#cfe8ff', skyBounce: '#5a86c0', groundBounce: '#4a6a90', sunIntensity: 0.8, hemiIntensity: 0.6, fillIntensity: 0.36, exposure: 1.0, ground: '#dfe9f4', verge: '#c2d0e0', peaks: 1, dunes: 0, aurora: 1, weather: 'snow' },
+  // A farm and fields of flowers: sunflowers, tulip stripes, a red barn, butterflies.
+  { name: 'farm', kind: 'wild', skyTop: '#2c82e0', sky: '#9cd6fa', cloudTint: '#ffffff', stars: 0, fog: '#e4f4f6', sun: '#fff2cc', skyBounce: '#cfeaff', groundBounce: '#b0d47e', sunIntensity: 1.04, hemiIntensity: 0.47, fillIntensity: 0.36, exposure: 1.04, ground: '#a3d46e', verge: '#cbb48c', peaks: 0.2, dunes: 0, weather: 'butterflies' },
+  // A red rock canyon: mesas and arches, a hot hazy sky.
+  { name: 'redcanyon', kind: 'wild', skyTop: '#3a78c8', sky: '#b6cce0', cloudTint: '#fff2e6', stars: 0, fog: '#e6b894', sun: '#ffe4c0', skyBounce: '#f0c8a8', groundBounce: '#c0603a', sunIntensity: 1.06, hemiIntensity: 0.5, fillIntensity: 0.34, exposure: 1.04, ground: '#c8744c', verge: '#b0603e', peaks: 0, dunes: 0.35, weather: 'dust' },
+  // An oasis: palms round blue water, camels, tents, the dunes all round.
+  { name: 'oasis', kind: 'wild', skyTop: '#2f7ed8', sky: '#a4d4ee', cloudTint: '#fffaf0', stars: 0, fog: '#eee2bc', sun: '#fff2d4', skyBounce: '#e8e0c0', groundBounce: '#c8a870', sunIntensity: 1.06, hemiIntensity: 0.5, fillIntensity: 0.35, exposure: 1.05, ground: '#e6cc94', verge: '#d4b480', peaks: 0, dunes: 1 },
+  // The rainforest: giant trees, vines, a soft warm rain.
+  { name: 'jungle', kind: 'wild', skyTop: '#4f7f9e', sky: '#a6c4c2', cloudTint: '#e6ece8', stars: 0, fog: '#a8c4b0', sun: '#f6f0d8', skyBounce: '#b0d0b8', groundBounce: '#4a7a3e', sunIntensity: 0.92, hemiIntensity: 0.5, fillIntensity: 0.36, exposure: 1.02, ground: '#4f9a3c', verge: '#7a6a4a', peaks: 0.5, dunes: 0, mist: 0.3, weather: 'rain' },
+  // Rice terraces and an old lantern town at golden hour, sky lanterns rising.
+  { name: 'terraces', kind: 'wild', skyTop: '#33427c', sky: '#e69c7c', cloudTint: '#ffc8b0', stars: 0.15, fog: '#d6a28e', sun: '#ffb88a', skyBounce: '#f0b8a0', groundBounce: '#8a8a48', sunIntensity: 0.9, hemiIntensity: 0.48, fillIntensity: 0.34, exposure: 1.0, ground: '#9cb84a', verge: '#a88a62', peaks: 0.7, dunes: 0, glow: 0.6, weather: 'lanterns' },
+  // The skyway: an elevated road over the night city, fireworks over the towers.
+  { name: 'highway', kind: 'wild', skyTop: '#060a1e', sky: '#1a2250', cloudTint: '#3e4a8a', stars: 1, fog: '#2a3470', sun: '#9fd0ff', skyBounce: '#3a4e9a', groundBounce: '#1a1e3a', sunIntensity: 0.74, hemiIntensity: 0.4, fillIntensity: 0.3, exposure: 0.95, ground: '#2a2e3e', verge: '#3a3e4e', peaks: 0, dunes: 0, weather: 'fireworks' },
+  // Daybreak over the meadows: the sun coming up, mist in the hollows, hot-air balloons.
+  { name: 'dawn', kind: 'wild', skyTop: '#3a5aa8', sky: '#f4b89c', cloudTint: '#ffd8c0', stars: 0.1, fog: '#f0c8b6', sun: '#ffd2a0', skyBounce: '#f0c8b8', groundBounce: '#9aa878', sunIntensity: 0.92, hemiIntensity: 0.48, fillIntensity: 0.35, exposure: 1.02, ground: '#9fcf7a', verge: '#c8b8a0', peaks: 0.3, dunes: 0, glow: 1, mist: 0.5 },
 ]
 
-/** Emoji for each zone, for the HUD's title card and journey bar. */
+/** How many zones a full journey visits. */
+export const ZONE_COUNT = BIOMES.length
+
+/** Emoji for each zone, for the HUD's title card, the journey bar and the zone book. */
 export const ZONE_ICONS: Record<string, string> = {
   city: '🏙️', suburb: '🏡', plains: '🌾', river: '🌉', forest: '🌲', tunnel: '🚇', snow: '❄️',
   desert: '🏜️', volcano: '🌋', beach: '🏖️', seabridge: '🌊', port: '⚓', neon: '🌃',
+  halong: '⛵', blossom: '🌸', waterfall: '🏞️', savanna: '🦒', temple: '🛕', floatmarket: '🛶',
+  windcoast: '🌬️', future: '🚀', haunted: '🎃', icecave: '🧊', icelake: '🌌', farm: '🌻',
+  redcanyon: '🌵', oasis: '🐪', jungle: '🦜', terraces: '🏮', highway: '🛣️', dawn: '🌅',
 }
 
-/** Metres over which one zone hands over to the next, unless the zone sets its own. */
+/**
+ * Zones that always travel together, in this order: the forest climbs to the tunnel
+ * that comes out on the snowfields; the ice cave opens on the frozen lake; the beach
+ * runs onto the sea bridge; the neon night takes the skyway out of town into dawn.
+ */
+export const ZONE_GROUPS: string[][] = [
+  ['forest', 'tunnel', 'snow'],
+  ['icecave', 'icelake'],
+  ['beach', 'seabridge'],
+  ['neon', 'highway', 'dawn'],
+]
+
+/** Seconds a zone lasts at the Normal pace, wherever in the run it falls. */
+export const ZONE_SECONDS = 50
+/** A tunnel is a fixed tube (tunnel.ts builds it once), so it is a fixed length. */
+export const TUNNEL_LENGTH = 520
+/** The handover at a tunnel portal: a hard cut the rock face hides. */
+const PORTAL_BLEND = 24
+/** Shortest handover between two open-air zones. */
 export const BIOME_BLEND = 150
+/** Longest handover (night into noon). */
+const BIOME_BLEND_MAX = 480
+/** A handover never takes more than this share of the zone it starts in. */
+const BLEND_SHARE = 0.42
 
 /**
- * A long run loops the zones: after the neon night the sky eases back to day at this
- * distance and the trip starts again, so a great run keeps changing scenery.
+ * Metres a run covers in `elapsed` seconds at the Normal pace (the integral of speedAt).
+ * The journey is laid out with it, so each zone lasts about ZONE_SECONDS: short in metres
+ * at the start of a run, long once the speed has ramped up.
  */
-export const BIOME_LAP = 23900
+export function distanceAt(elapsed: number): number {
+  const ramp = RUN.rampSeconds
+  const rise = RUN.maxSpeed - RUN.startSpeed
+  const t = Math.min(Math.max(0, elapsed), ramp)
+  let d = RUN.startSpeed * t + rise * (t - (ramp / 3.1) * (1 - Math.pow(1 - t / ramp, 3.1)))
+  if (elapsed > ramp) d += RUN.maxSpeed * (elapsed - ramp)
+  return d
+}
 
-/** Handover length into `zone`. */
-export function blendInto(zone: Biome): number {
-  return zone.blend ?? BIOME_BLEND
+/** The inverse of distanceAt. */
+export function timeAtDistance(distance: number): number {
+  let lo = 0
+  let hi = 60 + distance / RUN.startSpeed
+  for (let i = 0; i < 48; i += 1) {
+    const mid = (lo + hi) / 2
+    if (distanceAt(mid) < distance) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+const linearCache = new Map<string, [number, number, number]>()
+function linearRgb(hex: string): [number, number, number] {
+  let out = linearCache.get(hex)
+  if (!out) {
+    const n = parseInt(hex.slice(1), 16)
+    const ch = (v: number) => {
+      const c = v / 255
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+    }
+    out = [ch((n >> 16) & 255), ch((n >> 8) & 255), ch(n & 255)]
+    linearCache.set(hex, out)
+  }
+  return out
+}
+
+const PALETTE_KEYS = ['sky', 'skyTop', 'fog', 'sun', 'skyBounce', 'groundBounce', 'ground', 'verge'] as const
+
+/** How far apart two zones' palettes are: the biggest colour change among them (linear RGB, summed channels). */
+export function paletteGap(a: Biome, b: Biome): number {
+  let gap = 0
+  for (const key of PALETTE_KEYS) {
+    const x = linearRgb(a[key])
+    const y = linearRgb(b[key])
+    gap = Math.max(gap, Math.abs(x[0] - y[0]) + Math.abs(x[1] - y[1]) + Math.abs(x[2] - y[2]))
+  }
+  return gap
+}
+
+/**
+ * Metres over which `from` hands over to `to`: a hard cut at a tunnel portal, otherwise
+ * longer the further apart the palettes are, so night into noon takes its time and
+ * never steps (scripts/biome-check.ts samples it metre by metre).
+ */
+export function handover(from: Biome, to: Biome): number {
+  if (from.kind === 'tunnel' || to.kind === 'tunnel') return PORTAL_BLEND
+  const gap = paletteGap(from, to)
+  return Math.round(Math.min(BIOME_BLEND_MAX, Math.max(BIOME_BLEND, 150 + gap * 220, (1.5 * gap) / 0.014)))
+}
+
+/**
+ * Water. Two kinds:
+ *  - beside the road (side ±1): a lake, a river or the sea beyond `shore` metres from
+ *    the centre line, painted onto the ground at ground level. Its shore curls away
+ *    over WATER_TAPER at both ends, so a body of water never ends in a ruled line.
+ *  - under the road (side 0): the road crosses on a bridge; the ground is cut away
+ *    right across and the water lies DEEP_WATER_Y below, with a bank at each end.
+ * Spans are absolute run distances, laid out per zone (ZONE_WATERS) when the journey
+ * is drawn; the shader in surface.ts and the scenery placement in districts.ts share
+ * the shapes below, so a boat never sits on grass.
+ */
+export interface WaterSpan {
+  start: number
+  end: number
+  side: -1 | 0 | 1
+  /** Beside the road: distance of the shore from the centre line (m). */
+  shore: number
+  /** Under the road: what carries it. A skyway crosses the night city, not water. */
+  bridge?: 'cable' | 'viaduct' | 'skyway'
+  /** Salt water: dolphins, sailing boats. */
+  sea?: boolean
+  /** Frozen over: no waves, no glitter. */
+  ice?: boolean
+  color: string
+}
+
+/**
+ * Where a zone's water lies: `from`/`to` are fractions of the zone, `length` fixes a
+ * span's length in metres (a cable-stayed bridge has a set span), and a span marked
+ * `after` starts no sooner than 100 m past the one before it.
+ */
+interface WaterPlan {
+  from: number
+  to: number
+  length?: number
+  after?: boolean
+  side: -1 | 0 | 1
+  shore: number
+  bridge?: WaterSpan['bridge']
+  sea?: boolean
+  ice?: boolean
+  color: string
+}
+
+const ZONE_WATERS: Record<string, WaterPlan[]> = {
+  // A lake on the left, the river crossing, the river on the right.
+  river: [
+    { from: 0.08, to: 0.42, side: -1, shore: 24, color: '#3a9ab4' },
+    { from: 0.47, to: 1, length: 240, after: true, side: 0, shore: 0, bridge: 'cable', color: '#2f8fb0' },
+    { from: 0.62, to: 0.98, after: true, side: 1, shore: 24, color: '#3a9ab4' },
+  ],
+  // The sea along the right all the way to the bridge.
+  beach: [{ from: 0.03, to: 1, side: 1, shore: 30, sea: true, color: '#22b0c8' }],
+  seabridge: [{ from: 0.02, to: 1, side: 0, shore: 0, bridge: 'viaduct', sea: true, color: '#1f8cc2' }],
+  // Jade water among the karsts: the bay on the left, the cable bridge, the bay on the right.
+  halong: [
+    { from: 0.04, to: 0.4, side: -1, shore: 26, sea: true, color: '#2f9e98' },
+    { from: 0.46, to: 1, length: 240, after: true, side: 0, shore: 0, bridge: 'cable', sea: true, color: '#2a9290' },
+    { from: 0.6, to: 1, after: true, side: 1, shore: 26, sea: true, color: '#2f9e98' },
+  ],
+  // The road runs on the dyke between two canals.
+  floatmarket: [
+    { from: 0.04, to: 1, side: -1, shore: 19, color: '#7d9a62' },
+    { from: 0.04, to: 1, side: 1, shore: 19, color: '#7d9a62' },
+  ],
+  // The open sea below the cliffs on the left.
+  windcoast: [{ from: 0.04, to: 1, side: -1, shore: 40, sea: true, color: '#2a8ec0' }],
+  // The pool under the falls, along the right.
+  waterfall: [{ from: 0.12, to: 0.92, side: 1, shore: 26, color: '#3aa0a8' }],
+  // The oasis pool, on the right half way through.
+  oasis: [{ from: 0.28, to: 0.66, side: 1, shore: 22, color: '#2fb2b6' }],
+  // The frozen lake on the left.
+  icelake: [{ from: 0.06, to: 0.94, side: -1, shore: 22, ice: true, color: '#bcd8e6' }],
+  // The skyway: the ground drops away to the lit streets below.
+  highway: [{ from: 0.03, to: 1, side: 0, shore: 0, bridge: 'skyway', color: '#121a34' }],
+}
+
+export const WATER_TAPER = 150
+/** How far the shore curls away at the very end of a span (beyond the fog on every preset). */
+export const WATER_CURL = 460
+/** Water level under a bridge. */
+export const DEEP_WATER_Y = -5.5
+/** Shortest side water worth drawing. */
+const WATER_MIN = 200
+
+/** One zone of a journey, in absolute run distance. */
+export interface Leg {
+  zone: Biome
+  /** Where this zone is fully in charge. */
+  start: number
+  /** Where the next zone is fully in charge. */
+  end: number
+  /** Metres before `start` over which the previous zone hands over to this one. */
+  blend: number
+  /** Place in its round of the journey (0-based), and which round. */
+  index: number
+  cycle: number
+  waters: WaterSpan[]
+}
+
+interface Journey {
+  seed: number
+  first: string | null
+  legs: Leg[]
+  /** Seconds (Normal pace) at the end of the last leg. */
+  time: number
+}
+
+/** A small seeded generator (mulberry32), so a journey is the same every time it is drawn. */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const BY_NAME = new Map(BIOMES.map((zone) => [zone.name, zone]))
+/** The units the shuffle moves: a group, or a zone on its own. */
+const UNITS: Biome[][] = (() => {
+  const grouped = new Set(ZONE_GROUPS.flat())
+  const units = ZONE_GROUPS.map((group) => group.map((name) => BY_NAME.get(name) as Biome))
+  for (const zone of BIOMES) if (!grouped.has(zone.name)) units.push([zone])
+  return units
+})()
+
+function shuffle<T>(items: T[], rng: () => number): T[] {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[items[i], items[j]] = [items[j], items[i]]
+  }
+  return items
+}
+
+/**
+ * One round of the journey: every zone once, groups kept together. A few orders are
+ * drawn and the one with the gentlest handovers kept, so a run does not keep lurching
+ * from night to noon. The first round never opens in a tunnel (or on the zone a
+ * player asked to start in, for the debug seam); no round opens on the unit the last
+ * one closed with.
+ */
+function drawRound(journey: Journey, cycle: number, previous: Biome[] | null): Biome[] {
+  const rng = seeded((journey.seed ^ Math.imul(cycle + 1, 0x9e3779b1)) >>> 0)
+  let best: Biome[][] = []
+  let bestScore = Infinity
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const order = shuffle(UNITS.slice(), rng)
+    const lead = (unit: Biome[]) =>
+      cycle === 0 && journey.first ? unit.some((zone) => zone.name === journey.first) : unit[0].kind !== 'tunnel'
+    if (cycle === 0) {
+      const at = order.findIndex(lead)
+      if (at > 0) [order[0], order[at]] = [order[at], order[0]]
+    } else if (order[0] === previous) {
+      ;[order[0], order[1]] = [order[1], order[0]]
+    }
+    let score = 0
+    let last = previous ? previous[previous.length - 1] : null
+    for (const unit of order) {
+      if (last) score += paletteGap(last, unit[0])
+      last = unit[unit.length - 1]
+    }
+    if (score < bestScore) {
+      bestScore = score
+      best = order
+    }
+  }
+  return best.flat()
+}
+
+/** Lays a zone's water out along its leg (needs the next leg's handover). */
+function layWaters(leg: Leg, next: Leg): WaterSpan[] {
+  const plans = ZONE_WATERS[leg.zone.name]
+  if (!plans) return []
+  const length = leg.end - leg.start
+  const first = leg.start - leg.blend / 2 + 40
+  const last = leg.end - next.blend / 2 - 40
+  const out: WaterSpan[] = []
+  let previousEnd = -Infinity
+  for (const plan of plans) {
+    let start = Math.max(first, leg.start + plan.from * length)
+    if (plan.after) start = Math.max(start, previousEnd + 100)
+    const end = Math.min(last, plan.length ? start + plan.length : leg.start + plan.to * length)
+    if (plan.length ? end - start < plan.length - 0.5 : end - start < WATER_MIN) continue
+    out.push({ start, end, side: plan.side, shore: plan.shore, bridge: plan.bridge, sea: plan.sea, ice: plan.ice, color: plan.color })
+    previousEnd = end
+  }
+  return out
+}
+
+function extend(journey: Journey): void {
+  const legs = journey.legs
+  const tail = legs[legs.length - 1]
+  const cycle = tail ? tail.cycle + 1 : 0
+  const previous = tail ? UNITS.find((unit) => unit.includes(tail.zone)) ?? null : null
+  const round = drawRound(journey, cycle, previous)
+  round.forEach((zone, index) => {
+    const before = legs[legs.length - 1]
+    const start = before ? before.end : 0
+    const length = zone.kind === 'tunnel' ? TUNNEL_LENGTH : distanceAt(journey.time + ZONE_SECONDS) - distanceAt(journey.time)
+    journey.time = timeAtDistance(start + length)
+    const blend = before ? Math.min(handover(before.zone, zone), BLEND_SHARE * (before.end - before.start)) : 0
+    const leg: Leg = { zone, start, end: start + length, blend, index, cycle, waters: [] }
+    if (before) before.waters = layWaters(before, leg)
+    legs.push(leg)
+  })
+}
+
+let journey: Journey = { seed: 1, first: null, legs: [], time: 0 }
+
+/**
+ * Draws the journey every zone function below reads. A run rolls a fresh seed; `first`
+ * (debug only) makes the journey open with that zone's group.
+ */
+export function setJourney(seed: number, first: string | null = null): void {
+  journey = { seed: seed >>> 0, first, legs: [], time: 0 }
+  extend(journey)
+}
+
+export function journeySeed(): number {
+  return journey.seed
+}
+
+/** Keeps the journey drawn at least a few zones past `distance`. */
+function reach(distance: number): Leg[] {
+  const legs = journey.legs
+  if (legs.length === 0) extend(journey)
+  while (legs[legs.length - 1].start < distance + 6000) extend(journey)
+  return legs
+}
+
+/** Index of the leg holding `distance` (the first one for anything before the start). */
+function legIndex(distance: number): number {
+  const legs = reach(distance)
+  let lo = 0
+  let hi = legs.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (legs[mid].start <= distance) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
+
+/** The leg the run is in at `distance`. */
+export function legAt(distance: number): Leg {
+  return journey.legs[legIndex(distance)]
+}
+
+/** The legs of the round `distance` is in, for the HUD's journey bar. */
+export function roundAt(distance: number): Leg[] {
+  const leg = legAt(distance)
+  return journey.legs.filter((other) => other.cycle === leg.cycle)
 }
 
 export interface BiomeMix {
@@ -801,20 +1172,14 @@ export interface BiomeSpan {
 
 /**
  * The handover the run is in or is heading for, in absolute run distance. `from` is the
- * zone the run has *fully entered* — the last one whose `at` it has passed. Picking the
- * last zone whose handover has merely *started* would swap the base colour a whole
- * blend early, and the sky would cut in one metre rather than easing over the blend.
+ * zone the run has *fully entered*; the handover to the next one ends where that one
+ * is fully in charge.
  */
 export function biomeSpan(distance: number): BiomeSpan {
-  const lap = Math.floor(distance / BIOME_LAP) * BIOME_LAP
-  const d = distance - lap
-  let index = 0
-  for (let i = 0; i < BIOMES.length; i += 1) if (d >= BIOMES[i].at) index = i
-  // After the last zone the lap closes back on the first one, at BIOME_LAP.
-  const to = BIOMES[index + 1] ?? BIOMES[0]
-  const toAt = BIOMES[index + 1] ? to.at : BIOME_LAP
-  const end = lap + toAt
-  return { from: BIOMES[index], to, start: end - blendInto(to), end }
+  const i = legIndex(distance)
+  const leg = journey.legs[i]
+  const next = journey.legs[i + 1]
+  return { from: leg.zone, to: next.zone, start: next.start - next.blend, end: next.start }
 }
 
 /** The zone owning `distance`, as a Biome (the nearer side of a handover). */
@@ -828,63 +1193,40 @@ export function zoneAt(distance: number): string {
   return biomeAt(distance).name
 }
 
-/**
- * Where the mountain tunnel runs, in metres into a lap: from the portal (where the
- * road becomes the tunnel's) to the far mouth (where it becomes the snowfield's).
- */
-export function tunnelSpan(): { start: number; end: number } {
-  const index = BIOMES.findIndex((zone) => zone.kind === 'tunnel')
-  const zone = BIOMES[index]
-  const next = BIOMES[index + 1] ?? BIOMES[0]
-  const nextAt = BIOMES[index + 1] ? next.at : BIOME_LAP
-  return { start: zone.at - blendInto(zone) / 2, end: nextAt - blendInto(next) / 2 }
-}
-
-/** The tunnel of the lap `distance` is in, in absolute run distance. */
-export function tunnelAround(distance: number): { start: number; end: number } {
-  const span = tunnelSpan()
-  const lap = Math.floor(distance / BIOME_LAP) * BIOME_LAP
-  return { start: lap + span.start, end: lap + span.end }
-}
-
-/**
- * Water. Two kinds:
- *  - beside the road (side ±1): a lake, a river or the sea beyond `shore` metres from
- *    the centre line, painted onto the ground at ground level. Its shore curls away
- *    over WATER_TAPER at both ends, so a body of water never ends in a ruled line.
- *  - under the road (side 0): the road crosses on a bridge; the ground is cut away
- *    right across and the water lies DEEP_WATER_Y below, with a bank at each end.
- * Spans are in metres into a lap; the shader in surface.ts and the scenery placement
- * in districts.ts share the shapes below, so a boat never sits on grass.
- */
-export interface WaterSpan {
+export interface TunnelSpan {
+  /** The portal (where the road becomes the tunnel's) and the far mouth. */
   start: number
   end: number
-  side: -1 | 0 | 1
-  /** Beside the road: distance of the shore from the centre line (m). */
-  shore: number
-  /** Under the road: what carries it. */
-  bridge?: 'cable' | 'viaduct'
-  /** Salt water: dolphins, sailing boats. */
-  sea?: boolean
-  color: string
+  zone: string
 }
 
-export const WATERS: WaterSpan[] = [
-  // The river valley: a lake on the left, the river crossing, the river on the right.
-  { start: 3700, end: 4330, side: -1, shore: 24, color: '#3a9ab4' },
-  { start: 4420, end: 4660, side: 0, shore: 0, bridge: 'cable', color: '#2f8fb0' },
-  { start: 4760, end: 5260, side: 1, shore: 24, color: '#3a9ab4' },
-  // The beach: the sea on the right all along, then the bridge right across it.
-  { start: 15330, end: 17520, side: 1, shore: 30, sea: true, color: '#22b0c8' },
-  { start: 17640, end: 19820, side: 0, shore: 0, bridge: 'viaduct', sea: true, color: '#1f8cc2' },
-]
+function tunnelOf(i: number): TunnelSpan {
+  const leg = journey.legs[i]
+  const next = journey.legs[i + 1]
+  return { start: leg.start - leg.blend / 2, end: leg.end - next.blend / 2, zone: leg.zone.name }
+}
 
-export const WATER_TAPER = 150
-/** How far the shore curls away at the very end of a span (beyond the fog on every preset). */
-export const WATER_CURL = 460
-/** Water level under a bridge. */
-export const DEEP_WATER_Y = -5.5
+/**
+ * The tunnel the road is in or will reach next from `distance` (any tunnel, or only
+ * `zone`'s): `end` is still ahead of `distance - margin`.
+ */
+export function nextTunnel(distance: number, zone: string | null = null, margin = 0): TunnelSpan {
+  let i = Math.max(0, legIndex(distance - margin) - 1)
+  for (;;) {
+    const leg = journey.legs[i]
+    if (leg.zone.kind === 'tunnel' && (zone === null || leg.zone.name === zone)) {
+      const span = tunnelOf(i)
+      if (span.end + margin > distance) return span
+    }
+    i += 1
+    if (i >= journey.legs.length - 1) reach(journey.legs[i - 1].end + 1)
+  }
+}
+
+/** The tunnel the road is in or heading for at `distance`. */
+export function tunnelAround(distance: number): TunnelSpan {
+  return nextTunnel(distance)
+}
 
 /** Metres into the water (negative: on land) at `rel` metres into a side span, `x` across. */
 export function sideWaterDepth(span: WaterSpan, rel: number, x: number): number {
@@ -906,26 +1248,29 @@ export interface WaterHere {
 /** The water spans overlapping [from, to] (absolute run distance), nearest first. */
 export function watersBetween(from: number, to: number): WaterHere[] {
   const out: WaterHere[] = []
-  const first = Math.floor(from / BIOME_LAP) - 1
-  const last = Math.floor(to / BIOME_LAP)
-  for (let lap = first; lap <= last; lap += 1) {
-    const base = lap * BIOME_LAP
-    for (const span of WATERS) {
-      const start = base + span.start
-      const end = base + span.end
-      if (end >= from && start <= to) out.push({ span, start, end })
-    }
+  reach(to)
+  const legs = journey.legs
+  // A zone's water starts no earlier than half its incoming handover.
+  for (let i = Math.max(0, legIndex(from) - 1); i < legs.length && legs[i].start - BIOME_BLEND_MAX <= to; i += 1) {
+    for (const span of legs[i].waters) if (span.end >= from && span.start <= to) out.push({ span, start: span.start, end: span.end })
   }
   return out
 }
 
+/** Every water span in the journey up to `to` — for the check. */
+export function watersUpTo(to: number): WaterSpan[] {
+  reach(to)
+  return journey.legs.filter((leg) => leg.start <= to).flatMap((leg) => leg.waters)
+}
+
 /** What is at run distance `distance`, `x` metres across: land, side water (at ground level) or deep water under a bridge. */
 export function waterAt(distance: number, x: number): 'land' | 'side' | 'deep' {
+  let side = false
   for (const here of watersBetween(distance, distance)) {
     if (here.span.side === 0) return 'deep'
-    if (sideWaterDepth(here.span, distance - here.start, x) > 0) return 'side'
+    if (sideWaterDepth(here.span, distance - here.start, x) > 0) side = true
   }
-  return 'land'
+  return side ? 'side' : 'land'
 }
 
 /** Where the side water's shore is on `side` at `distance`, or null if there is none. */
@@ -937,6 +1282,8 @@ export function shoreAt(distance: number, side: -1 | 1): number | null {
   }
   return null
 }
+
+setJourney(1)
 
 /**
  * Difficulty. One multiplier set applied to the two things that actually decide how

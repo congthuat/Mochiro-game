@@ -10,6 +10,7 @@ import type { AuthAccount } from '../../lib/auth'
 import { loadRunnerName, type BoardScope, type EconomyState, type NameState, type SeasonInfo } from '../../lib/runnerApi'
 import { BankChip, RushToday, achievementsDue, claimableCount, formatLeft, heroPrice, heroUnlocked, inviteDue, useNow } from './RushEconomy'
 import { AccountChip } from './AuthGate'
+import { ZoneBookEntry } from './RushZoneBook'
 import type {
   ArcBrand,
   GlobalStats,
@@ -115,7 +116,7 @@ export function RushMenu({
   quality: 'low' | 'medium' | 'high'
   onNameChange: (value: string) => void
   onStart: () => void
-  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily' | 'wallet' | 'badges') => void
+  onOpen: (panel: 'help' | 'board' | 'settings' | 'shop' | 'quests' | 'achievements' | 'invite' | 'daily' | 'wallet' | 'badges' | 'book') => void
   profile: RunnerProfile | null
 }) {
   const t = useT()
@@ -415,6 +416,8 @@ export function RushMenu({
               </span>
               <span className="ar-nft-entry-new">NEW</span>
             </button>
+
+            <ZoneBookEntry onOpen={() => onOpen('book')} />
 
             {canInstall && (
               <button type="button" className="ar-install" onClick={onInstall}>

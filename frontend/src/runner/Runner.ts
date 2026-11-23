@@ -14,7 +14,11 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { translate } from '../lib/i18n'
 import {
   BIOMES,
-  BIOME_LAP,
+  ZONE_COUNT,
+  legAt,
+  roundAt,
+  setJourney,
+  type Leg,
   CHARACTERS,
   CHARACTER_IDS,
   PURSUIT,
@@ -83,6 +87,7 @@ const SHIELD_GAP = 30
 const BIOME_A = new THREE.Color()
 const BIOME_B = new THREE.Color()
 const BIOME_OUT = new THREE.Color()
+const WHITE_MIST = new THREE.Color(0xffffff)
 const SKY_TOP = new THREE.Color()
 const SKY_MID = new THREE.Color()
 const SKY_HORIZON = new THREE.Color()
@@ -259,6 +264,24 @@ const ZONE_FLAVOR: Record<string, Partial<Record<PatternKind, number>>> = {
   seabridge: { traffic: 1.4, oncoming: 1.3, merge: 1.2 },
   port: { skyway: 2.2, merge: 1.6, rampCar: 1.4 },
   neon: { laserGrid: 2.2, oncoming: 1.3, gauntlet: 1.2 },
+  halong: { slalom: 1.3, single: 1.2, rampCar: 1.2 },
+  blossom: { slalom: 1.4, jumpLine: 1.2 },
+  waterfall: { gauntlet: 1.3, slideGate: 1.3, jumpLine: 1.2 },
+  savanna: { rampCar: 1.6, jumpLine: 1.4, oncoming: 1.2 },
+  temple: { slideGate: 1.5, gauntlet: 1.3, slalom: 1.2 },
+  floatmarket: { slalom: 1.4, merge: 1.3, single: 1.2 },
+  windcoast: { single: 1.3, rampCar: 1.3, oncoming: 1.2 },
+  future: { skyway: 1.6, merge: 1.4, oncoming: 1.3 },
+  haunted: { slideGate: 1.4, gauntlet: 1.4, slalom: 1.2 },
+  icecave: { traffic: 1.5, slalom: 1.3, tunnel: 1.3, skyway: 0.5 },
+  icelake: { slalom: 1.6, jumpLine: 1.3, rushTraffic: 0.6 },
+  farm: { rampCar: 1.5, single: 1.4, jumpLine: 1.2 },
+  redcanyon: { rampCar: 1.6, gauntlet: 1.3, double: 1.2 },
+  oasis: { rampCar: 1.4, oncoming: 1.3, double: 1.2 },
+  jungle: { slalom: 1.6, slideGate: 1.3, gauntlet: 1.2 },
+  terraces: { slalom: 1.3, slideGate: 1.3, single: 1.2 },
+  highway: { traffic: 1.5, rushTraffic: 1.6, merge: 1.4 },
+  dawn: { single: 1.3, merge: 1.2, rampCar: 1.2 },
 }
 const ZONE_ONLY: Partial<Record<PatternKind, string>> = { laserGrid: 'neon' }
 
@@ -329,8 +352,11 @@ export class Runner {
   private zones: ZoneDressing
   private scenery: Scenery | null = null
   private tunnel!: Tunnel
+  private iceCave!: Tunnel
   private weather!: Weather
-  private weatherAmounts: Record<WeatherKind, number> = { snow: 0, leaves: 0, dust: 0, ash: 0, embers: 0 }
+  private weatherAmounts = Object.fromEntries(WEATHER_KINDS.map((kind) => [kind, 0])) as Record<WeatherKind, number>
+  private mistColor = new THREE.Color()
+  private skyOverride: number[] | null = null
   private crossing!: Crossing
   private districts: Districts
   private obstacles: ObstacleManager
@@ -444,6 +470,7 @@ export class Runner {
     this.setupLights()
     this.buildComposer()
 
+    setJourney(Math.floor(Math.random() * 0xffffffff))
     this.track = new Track(this.preset, 20261110)
     this.scene.add(this.track.group)
     this.zones = new ZoneDressing(this.preset, 20261122)
@@ -453,6 +480,8 @@ export class Runner {
     this.scene.add(this.districts.group)
     this.tunnel = new Tunnel(this.preset)
     this.scene.add(this.tunnel.group)
+    this.iceCave = new Tunnel(this.preset, 'icecave', 7171)
+    this.scene.add(this.iceCave.group)
     this.weather = new Weather(this.preset)
     this.scene.add(this.weather.group)
     this.crossing = new Crossing(this.preset)
@@ -505,6 +534,17 @@ export class Runner {
 
   /** The zone the run is currently in, for the HUD chip and the snapshot. */
   private biomeNow = BIOMES[0].name
+
+  /**
+   * Every run is its own journey: a random first zone and a shuffled order. The menu
+   * shows where the next run will set off; once a run has used the journey, the next
+   * start (or a return to the menu) rolls a fresh one. A revive keeps it.
+   */
+  private journeyUsed = false
+
+  /** The journey bar's ticks for the round on screen, cached per round. */
+  private ticksFor = -1
+  private journeyTicks: number[] = []
 
 
   /** The project mark, set once the artwork has loaded. */
@@ -659,6 +699,7 @@ export class Runner {
       avatarParent: this.avatar.root.parent?.type ?? null,
       avatarWorld: this.avatar.root.position.toArray().map((v) => +v.toFixed(2)),
       camera: this.camera.position.toArray().map((v) => +v.toFixed(2)),
+      view: { fov: this.camera.fov, aspect: +this.camera.aspect.toFixed(2), pitch: +Math.asin(this.camera.getWorldDirection(new THREE.Vector3()).y).toFixed(3) },
       portrait: this.portrait,
       studio: this.studio,
     }
@@ -898,6 +939,7 @@ export class Runner {
     this.zones.group.visible = !on
     this.districts.group.visible = !on
     this.tunnel.group.visible = !on
+    this.iceCave.group.visible = !on
     this.weather.group.visible = !on
     this.crossing.group.visible = !on
     this.obstacles.group.visible = !on
@@ -1182,7 +1224,42 @@ export class Runner {
   }
 
   // ------------------------------------------------------------------ flow --
+  /** Draws a new journey and clears the scenery laid out for the old one. */
+  private rollJourney(seed = Math.floor(Math.random() * 0xffffffff), first: string | null = null): void {
+    setJourney(seed, first)
+    this.journeyUsed = false
+    this.ticksFor = -1
+    this.districts.reset()
+    this.zones.reset()
+  }
+
+  /** Where the run is on its journey: the zone on screen, its round, and the bar's ticks. */
+  private journeyHud(distance: number): { zoneIndex: number; lap: number; lapProgress: number; ticks: number[] } {
+    let leg: Leg = legAt(distance)
+    const round = roundAt(distance)
+    // The zone on screen is the one that owns the view — past the middle of a blend,
+    // that is the zone coming up.
+    const next = round[leg.index + 1] ?? legAt(leg.end + 1)
+    if (next !== leg && distance >= next.start - next.blend / 2) leg = next
+    const first = round[0]
+    const last = round[round.length - 1]
+    const roundStart = first.cycle === 0 ? 0 : first.start - first.blend
+    const span = Math.max(1, last.end - roundStart)
+    if (this.ticksFor !== first.cycle) {
+      this.ticksFor = first.cycle
+      this.journeyTicks = round.slice(1).map((other) => clamp01((other.start - other.blend / 2 - roundStart) / span))
+    }
+    return {
+      zoneIndex: (leg.cycle === first.cycle ? leg.index : 0) + 1,
+      lap: first.cycle,
+      lapProgress: clamp01((distance - roundStart) / span),
+      ticks: this.journeyTicks,
+    }
+  }
+
   startRun(): void {
+    if (this.journeyUsed) this.rollJourney()
+    this.journeyUsed = true
     this.run = this.freshRun()
     this.diff = difficulty(this.settings.difficulty)
     this.missionRolls = rollMissions(() => Math.random())
@@ -1260,6 +1337,7 @@ export class Runner {
   }
 
   quitToMenu(): void {
+    if (this.journeyUsed) this.rollJourney()
     this.obstacles.reset()
     this.pickups?.reset()
     this.avatar.root.visible = true
@@ -1303,6 +1381,7 @@ export class Runner {
     this.zones.dispose()
     this.districts.dispose()
     this.tunnel.dispose()
+    this.iceCave.dispose()
     this.weather.dispose()
     this.crossing.dispose()
     this.scenery?.dispose()
@@ -1421,6 +1500,7 @@ export class Runner {
     this.zones.setQuality(this.preset)
     this.districts.setQuality(this.preset)
     this.tunnel.setQuality(this.preset)
+    this.iceCave.setQuality(this.preset)
     this.weather.setQuality(this.preset)
     this.crossing.setQuality(this.preset)
     this.scenery?.setQuality(this.preset)
@@ -2343,8 +2423,13 @@ export class Runner {
     const sky = blendColor(from.sky, to.sky, t, BIOME_OUT)
     if (background instanceof THREE.Color) background.copy(sky)
     else this.scene.background = sky.clone()
+    const mist = (from.mist ?? 0) + ((to.mist ?? 0) - (from.mist ?? 0)) * t
     if (this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.color.copy(blendColor(from.fog, to.fog, t, BIOME_OUT))
+      // Misty zones close the fog in a little; the far edge barely moves, so the
+      // obstacles ahead stay as readable as anywhere else.
+      this.scene.fog.near = this.preset.fogNear * (1 - 0.4 * mist)
+      this.scene.fog.far = this.preset.fogFar * (1 - 0.12 * mist)
     }
     this.hemiLight.color.copy(blendColor(from.skyBounce, to.skyBounce, t, BIOME_OUT))
     this.hemiLight.groundColor.copy(blendColor(from.groundBounce, to.groundBounce, t, BIOME_OUT))
@@ -2378,9 +2463,15 @@ export class Runner {
       amounts[kind] = (from.weather === kind ? 1 - t : 0) + (to.weather === kind ? t : 0)
     }
     amounts.embers = amounts.ash
+    const fireworks = (from.weather === 'fireworks' ? 1 - t : 0) + (to.weather === 'fireworks' ? t : 0)
+    const fx = this.skyOverride
+    if (fx) this.scenery?.setSkyEffects(fx[0], fx[1], fx[2], fx[3], fx[4])
+    else this.scenery?.setSkyEffects(mix(from.aurora, to.aurora), mix(from.glow, to.glow), mist, mix(from.rainbow, to.rainbow), fireworks)
     const height = this.renderer.domElement.height || 720
-    this.weather.update(this.clockTime, distance, amounts, height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)))
+    this.mistColor.copy(blendColor(from.fog, to.fog, t, BIOME_OUT)).lerp(WHITE_MIST, 0.35)
+    this.weather.update(this.clockTime, distance, amounts, height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)), mist, this.mistColor)
     this.tunnel.update(distance)
+    this.iceCave.update(distance)
   }
 
   private checkObstacles(dz: number): void {
@@ -2949,6 +3040,7 @@ export class Runner {
     const run = this.run
     const baseSpeed = this.phase === 'menu' ? 0 : speedAt(run.elapsed)
     const tier = tierFor(baseSpeed)
+    const journey = this.journeyHud(run.distance)
     const hud: HudState = {
       score: Math.floor(run.score),
       best: Math.floor(this.bestScore),
@@ -2972,8 +3064,11 @@ export class Runner {
       tierName: tier.name,
       tierKey: tier.key,
       biome: this.biomeNow,
-      lap: Math.floor(run.distance / BIOME_LAP),
-      lapProgress: (run.distance % BIOME_LAP) / BIOME_LAP,
+      zoneIndex: journey.zoneIndex,
+      zoneTotal: ZONE_COUNT,
+      lap: journey.lap,
+      lapProgress: journey.lapProgress,
+      journeyTicks: journey.ticks,
       heat: this.run.heat,
       canRevive: !this.run.revived && this.run.coins >= reviveCostFor(this.diff, this.run.coins),
       reviveCost: reviveCostFor(this.diff, this.run.coins),
@@ -3087,6 +3182,29 @@ export class Runner {
   }
 
   /** QA helper: jump the odometer, so each zone's sky can be looked at directly. */
+  /** QA helper: draw a given journey (optionally opening with `first`'s group) and list its legs. */
+  debugJourney(seed?: number, first?: string): Array<{ zone: string; start: number; end: number; blend: number; cycle: number }> {
+    if (!import.meta.env.DEV) return []
+    if (seed !== undefined) {
+      this.rollJourney(seed, first ?? null)
+      this.journeyUsed = true
+    }
+    return roundAt(this.run.distance).map((leg) => ({
+      zone: leg.zone.name,
+      start: Math.round(leg.start),
+      end: Math.round(leg.end),
+      blend: Math.round(leg.blend),
+      cycle: leg.cycle,
+    }))
+  }
+
+  /** QA helper: force the sky effects (aurora, glow, mist, rainbow, fireworks), or null to follow the zones. */
+  debugSky(fx: number[] | null): void {
+    if (!import.meta.env.DEV) return
+    this.skyOverride = fx
+    if (fx) this.scenery?.setSkyEffects(fx[0], fx[1], fx[2], fx[3], fx[4])
+  }
+
   debugDistance(metres: number): void {
     if (!import.meta.env.DEV) return
     this.run.distance = metres

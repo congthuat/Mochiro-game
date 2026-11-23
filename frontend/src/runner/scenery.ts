@@ -120,6 +120,11 @@ uniform float peakAmount;
 uniform float duneAmount;
 uniform float seaAmount;
 uniform float volcanoAmount;
+uniform float auroraAmount;
+uniform float glowAmount;
+uniform float mistAmount;
+uniform float rainbowAmount;
+uniform float fireworksAmount;
 uniform vec3 top;
 uniform vec3 mid;
 uniform vec3 horizon;
@@ -147,8 +152,72 @@ void main() {
     col += vec3(0.85, 0.92, 1.0) * star * twinkle * stars * 1.6;
   }
 
+  float az = atan(dir.x, -dir.z);
+
+  // Northern lights: three curtains with a bright lower hem, rays running up them,
+  // swaying slowly; green low down, violet at the top.
+  if (auroraAmount > 0.001) {
+    float band = 0.0;
+    for (int i = 0; i < 3; i++) {
+      float fi = float(i);
+      float hem = 0.11 + 0.055 * fi + 0.05 * sin(az * 1.6 + fi * 1.7 + time * 0.05)
+        + 0.03 * sin(az * 6.0 + time * 0.22 + fi * 2.3) + 0.012 * sin(az * 15.0 - time * 0.4 + fi);
+      float d = dir.y - hem;
+      float curtain = smoothstep(-0.012, 0.004, d) * exp(-max(d, 0.0) * (11.0 + fi * 3.0));
+      float rays = 0.55 + 0.45 * sin(az * 55.0 + fi * 3.0 + time * 0.5) * sin(az * 21.0 - time * 0.27 + fi);
+      band += curtain * rays * (0.85 - 0.2 * fi);
+    }
+    vec3 aurora = mix(vec3(0.2, 1.0, 0.55), vec3(0.62, 0.34, 1.0), smoothstep(0.16, 0.32, dir.y));
+    col += aurora * band * auroraAmount * 0.6 * smoothstep(0.03, 0.1, dir.y);
+  }
+
+  // A big low sun (sunrise, sunset): a warm band along the horizon, a halo, the disc.
+  if (glowAmount > 0.001) {
+    vec3 sunDir = normalize(vec3(0.3, 0.075, -1.0));
+    float d = acos(clamp(dot(dir, sunDir), -1.0, 1.0));
+    vec3 warm = vec3(1.0, 0.6, 0.3);
+    float halo = exp(-d * 3.0) * 0.5 + exp(-d * 11.0) * 0.55;
+    float band = exp(-abs(dir.y - 0.03) * 8.0) * 0.3;
+    col += warm * (halo + band) * glowAmount;
+    float disc = smoothstep(0.05, 0.043, d);
+    col = mix(col, vec3(1.0, 0.9, 0.68) * 1.3, disc * glowAmount);
+  }
+
+  // Fireworks over the towers: a few bursts at a time, each a ring of sparks that
+  // grows and fades, a new colour and place every burst.
+  if (fireworksAmount > 0.001) {
+    for (int i = 0; i < 4; i++) {
+      float fi = float(i);
+      float period = 2.4 + fi * 0.55;
+      float clock = time / period + fi * 0.31;
+      float k = floor(clock);
+      float t = fract(clock);
+      float h1 = fract(sin(k * 12.9898 + fi * 78.233) * 43758.5453);
+      float h2 = fract(sin(k * 39.346 + fi * 11.135) * 24634.6345);
+      vec2 q = vec2(az - (h1 - 0.5) * 1.3, dir.y - (0.13 + h2 * 0.12));
+      float r = length(q);
+      float grow = 0.06 * (1.0 - pow(1.0 - t, 3.0)) + 0.005;
+      float spokes = pow(max(0.0, cos(atan(q.y, q.x) * 13.0 + h1 * 6.0)), 5.0);
+      float ring = smoothstep(0.011, 0.0, abs(r - grow)) * spokes * smoothstep(0.0, 0.004, r);
+      float core = smoothstep(grow, 0.0, r) * 0.18 * (1.0 - t);
+      vec3 hue = clamp(abs(mod(h2 * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0) * 0.75 + 0.35;
+      col += hue * (ring * 1.5 + core) * pow(1.0 - t, 1.5) * fireworksAmount;
+    }
+  }
+
   vec4 c = texture2D(clouds, vUv);
   col = mix(col, cloudTint * mix(0.82, 1.0, up), c.a);
+
+  // A rainbow in the spray, opposite the sun.
+  if (rainbowAmount > 0.001) {
+    vec3 anti = normalize(vec3(-0.1, -0.45, -1.0));
+    float d = acos(clamp(dot(dir, anti), -1.0, 1.0));
+    float t = (d - 0.56) / 0.06;
+    if (t > 0.0 && t < 1.0) {
+      vec3 hue = clamp(abs(mod((1.0 - t) * 0.75 * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+      col += hue * 0.42 * sin(t * 3.14159) * smoothstep(0.0, 0.06, dir.y) * rainbowAmount;
+    }
+  }
 
   // Ridges sit in the haze: bright texels are far ranges (close to the horizon colour),
   // dark ones the near range (pulled towards the zenith colour).
@@ -202,6 +271,11 @@ void main() {
     plume *= 0.62 + 0.25 * billow;
     vec3 smoke = mix(vec3(0.22, 0.19, 0.19), horizon, 0.35 + rise * 0.6);
     col = mix(col, smoke, clamp(plume, 0.0, 1.0) * volcanoAmount);
+  }
+
+  // Mist: the haze thickens along the horizon and swallows the foot of the far hills.
+  if (mistAmount > 0.001) {
+    col = mix(col, mix(horizon, vec3(1.0), 0.08), mistAmount * 0.7 * (1.0 - smoothstep(-0.02, 0.2, dir.y)));
   }
 
   gl_FragColor = vec4(col, 1.0);
@@ -261,6 +335,11 @@ export class Scenery {
         duneAmount: { value: 0 },
         seaAmount: { value: 0 },
         volcanoAmount: { value: 0 },
+        auroraAmount: { value: 0 },
+        glowAmount: { value: 0 },
+        mistAmount: { value: 0 },
+        rainbowAmount: { value: 0 },
+        fireworksAmount: { value: 0 },
         top: { value: new THREE.Color(PALETTE.skyTop) },
         mid: { value: new THREE.Color(PALETTE.skyMid) },
         horizon: { value: new THREE.Color(PALETTE.skyHorizon) },
@@ -679,6 +758,16 @@ export class Scenery {
     this.skyMat.uniforms.duneAmount.value = dunes
     this.skyMat.uniforms.seaAmount.value = sea
     this.skyMat.uniforms.volcanoAmount.value = volcano
+  }
+
+  /** Effects painted on the sky dome: northern lights, a low sun, mist, a rainbow, fireworks (0..1 each). */
+  setSkyEffects(aurora: number, glow: number, mist: number, rainbow: number, fireworks: number): void {
+    const u = this.skyMat.uniforms
+    u.auroraAmount.value = aurora
+    u.glowAmount.value = glow
+    u.mistAmount.value = mist
+    u.rainbowAmount.value = rainbow
+    u.fireworksAmount.value = fireworks
   }
 
   /** Stands the procedural houses and blocks down once the real districts are built. */

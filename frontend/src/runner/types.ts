@@ -67,9 +67,14 @@ export interface HudState {
   tierKey: string
   /** The zone the run is in — see BIOMES in config.ts. */
   biome: string
-  /** Whole journeys (laps of every zone) completed, and how far into this one (0..1). */
+  /** Which zone of this round's journey is on screen (1-based) and how many a round holds. */
+  zoneIndex: number
+  zoneTotal: number
+  /** Whole rounds (every zone once) completed, and how far into this one (0..1). */
   lap: number
   lapProgress: number
+  /** Where each zone after the first begins on the journey bar (0..1), for this round. */
+  journeyTicks: number[]
   /** Danger meter, 0 (clean) … 1 (the run is over). Crashes fill it, clean running drains it. */
   heat: number
   /** True while a continue is still available this run. */

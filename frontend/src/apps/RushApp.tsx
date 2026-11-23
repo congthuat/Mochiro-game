@@ -21,6 +21,7 @@ import {
   RushSettings,
   RushInstallHint,
 } from '../components/runner/RushScreens'
+import { RushZoneBook } from '../components/runner/RushZoneBook'
 import {
   fetchRunnerLeaderboard,
   fetchRunnerProfile,
@@ -138,7 +139,7 @@ function storeBest(value: number): void {
   }
 }
 
-type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet' | 'badges'
+type Panel = 'none' | 'settings' | 'help' | 'board' | 'auth' | 'shop' | 'quests' | 'daily' | 'achievements' | 'invite' | 'install' | 'wallet' | 'badges' | 'book'
 
 /**
  * Dev-server only: the browser checks in `scripts/` drive the menu and the run without a
@@ -579,6 +580,7 @@ export default function RushApp() {
       probe: () => runnerRef.current?.debugProbe(),
       parts: () => runnerRef.current?.debugParts(),
       stats: () => runnerRef.current?.debugStats(),
+      sky: (fx: number[] | null) => runnerRef.current?.debugSky(fx),
       pick: (cols?: number, rows?: number) => runnerRef.current?.debugPick(cols, rows),
       patterns: () => runnerRef.current?.debugPatterns() ?? [],
       forcePattern: (kind: string) => runnerRef.current?.debugForcePattern(kind),
@@ -596,6 +598,7 @@ export default function RushApp() {
       lines: (on: boolean) => runnerRef.current?.debugSpeedLines(on),
       advance: (seconds: number) => runnerRef.current?.debugAdvance(seconds),
       distance: (metres: number) => runnerRef.current?.debugDistance(metres),
+      journey: (seed?: number, first?: string) => runnerRef.current?.debugJourney(seed, first) ?? [],
       power: (kind: string | null) => runnerRef.current?.debugPower(kind as 'shield' | null),
       spawnPower: (kind: string, lane?: number) =>
         runnerRef.current?.debugSpawnPower(kind as 'shield' | 'magnet' | 'boost', lane),
@@ -1041,6 +1044,7 @@ export default function RushApp() {
           nameState={nameState}
         />
       )}
+      {panel === 'book' && <RushZoneBook onClose={() => setPanel('none')} />}
       {panel === 'help' && <RushHelp onClose={() => setPanel('none')} isTouch={isTouch} brand={brand} />}
       {panel === 'auth' && (
         <AuthGate

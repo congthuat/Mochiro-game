@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Pause, Gauge, Zap, Magnet, Shield, ShieldCheck, Coins, Ghost, Shuffle, CloudFog, Weight, Compass, TriangleAlert, Check, Siren } from 'lucide-react'
 import { formatNumber, useT } from '../../lib/i18n'
-import { BIOMES, BIOME_LAP, POWER_BY_KIND, ZONE_ICONS } from '../../runner/config'
+import { POWER_BY_KIND, ZONE_ICONS } from '../../runner/config'
+import { markZoneVisited } from './zoneBook'
 import type { PowerKind } from '../../runner/types'
 import { formatScore, formatSpeed } from '../../runner/utils'
 import type { HudState, PickupEvent, ToastMsg } from '../../runner/types'
@@ -85,17 +86,19 @@ export function RushHud({
   const [banner, setBanner] = useState<{ id: number; power: PowerKind; warded: boolean } | null>(null)
   const [flash, setFlash] = useState<{ id: number; colour: string } | null>(null)
   const lastMultiplier = useRef(hud.multiplier)
-  const [zoneCard, setZoneCard] = useState<{ id: number; biome: string; lap: number } | null>(null)
-  const lastBiome = useRef(hud.biome)
-  const zoneIndex = Math.max(0, BIOMES.findIndex((zone) => zone.name === hud.biome))
+  const [zoneCard, setZoneCard] = useState<{ id: number; biome: string; lap: number; n: number } | null>(null)
+  // Empty to start with, so the zone a run sets off in gets its card too.
+  const lastBiome = useRef('')
 
-  // Entering a new zone: its name comes up as a title card for a moment.
+  // Entering a new zone: its name comes up as a title card for a moment, and the zone
+  // goes into the player's book of places seen.
   useEffect(() => {
     if (hud.biome === lastBiome.current) return undefined
     lastBiome.current = hud.biome
-    setZoneCard({ id: Date.now(), biome: hud.biome, lap: hud.lap })
+    setZoneCard({ id: Date.now(), biome: hud.biome, lap: hud.lap, n: hud.zoneIndex })
+    markZoneVisited(hud.biome)
     return undefined
-  }, [hud.biome, hud.lap])
+  }, [hud.biome, hud.lap, hud.zoneIndex])
 
   // The card bows out on its own after three seconds.
   useEffect(() => {
@@ -185,18 +188,18 @@ export function RushHud({
       </div>
 
       <div className="ar-hud-track">
-        <div className="ar-journey" aria-label={t('hud.zoneOf', { n: zoneIndex + 1, total: BIOMES.length })}>
+        <div className="ar-journey" aria-label={t('hud.zoneOf', { n: hud.zoneIndex, total: hud.zoneTotal })}>
           <span className="ar-journey-bar">
             <i className="ar-journey-fill" style={{ width: `${Math.min(100, hud.lapProgress * 100)}%` }} />
-            {BIOMES.slice(1).map((zone) => (
-              <i key={zone.name} className="ar-journey-tick" style={{ left: `${(zone.at / BIOME_LAP) * 100}%` }} />
+            {hud.journeyTicks.map((at, i) => (
+              <i key={i} className="ar-journey-tick" style={{ left: `${at * 100}%` }} />
             ))}
             <span className="ar-journey-pin" style={{ left: `${Math.min(100, hud.lapProgress * 100)}%` }}>
               {ZONE_ICONS[hud.biome] ?? '🏁'}
             </span>
           </span>
           <span className="ar-journey-note">
-            {t('hud.zoneOf', { n: zoneIndex + 1, total: BIOMES.length })}
+            {t('hud.zoneOf', { n: hud.zoneIndex, total: hud.zoneTotal })}
             {hud.lap > 0 && <> · {t('hud.journey', { n: hud.lap + 1 })}</>}
           </span>
         </div>
@@ -271,7 +274,7 @@ export function RushHud({
           <span className="ar-zone-card-icon">{ZONE_ICONS[zoneCard.biome] ?? '🏁'}</span>
           <span className="ar-zone-card-name">{t(`biome.${zoneCard.biome}`)}</span>
           <span className="ar-zone-card-note">
-            {t('hud.zoneOf', { n: Math.max(0, BIOMES.findIndex((zone) => zone.name === zoneCard.biome)) + 1, total: BIOMES.length })}
+            {t('hud.zoneOf', { n: zoneCard.n, total: hud.zoneTotal })}
             {zoneCard.lap > 0 && <> · {t('hud.journey', { n: zoneCard.lap + 1 })}</>}
           </span>
         </div>

@@ -29,6 +29,10 @@ const shared = {
   /** Two bridge crossings in view: startA, endA, startB, endB (absolute). */
   uCross: { value: new THREE.Vector4(-1e6, -1e6, -1e6, -1e6) },
   uCrossCol: { value: new THREE.Color(0x1f8cc2) },
+  /** Side water frozen over (A, B): 1 = ice. */
+  uSideIce: { value: new THREE.Vector2(0, 0) },
+  /** What lies under the first crossing: 0 water, 1 the lit streets under a skyway. */
+  uCrossKind: { value: 0 },
 }
 
 /** The world position, for every material here (instancing aware). */
@@ -53,6 +57,8 @@ uniform vec3 uSideColA;
 uniform vec3 uSideColB;
 uniform vec4 uCross;
 uniform vec3 uCrossCol;
+uniform vec2 uSideIce;
+uniform float uCrossKind;
 varying float vSurfZ;
 varying float vSurfX;
 
@@ -128,7 +134,8 @@ ${water ? 'if (crossInto(surfAt) > 0.0) discard;' : ''}
   float d = max(dA, dB);
   if (d > -5.0) {
     vec3 waterCol = dA > dB ? uSideColA : uSideColB;
-    surfWave = waterWaves(vSurfX, surfAt, uSurfTime);
+    float ice = dA > dB ? uSideIce.x : uSideIce.y;
+    surfWave = waterWaves(vSurfX, surfAt, uSurfTime) * (1.0 - ice);
     // Wet sand along the waterline, then the shallows (lighter, a touch of sand
     // showing through) going deep.
     surf *= mix(1.0, 0.74, smoothstep(-5.0, 0.0, d));
@@ -136,9 +143,13 @@ ${water ? 'if (crossInto(surfAt) > 0.0) discard;' : ''}
     vec3 deep = waterCol * 0.8;
     vec3 sea = mix(shallow, deep, smoothstep(1.0, 26.0, d)) * (1.0 + 0.08 * surfWave.z);
     surfWater = smoothstep(0.0, 0.9, d);
+    // Ice: pale and still, with long cracks and a ridge of snow along the bank.
+    float crack = 1.0 - smoothstep(0.0, 0.12, abs(sin(vSurfX * 0.21 + surfAt * 0.07) + sin(surfAt * 0.13 - vSurfX * 0.05) * 0.6));
+    vec3 frozen = mix(waterCol * 1.08, waterCol * 0.82, smoothstep(2.0, 40.0, d)) * (1.0 - crack * 0.16);
+    sea = mix(sea, frozen, ice);
     surf = mix(surf, sea, surfWater);
-    // The foam line laps in and out.
-    float swash = 0.9 + 0.8 * sin(uSurfTime * 0.9 + surfAt * 0.045);
+    // The foam line laps in and out (on ice it lies still: a drift of snow).
+    float swash = mix(0.9 + 0.8 * sin(uSurfTime * 0.9 + surfAt * 0.045), 0.9, ice);
     float foam = 1.0 - smoothstep(0.0, 0.7 + swash * 0.4, abs(d - swash * 0.7));
     foam = max(foam, (1.0 - smoothstep(0.0, 0.35, abs(d - swash * 2.2 - 1.2))) * 0.55);
     surf = mix(surf, vec3(0.97, 0.99, 1.0), foam * 0.85);
@@ -150,7 +161,7 @@ ${water ? 'if (crossInto(surfAt) > 0.0) discard;' : ''}
       )
     if (water) {
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.2, surfWater);')
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.2, surfWater);\nsurfWater *= 1.0 - 0.85 * max(uSideIce.x, uSideIce.y);')
         .replace(
           '#include <normal_fragment_maps>',
           '#include <normal_fragment_maps>\nnormal = normalize(normal + surfWater * (viewMatrix * vec4(surfWave.x, 0.0, surfWave.y, 0.0)).xyz * 0.22);'
@@ -201,16 +212,30 @@ export function applyDeepWater(material: THREE.MeshStandardMaterial): void {
         '#include <color_fragment>',
         `#include <color_fragment>
 float surfAt = uSurfDist - vSurfZ;
+vec3 vCityGlow = vec3(0.0);
 vec3 surfWave = waterWaves(vSurfX * 0.6, surfAt * 0.6, uSurfTime * 0.8);
 {
   float into = crossInto(surfAt);
   if (into < 4.0) discard;
+  if (uCrossKind > 0.5) {
+    // Under the skyway: the night city's street grid, lamps strung along it, car lights.
+    surfWave = vec3(0.0);
+    vec2 cell = vec2(vSurfX, surfAt) / vec2(34.0, 46.0);
+    vec2 f = abs(fract(cell) - 0.5);
+    float street = 1.0 - smoothstep(0.42, 0.47, max(f.x, f.y));
+    float lamp = street * step(0.82, fract(dot(floor(vec2(vSurfX, surfAt) / 3.0), vec2(0.37, 0.71)) * 7.13));
+    float block = fract(sin(dot(floor(cell), vec2(12.9898, 78.233))) * 43758.5453);
+    vec3 roof = uCrossCol * (0.8 + block * 0.6);
+    diffuseColor.rgb *= mix(roof, vec3(0.16, 0.16, 0.2), street);
+    vCityGlow = lamp * mix(vec3(1.0, 0.72, 0.38), vec3(0.5, 0.85, 1.0), step(0.6, block)) * 1.6;
+  } else {
   vec3 sea = uCrossCol * (1.0 + 0.1 * surfWave.z);
   // Lighter in the shallows by the banks, and a band of foam where the water meets them.
   sea = mix(sea * 1.3 + vec3(0.03, 0.07, 0.05), sea, smoothstep(8.0, 30.0, into));
   float swash = 0.6 * sin(uSurfTime * 0.9 + vSurfX * 0.05);
   float foam = 1.0 - smoothstep(0.0, 1.1, abs(into - 7.9 - swash));
   diffuseColor.rgb *= mix(sea, vec3(0.97, 0.99, 1.0), foam * 0.8);
+  }
 }`
       )
       .replace(
@@ -219,7 +244,7 @@ vec3 surfWave = waterWaves(vSurfX * 0.6, surfAt * 0.6, uSurfTime * 0.8);
       )
       .replace(
         '#include <emissivemap_fragment>',
-        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += waterGlint(vSurfX, surfAt, uSurfTime, length(vViewPosition)) * vec3(1.0, 0.97, 0.88);'
+        '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vCityGlow + waterGlint(vSurfX, surfAt, uSurfTime, length(vViewPosition)) * vec3(1.0, 0.97, 0.88) * (1.0 - uCrossKind);'
       )
   }
   material.customProgramCacheKey = () => 'deep-water'
@@ -250,6 +275,8 @@ export function updateSurface(distance: number, time: number, ahead = 420): bool
   const sideColours = [shared.uSideColA.value, shared.uSideColB.value]
   sides[0].set(0, 0, 0, 0)
   sides[1].set(0, 0, 0, 0)
+  const ice = shared.uSideIce.value
+  ice.set(0, 0)
   const cross = shared.uCross.value
   cross.set(-1e6, -1e6, -1e6, -1e6)
   let nSide = 0
@@ -260,6 +287,7 @@ export function updateSurface(distance: number, time: number, ahead = 420): bool
         cross.x = here.start
         cross.y = here.end
         shared.uCrossCol.value.set(here.span.color)
+        shared.uCrossKind.value = here.span.bridge === 'skyway' ? 1 : 0
       } else if (nCross === 1) {
         cross.z = here.start
         cross.w = here.end
@@ -268,6 +296,7 @@ export function updateSurface(distance: number, time: number, ahead = 420): bool
     } else if (nSide < 2) {
       sides[nSide].set(here.start, here.end, here.span.side, here.span.shore)
       sideColours[nSide].copy(sideColour.set(here.span.color))
+      if (here.span.ice) ice.setComponent(nSide, 1)
       nSide += 1
     }
   }

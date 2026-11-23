@@ -21,7 +21,7 @@ const DECK_HALF = 7.6
 const RAIL_X = 7.3
 const WALK_TOP = 0.3
 
-const FASCIA: Record<string, number> = { cable: 0xc8463a, viaduct: 0x2f6fb5 }
+const FASCIA: Record<string, number> = { cable: 0xc8463a, viaduct: 0x2f6fb5, skyway: 0x6a4bd8 }
 
 /** Instances laid out afresh each frame. */
 class Pool {
@@ -329,7 +329,7 @@ export class Crossing {
         this.lay(this.poles, side * 7.0, distance - at, side > 0 ? 0 : Math.PI)
         this.lay(this.heads, side * 7.0, distance - at, side > 0 ? 0 : Math.PI)
       })
-      if (kind === 'viaduct') {
+      if (kind !== 'cable') {
         this.every(45, lo, hi, start + 20, end - 20, (at) => this.lay(this.piers, 0, distance - at))
         this.every(260, lo, hi, start + 90, end - 90, (at) => {
           this.lay(this.towers, 0, distance - at)

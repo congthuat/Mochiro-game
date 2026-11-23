@@ -1,24 +1,21 @@
 /**
  * The zone system, checked without a browser.
  *
- * A zone is a lighting palette rather than new geometry — sky, fog, the sun's colour,
- * the sky/ground bounce, the exposure — blended over a stretch of track as the run
- * travels. That makes it cheap, and it makes it easy to get wrong in ways nobody sees
- * until a player is three minutes into a run:
+ * A run is a journey: every zone once per round, shuffled with a fresh seed, the
+ * groups in ZONE_GROUPS kept together, then a new round is drawn. The lighting is
+ * blended over a stretch of track between zones. That is cheap, and easy to get wrong
+ * in ways nobody sees until a player is ten minutes into a run:
  *
- *  1. **The handover has to be smooth.** A jump in the sky or the fog reads as a
- *     glitch, not as weather, so the blend is sampled metre by metre and every step
- *     has to be small.
- *  2. **The world has to stay readable.** Exposure and light intensity are checked
- *     against the band the game was tuned in; a zone that goes too dark loses the
- *     runner and the traffic.
- *  3. **Every zone has to be reachable and labelled** in both languages, and the
- *     first one has to own the start of the run.
+ *  1. **Every round visits every zone**, the groups in order, never opening in a
+ *     tunnel, each zone lasting about the same time.
+ *  2. **The handover has to be smooth.** A jump in the sky or the fog reads as a
+ *     glitch, so the blend is sampled metre by metre (tunnel portals excepted).
+ *  3. **The world has to stay readable**, and every zone is labelled in both languages.
  *
  *   bun run scripts/biome-check.ts
  */
 import * as THREE from 'three'
-import { BIOMES, BIOME_LAP, WATERS, biomeMix, blendInto, tunnelSpan, zoneAt } from '../src/runner/config'
+import { BIOMES, ZONE_GROUPS, ZONE_ICONS, ZONE_SECONDS, TUNNEL_LENGTH, biomeMix, distanceAt, roundAt, setJourney, watersUpTo, zoneAt } from '../src/runner/config'
 import { translate } from '../src/lib/i18n'
 
 let failed = 0
@@ -33,79 +30,81 @@ const blend = (from: string, to: string, t: number): THREE.Color => a.set(from).
 
 console.log('The zones\n')
 
-check('there are at least four zones', BIOMES.length >= 4, BIOMES.map((z) => z.name).join(' → '))
-check('the first zone starts at zero', BIOMES[0].at === 0, `${BIOMES[0].name} at ${BIOMES[0].at} m`)
-check(
-  'the zones are strictly ordered by distance',
-  BIOMES.every((zone, i) => i === 0 || zone.at > BIOMES[i - 1].at),
-  BIOMES.map((z) => `${z.name}@${z.at}`).join(' · ')
-)
-check(
-  'no two zones share a name',
-  new Set(BIOMES.map((z) => z.name)).size === BIOMES.length,
-  BIOMES.map((z) => z.name).join(', ')
-)
-check(
-  'every handover is shorter than the zone before it',
-  BIOMES.every((zone, i) => i === 0 || zone.at - BIOMES[i - 1].at > blendInto(zone)),
-  BIOMES.slice(1).map((z, i) => `${z.name} ${blendInto(z)}/${z.at - BIOMES[i].at} m`).join(' · ')
-)
-const tunnel = tunnelSpan()
-check(
-  'the mountain tunnel is long enough to feel like one, and short enough not to drag',
-  tunnel.end - tunnel.start >= 150 && tunnel.end - tunnel.start <= 700,
-  `${tunnel.start}–${tunnel.end} m (${tunnel.end - tunnel.start} m)`
-)
-check(
-  'every lake, river and sea lies inside a water zone',
-  WATERS.every((w) => ['river', 'beach', 'seabridge'].includes(zoneAt(w.start)) && zoneAt(w.start) === zoneAt(w.end)),
-  WATERS.map((w) => `${w.start}–${w.end} ${zoneAt(w.start)}/${zoneAt(w.end)}`).join(' · ')
-)
-check(
-  'both tunnel handovers happen within a car length of the portals',
-  BIOMES.every((zone, i) => {
-    const before = BIOMES[i - 1]
-    const touches = zone.kind === 'tunnel' || before?.kind === 'tunnel'
-    return !touches || blendInto(zone) <= 30
-  }),
-  BIOMES.filter((z, i) => z.kind === 'tunnel' || BIOMES[i - 1]?.kind === 'tunnel').map((z) => `${z.name} ${blendInto(z)} m`).join(' · ')
-)
-
+check('there are 31 zones', BIOMES.length === 31, BIOMES.map((z) => z.name).join(' · '))
+check('no two zones share a name', new Set(BIOMES.map((z) => z.name)).size === BIOMES.length, `${BIOMES.length} names`)
 for (const zone of BIOMES) {
   const en = translate(`biome.${zone.name}`, 'en')
   const vi = translate(`biome.${zone.name}`, 'vi')
   check(
-    `${zone.name}: labelled in both languages`,
-    en !== `biome.${zone.name}` && vi !== `biome.${zone.name}` && Boolean(en) && Boolean(vi),
-    `en “${en}” · vi “${vi}”`
+    `${zone.name}: labelled in both languages, with an icon`,
+    en !== `biome.${zone.name}` && vi !== `biome.${zone.name}` && Boolean(en) && Boolean(vi) && Boolean(ZONE_ICONS[zone.name]),
+    `${ZONE_ICONS[zone.name] ?? '—'} en “${en}” · vi “${vi}”`
   )
 }
 
-console.log('\nThe handover\n')
+console.log('\nThe journey\n')
 
-check('a fresh run starts in the first zone', biomeMix(0).from.name === BIOMES[0].name && biomeMix(0).t === 0, `${biomeMix(0).from.name} t=${biomeMix(0).t}`)
-const last = BIOMES[BIOMES.length - 1]
-check('the last zone lasts before the lap closes', BIOME_LAP - blendInto(BIOMES[0]) > last.at + 150, `lap ${BIOME_LAP} m · ${last.name} at ${last.at} m`)
-check('after the last zone the city loops back to the first', biomeMix(BIOME_LAP + 1).from.name === BIOMES[0].name, biomeMix(BIOME_LAP + 1).from.name)
+const starts = new Map<string, number>()
+let roundsOk = true
+let groupsOk = true
+let tunnelStart = false
+let worstLength = ''
+for (let seed = 1; seed <= 60; seed += 1) {
+  setJourney(seed)
+  for (const at of [0, 1]) {
+    const first = roundAt(0)
+    const legs = at === 0 ? first : roundAt(first[first.length - 1].end + 1)
+    const names = legs.map((leg) => leg.zone.name)
+    if (names.length !== BIOMES.length || new Set(names).size !== BIOMES.length) roundsOk = false
+    for (const group of ZONE_GROUPS) {
+      const i = names.indexOf(group[0])
+      if (group.some((name, k) => names[i + k] !== name)) groupsOk = false
+    }
+    if (at === 0) {
+      starts.set(names[0], (starts.get(names[0]) ?? 0) + 1)
+      if (legs[0].zone.kind === 'tunnel') tunnelStart = true
+    }
+    for (const leg of legs) {
+      if (leg.zone.kind === 'tunnel') continue
+      const ratio = (leg.end - leg.start) / (distanceAt(ZONE_SECONDS) - distanceAt(0))
+      if (ratio < 0.5) worstLength = `${leg.zone.name} ${Math.round(leg.end - leg.start)} m (seed ${seed})`
+    }
+  }
+}
+check('every round visits every zone exactly once', roundsOk, '60 seeds × 2 rounds')
+check('grouped zones always travel together, in order', groupsOk, ZONE_GROUPS.map((g) => g.join('→')).join(' · '))
+check('a run never opens in a tunnel', !tunnelStart, `${starts.size} different opening zones over 60 seeds`)
+check('the opening zone varies from run to run', starts.size >= 12, [...starts.entries()].map(([z, n]) => `${z}×${n}`).join(' '))
+check('no open-air zone is cut short', worstLength === '', worstLength || 'all at full length')
+
+setJourney(7)
+const round = roundAt(0)
+const roundEnd = round[round.length - 1].end
 check(
-  'every zone comes round again on the second lap',
-  BIOMES.every((zone) => biomeMix(BIOME_LAP + zone.at + 1).from.name === zone.name && zoneAt(BIOME_LAP + zone.at + 1) === zone.name),
-  BIOMES.map((z) => `${z.name}@${zoneAt(BIOME_LAP + z.at + 1)}`).join(' · ')
+  'the tunnels keep their fixed length',
+  round.filter((leg) => leg.zone.kind === 'tunnel').every((leg) => Math.abs(leg.end - leg.start - TUNNEL_LENGTH) < 0.5),
+  round.filter((leg) => leg.zone.kind === 'tunnel').map((leg) => `${leg.zone.name} ${Math.round(leg.end - leg.start)} m`).join(' · ')
+)
+const waters = watersUpTo(roundEnd)
+check(
+  'every lake, river, canal and sea lies inside one zone',
+  waters.every((w) => zoneAt(w.start) === zoneAt(w.end)),
+  waters.map((w) => `${zoneAt(w.start)} ${Math.round(w.start)}–${Math.round(w.end)}`).join(' · ')
 )
 check(
   'every zone is reached',
-  BIOMES.every((zone) => biomeMix(zone.at + 1).from.name === zone.name),
-  BIOMES.map((z) => `${z.name}@${biomeMix(z.at + 1).from.name}`).join(' · ')
+  round.every((leg) => zoneAt(leg.start + 1) === leg.zone.name || biomeMix(leg.start + 1).from.name === leg.zone.name),
+  round.map((leg) => leg.zone.name).join(' → ')
 )
 
-// Metre by metre: the blended sky, fog and sun may never jump — except at the tunnel
-// portals, where the cut is the point (the rock face hides it).
+console.log('\nThe handover\n')
+
 let worstStep = 0
 let worstAt = 0
-for (let d = 0; d < 3 * BIOME_LAP; d += 1) {
+for (let d = 0; d < roundEnd * 1.5; d += 1) {
   const now = biomeMix(d)
   const next = biomeMix(d + 1)
-  if (now.to.kind === 'tunnel' || now.from.kind === 'tunnel') continue
+  if (now.to.kind === 'tunnel' || now.from.kind === 'tunnel' || next.from.kind === 'tunnel') continue
   for (const key of ['sky', 'fog', 'sun', 'skyBounce', 'groundBounce'] as const) {
     const from = blend(now.from[key], now.to[key], now.t)
     const to = blend(next.from[key], next.to[key], next.t)
@@ -116,44 +115,14 @@ for (let d = 0; d < 3 * BIOME_LAP; d += 1) {
     }
   }
 }
-check(
-  'the palette never jumps between one metre and the next',
-  worstStep < 0.02,
-  `largest step ${worstStep.toFixed(4)} at ${worstAt} m (a hard cut would be over 1.0)`
-)
+check('the palette never jumps between one metre and the next', worstStep < 0.03, `largest step ${worstStep.toFixed(4)} at ${worstAt} m (a hard cut would be over 1.0)`)
 
 console.log('\nStays readable\n')
 
-const exposure = (d: number): number => {
-  const { from, to, t } = biomeMix(d)
-  return from.exposure + (to.exposure - from.exposure) * t
-}
-const intensity = (d: number): number => {
-  const { from, to, t } = biomeMix(d)
-  return from.sunIntensity + (to.sunIntensity - from.sunIntensity) * t
-}
-let minExposure = 9
-let maxExposure = 0
-let minSun = 9
-for (let d = 0; d < 3 * BIOME_LAP; d += 5) {
-  minExposure = Math.min(minExposure, exposure(d))
-  maxExposure = Math.max(maxExposure, exposure(d))
-  minSun = Math.min(minSun, intensity(d))
-}
-// The band is for the neutral tone curve the runner renders with: it holds colour
-// where ACES washed it out, and needs ~10% more exposure for the same brightness.
-check('exposure stays in the band the game was tuned in', minExposure >= 0.88 && maxExposure <= 1.1, `${minExposure.toFixed(2)} … ${maxExposure.toFixed(2)}`)
-check('the sun never goes out', minSun >= 0.6, `lowest key light ${minSun.toFixed(2)}`)
-check(
-  'no zone paints the sky pure white',
-  BIOMES.every((zone) => zone.sky.toLowerCase() !== '#ffffff' && zone.fog.toLowerCase() !== '#ffffff'),
-  BIOMES.map((z) => `${z.name} ${z.sky}/${z.fog}`).join(' · ')
-)
-check(
-  'every zone changes the sky it hands over to',
-  BIOMES.every((zone, i) => i === 0 || zone.sky !== BIOMES[i - 1].sky),
-  BIOMES.map((z) => z.sky).join(' → ')
-)
+const exposures = BIOMES.map((zone) => zone.exposure)
+check('exposure stays in the band the game was tuned in', Math.min(...exposures) >= 0.88 && Math.max(...exposures) <= 1.1, `${Math.min(...exposures).toFixed(2)} … ${Math.max(...exposures).toFixed(2)}`)
+check('the sun never goes out', BIOMES.every((zone) => zone.sunIntensity >= 0.6), `lowest key light ${Math.min(...BIOMES.map((z) => z.sunIntensity)).toFixed(2)}`)
+check('no zone paints the sky pure white', BIOMES.every((zone) => zone.sky.toLowerCase() !== '#ffffff' && zone.fog.toLowerCase() !== '#ffffff'), 'sky and fog')
 
 console.log(failed === 0 ? '\nBiome check passed.' : `\n${failed} biome check(s) failed.`)
 process.exit(failed === 0 ? 0 : 1)

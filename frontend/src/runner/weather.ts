@@ -8,8 +8,11 @@ import * as THREE from 'three'
 import type { QualityPreset } from './config'
 import { makeRng } from './utils'
 
-export type WeatherKind = 'snow' | 'leaves' | 'dust' | 'ash' | 'embers'
-export const WEATHER_KINDS: WeatherKind[] = ['snow', 'leaves', 'dust', 'ash', 'embers']
+export type WeatherKind = 'snow' | 'leaves' | 'dust' | 'ash' | 'embers' | 'petals' | 'fireflies' | 'rain' | 'butterflies' | 'lanterns'
+export const WEATHER_KINDS: WeatherKind[] = ['snow', 'leaves', 'dust', 'ash', 'embers', 'petals', 'fireflies', 'rain', 'butterflies', 'lanterns']
+
+/** How each particle is drawn: a soft dot, a tumbling leaf, a rain streak, a butterfly, a paper lantern. */
+const SHAPE = { dot: 0, leaf: 1, streak: 2, wings: 3, lantern: 4 } as const
 
 interface Spec {
   /** Particles at full quality; scaled down with the preset. */
@@ -31,6 +34,11 @@ interface Spec {
   tumble: boolean
   /** Dust clings to the ground. */
   low: boolean
+  /** Drawn as something other than a dot or a leaf. */
+  shape?: keyof typeof SHAPE
+  /** Lights itself (fireflies, lanterns): added on top, not lost in the fog; `blink` > 0 pulses it. */
+  glow?: boolean
+  blink?: number
 }
 
 const SPECS: Record<WeatherKind, Spec> = {
@@ -39,6 +47,16 @@ const SPECS: Record<WeatherKind, Spec> = {
   ash: { count: 900, half: 34, height: 20, near: 14, far: -90, fall: 0.8, drift: 1.1, sway: 0.9, size: 0.11, colors: [0x8d8580, 0x6f6863, 0xa49b94], opacity: 0.8, tumble: false, low: false },
   // Embers rise (a negative fall) from the lava fields.
   embers: { count: 260, half: 30, height: 12, near: 14, far: -80, fall: -1.6, drift: 0.4, sway: 0.8, size: 0.1, colors: [0xff7a2a, 0xffb347, 0xff4f1a], opacity: 1, tumble: false, low: true },
+  // Cherry petals: pink ellipses tumbling slowly on the breeze.
+  petals: { count: 420, half: 28, height: 14, near: 12, far: -70, fall: 0.8, drift: 1.2, sway: 1.6, size: 0.2, colors: [0xffc4d8, 0xffb0cc, 0xffe0ea, 0xf590b4], opacity: 1, tumble: true, low: false },
+  // Fireflies: warm green-gold sparks low over the ground, blinking.
+  fireflies: { count: 220, half: 26, height: 5, near: 12, far: -70, fall: 0.05, drift: 0.2, sway: 1.1, size: 0.12, colors: [0xd8ff6a, 0xffe46a, 0xb8ff8a], opacity: 1, tumble: false, low: true, shape: 'dot', glow: true, blink: 1 },
+  // A soft warm rain: thin streaks falling fast.
+  rain: { count: 900, half: 30, height: 18, near: 12, far: -70, fall: 15, drift: 0.8, sway: 0.05, size: 0.55, colors: [0xcfe2ea, 0xb8d0dc], opacity: 0.45, tumble: false, low: false, shape: 'streak' },
+  // Butterflies flitting over the flowers.
+  butterflies: { count: 90, half: 22, height: 4, near: 12, far: -60, fall: 0.1, drift: 0.6, sway: 1.8, size: 0.32, colors: [0xffd23a, 0xff8a3a, 0x6ab8ff, 0xffffff, 0xd86aff], opacity: 1, tumble: false, low: true, shape: 'wings' },
+  // Sky lanterns drifting up over the terraces.
+  lanterns: { count: 120, half: 46, height: 40, near: 12, far: -150, fall: -0.9, drift: 0.4, sway: 0.6, size: 0.55, colors: [0xffb04a, 0xffc86a, 0xff9a3a], opacity: 1, tumble: false, low: false, shape: 'lantern', glow: true, blink: 0.25 },
   dust: { count: 520, half: 38, height: 7, near: 14, far: -90, fall: 0, drift: 7.5, sway: 0.5, size: 0.75, colors: [0xf2cf9a, 0xe9b77d, 0xfbe2bb], opacity: 0.32, tumble: false, low: true },
 }
 
@@ -53,6 +71,7 @@ uniform vec3 uMotion;   // fall, drift, sway
 uniform float uSize;
 uniform float uScale;
 uniform float uAmount;
+uniform float uBlink;
 varying vec3 vTint;
 varying float vFade;
 varying float vSpin;
@@ -76,6 +95,8 @@ void main() {
   vFade = on * ends * top * smoothstep(1.5, 4.5, -mvPosition.z);
   vTint = tint;
   vSpin = seed.z * 6.28 + t * (1.5 + seed.y * 2.0);
+  // Fireflies blink on and off, each on its own beat; lanterns flicker a little.
+  if (uBlink > 0.0) vFade *= 1.0 - uBlink + uBlink * pow(max(0.0, sin(t * (1.1 + seed.y * 1.7) + seed.z * 40.0)), 2.0);
   gl_Position = projectionMatrix * mvPosition;
   gl_PointSize = vFade > 0.0 ? min(uSize * (0.7 + seed.y * 0.6) * uScale / max(0.5, -mvPosition.z), 96.0) : 0.0;
   #include <fog_vertex>
@@ -85,6 +106,7 @@ void main() {
 const FRAGMENT = /* glsl */ `
 uniform float uOpacity;
 uniform float uTumble;
+uniform float uShape;
 varying vec3 vTint;
 varying float vFade;
 varying float vSpin;
@@ -93,7 +115,24 @@ varying float vSpin;
 void main() {
   vec2 c = gl_PointCoord - 0.5;
   float alpha;
-  if (uTumble > 0.5) {
+  vec3 colour = vTint;
+  if (uShape > 1.5 && uShape < 2.5) {
+    // A rain streak: a thin vertical line, brightest in the middle.
+    alpha = (1.0 - smoothstep(0.02, 0.06, abs(c.x))) * (1.0 - smoothstep(0.25, 0.5, abs(c.y)));
+  } else if (uShape > 2.5 && uShape < 3.5) {
+    // A butterfly: two wings either side of the body, opening and closing.
+    float flap = 0.25 + 0.75 * abs(sin(vSpin * 3.0));
+    vec2 w = vec2((abs(c.x) - 0.2 * flap) / (0.2 * flap + 0.02), c.y / 0.3);
+    alpha = 1.0 - smoothstep(0.7, 1.0, length(w));
+    alpha = max(alpha, (1.0 - smoothstep(0.02, 0.05, abs(c.x))) * (1.0 - smoothstep(0.18, 0.24, abs(c.y))));
+  } else if (uShape > 3.5) {
+    // A paper lantern: a rounded box with a hot core.
+    vec2 q = abs(c) - vec2(0.17, 0.24);
+    float box = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+    alpha = 1.0 - smoothstep(-0.02, 0.06, box);
+    colour = mix(vTint, vec3(1.0, 0.95, 0.75), 1.0 - smoothstep(0.0, 0.25, length(c + vec2(0.0, -0.08))));
+    alpha = max(alpha, 0.35 * (1.0 - smoothstep(0.1, 0.5, length(c))));
+  } else if (uTumble > 0.5) {
     // A leaf: an ellipse turning in the air, its width breathing as it flips.
     float s = sin(vSpin), k = cos(vSpin);
     vec2 r = vec2(c.x * k - c.y * s, c.x * s + c.y * k);
@@ -106,7 +145,7 @@ void main() {
   }
   alpha *= vFade * uOpacity;
   if (alpha < 0.02) discard;
-  gl_FragColor = vec4(vTint, alpha);
+  gl_FragColor = vec4(colour, alpha);
   #include <fog_fragment>
 }
 `
@@ -152,7 +191,8 @@ class Cloud {
       fragmentShader: FRAGMENT,
       transparent: true,
       depthWrite: false,
-      fog: true,
+      fog: !spec.glow,
+      blending: spec.glow ? THREE.AdditiveBlending : THREE.NormalBlending,
       uniforms: THREE.UniformsUtils.merge([
         THREE.UniformsLib.fog,
         {
@@ -166,6 +206,8 @@ class Cloud {
           uAmount: { value: 0 },
           uOpacity: { value: spec.opacity },
           uTumble: { value: spec.tumble ? 1 : 0 },
+          uShape: { value: spec.tumble ? SHAPE.leaf : SHAPE[spec.shape ?? 'dot'] },
+          uBlink: { value: spec.blink ?? 0 },
         },
       ]),
     })
@@ -188,6 +230,7 @@ class Cloud {
 export class Weather {
   readonly group = new THREE.Group()
   private clouds: Record<WeatherKind, Cloud>
+  private mist: Mist
 
   constructor(quality: QualityPreset) {
     this.group.name = 'weather'
@@ -197,8 +240,15 @@ export class Weather {
       dust: new Cloud(SPECS.dust, 73),
       ash: new Cloud(SPECS.ash, 74),
       embers: new Cloud(SPECS.embers, 75),
+      petals: new Cloud(SPECS.petals, 76),
+      fireflies: new Cloud(SPECS.fireflies, 77),
+      rain: new Cloud(SPECS.rain, 78),
+      butterflies: new Cloud(SPECS.butterflies, 79),
+      lanterns: new Cloud(SPECS.lanterns, 80),
     }
     for (const cloud of Object.values(this.clouds)) this.group.add(cloud.points)
+    this.mist = new Mist()
+    this.group.add(this.mist.mesh)
     this.setQuality(quality)
   }
 
@@ -212,7 +262,8 @@ export class Weather {
    * `amounts` 0..1 per kind (the zone blend); `scale` turns world size into pixels:
    * the viewport height over 2·tan(fov/2).
    */
-  update(time: number, distance: number, amounts: Record<WeatherKind, number>, scale: number): void {
+  update(time: number, distance: number, amounts: Record<WeatherKind, number>, scale: number, mist = 0, mistColor?: THREE.Color): void {
+    this.mist.update(time, distance, mist, mistColor)
     for (const kind of Object.keys(this.clouds) as WeatherKind[]) {
       const cloud = this.clouds[kind]
       const amount = amounts[kind]
@@ -229,5 +280,92 @@ export class Weather {
   dispose(): void {
     this.group.removeFromParent()
     for (const cloud of Object.values(this.clouds)) cloud.dispose()
+    this.mist.dispose()
+  }
+}
+
+const MIST_VERTEX = /* glsl */ `
+varying vec2 vWorld;
+varying float vDepth;
+void main() {
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xz;
+  vec4 mv = viewMatrix * world;
+  vDepth = -mv.z;
+  gl_Position = projectionMatrix * mv;
+}
+`
+
+const MIST_FRAGMENT = /* glsl */ `
+uniform float uAmount;
+uniform float uTime;
+uniform float uDistance;
+uniform vec3 uColor;
+varying vec2 vWorld;
+varying float vDepth;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+void main() {
+  // Banks of ground mist that scroll with the world and drift slowly sideways.
+  vec2 p = vec2(vWorld.x + uTime * 0.6, vWorld.y - uDistance) * 0.06;
+  float n = noise(p) * 0.65 + noise(p * 2.3 + 7.0) * 0.35;
+  float bank = smoothstep(0.3, 0.8, n);
+  // Thin over the road so obstacles stay readable; thicker out in the scenery.
+  float side = mix(0.3, 1.0, smoothstep(4.0, 12.0, abs(vWorld.x)));
+  // Fade in with distance (nothing in the lens) and out at the far edge of the sheet.
+  float depth = smoothstep(6.0, 22.0, vDepth) * (1.0 - smoothstep(110.0, 160.0, vDepth));
+  float alpha = uAmount * bank * side * depth * 0.55;
+  if (alpha < 0.01) discard;
+  gl_FragColor = vec4(uColor, alpha);
+}
+`
+
+/** A low sheet of drifting ground mist (the haunted wood, the waterfall spray, dawn). */
+class Mist {
+  readonly mesh: THREE.Mesh
+  private readonly material: THREE.ShaderMaterial
+
+  constructor() {
+    const geometry = new THREE.PlaneGeometry(220, 170)
+    geometry.rotateX(-Math.PI / 2)
+    // The sheet sits ahead of the camera: its near edge just behind the runner.
+    geometry.translate(0, 0, -75)
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: MIST_VERTEX,
+      fragmentShader: MIST_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uAmount: { value: 0 },
+        uTime: { value: 0 },
+        uDistance: { value: 0 },
+        uColor: { value: new THREE.Color(0xdfe6ec) },
+      },
+    })
+    this.mesh = new THREE.Mesh(geometry, this.material)
+    this.mesh.position.y = 0.9
+    this.mesh.visible = false
+    this.mesh.frustumCulled = false
+    this.mesh.renderOrder = 2
+  }
+
+  update(time: number, distance: number, amount: number, color?: THREE.Color): void {
+    this.mesh.visible = amount > 0.02
+    if (!this.mesh.visible) return
+    const u = this.material.uniforms
+    u.uAmount.value = amount
+    u.uTime.value = time
+    u.uDistance.value = distance
+    if (color) (u.uColor.value as THREE.Color).copy(color)
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose()
+    this.material.dispose()
   }
 }

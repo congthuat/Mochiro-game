@@ -270,8 +270,9 @@ if (vLit < -0.001) {
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.94, 0.99), max(cover, -vLit * 0.14));
 }
 #ifndef USE_MAP
-// Countryside glow (lava, a lighthouse lamp): only the bright warm faces light up.
-if (vLit > 0.001) totalEmissiveRadiance += diffuseColor.rgb * smoothstep(0.35, 0.7, diffuseColor.r - diffuseColor.b) * vLit;
+// Countryside glow (lava, a lighthouse lamp, lanterns): only the bright warm faces light up.
+// Cyan faces (the future city's light strips) light up too.
+if (vLit > 0.001) totalEmissiveRadiance += diffuseColor.rgb * max(smoothstep(0.35, 0.7, diffuseColor.r - diffuseColor.b), smoothstep(0.3, 0.6, min(diffuseColor.g, diffuseColor.b) - diffuseColor.r)) * vLit;
 #endif
 #ifdef USE_MAP
 {
@@ -623,7 +624,9 @@ export class Districts {
       instances += slot.count
       if (slot.count) meshes += 1
     }
-    return { ready: this.ready, models: this.slots.size, lots, instances, meshes, plots: this.plots.count, front: districts, night: nightUniform.value }
+    const used: Record<string, number> = {}
+    for (const slot of this.slots.values()) if (slot.count) used[slot.model.key] = slot.count
+    return { ready: this.ready, models: this.slots.size, lots, instances, meshes, plots: this.plots.count, front: districts, night: nightUniform.value, used }
   }
 
   dispose(): void {
@@ -707,7 +710,7 @@ export class Districts {
     let zone = zoneAt(at)
     // The tunnel owns a few metres past its exit portal (zones hand over at their
     // midpoint); out there it is already the next zone.
-    if (zone === 'tunnel') zone = zoneAt(tunnel.end + 40)
+    if (zone === tunnel.zone) zone = zoneAt(tunnel.end + 40)
     if (WILDS.includes(zone)) {
       this.placeWild(row, zone, at)
       return
