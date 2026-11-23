@@ -487,6 +487,9 @@ export class Runner {
     this.crossing = new Crossing(this.preset)
     this.scene.add(this.crossing.group)
     this.obstacles = new ObstacleManager(this.preset)
+    // Obstacles dress for the zone that owns the road where they stand, so the look
+    // changes with the scenery — never on something already in front of the runner.
+    this.obstacles.setZoneSource((z) => zoneAt(this.run.distance - z))
     this.scene.add(this.obstacles.group)
     this.sparks = new SparkSystem(this.preset.particles)
     this.scene.add(this.sparks.points)
@@ -3242,7 +3245,7 @@ export class Runner {
       .filter((o) => o.active)
       .map((o) => ({
         kind: o.spec.kind,
-        model: o.car?.name,
+        model: o.car?.name ?? (o.mesh.userData.skin as string | undefined),
         depth: o.spec.depth,
         x: +o.mesh.position.x.toFixed(2),
         y: +o.mesh.position.y.toFixed(2),

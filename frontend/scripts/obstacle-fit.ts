@@ -13,7 +13,9 @@ import * as THREE from 'three'
 import { BODY, OBSTACLES, PHYSICS, RUN, type ObstacleKind } from '../src/runner/config'
 import { readFileSync } from 'node:fs'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { bakeCars } from '../src/runner/cars'
+import { SKIN_KINDS, THEMES, THEME_OF, bakeProps, buildSkins } from '../src/runner/obstacleSkins'
 import { PILLAR_WIDTH, PILLAR_X, busGeometry, carGeometry, laserGeometry, rampGeometry, truckGeometry, tunnelGeometry } from '../src/runner/obstacles'
 
 const TOLERANCE = 0.08
@@ -137,6 +139,97 @@ console.log('\nThe KayKit cars: every body stands on its own collision box')
       `y ${box.min.y.toFixed(2)}…roof ${roof?.toFixed(2) ?? '—'} (platform ${roofTop}), ${(box.max.x - box.min.x).toFixed(2)} × ${model.spec.depth} m`
     )
     ;(mesh.material as THREE.Material).dispose()
+  }
+}
+
+console.log('\nZone skins: every look stands inside its collision box')
+{
+  const file = readFileSync(new URL('../src/assets/models/obstacle-props.glb', import.meta.url))
+  const data = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength)
+  const loader = new GLTFLoader()
+  loader.setMeshoptDecoder(MeshoptDecoder)
+  const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => loader.parse(data, '', resolve, reject))
+  const props = bakeProps(gltf.scene)
+  check('prop pack baked', props.size >= 25, `${props.size} props`)
+  const zones = Object.keys(THEME_OF)
+  check('every zone has an obstacle theme', zones.length === 31 && zones.every((zone) => THEMES.includes(THEME_OF[zone])), `${zones.length} zones`)
+  const ray = new THREE.Raycaster()
+  for (const [label, book] of [['procedural', buildSkins(null, tunnelGeometry)], ['with kit', buildSkins(props, tunnelGeometry)]] as const) {
+    for (const theme of THEMES) {
+      for (const kind of SKIN_KINDS) {
+        const list = book[theme][kind]
+        if (!list.length) {
+          check(`${label} ${theme}.${kind}`, false, 'no skin at all')
+          continue
+        }
+        list.forEach((geometry, i) => {
+          const spec = OBSTACLES[kind]
+          const lift = kind === 'low' || kind === 'tall' ? spec.height / 2 : 0
+          const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial())
+          mesh.position.y = lift
+          mesh.updateMatrixWorld(true)
+          geometry.computeBoundingBox()
+          const b = (geometry.boundingBox as THREE.Box3).clone().translate(new THREE.Vector3(0, lift, 0))
+          const top = spec.bottom + spec.height
+          const down = (x: number, z: number, from: number): number | null => {
+            ray.set(new THREE.Vector3(x, from, z), new THREE.Vector3(0, -1, 0))
+            return ray.intersectObject(mesh, false)[0]?.point.y ?? null
+          }
+          const up = (x: number, z: number, from: number): number | null => {
+            ray.set(new THREE.Vector3(x, from, z), new THREE.Vector3(0, 1, 0))
+            return ray.intersectObject(mesh, false)[0]?.point.y ?? null
+          }
+          const cover = (xs: number[], ys: number[]): number => {
+            let hits = 0
+            for (const x of xs) for (const y of ys) {
+              ray.set(new THREE.Vector3(x, y, 8), new THREE.Vector3(0, 0, -1))
+              const hit = ray.intersectObject(mesh, false)[0]
+              if (hit && Math.abs(hit.point.z) <= spec.depth / 2 + 0.15) hits++
+            }
+            return hits
+          }
+          const tris = geometry.attributes.position.count / 3
+          const problems: string[] = []
+          if (tris > 2600) problems.push(`${tris} triangles`)
+          if (!geometry.getAttribute('glow') || !geometry.getAttribute('color')) problems.push('missing colour/glow')
+          let detail = ''
+          if (kind === 'low' || kind === 'tall') {
+            const t = down(0, 0, top + 0.3)
+            const c = cover([-0.75, 0, 0.75], kind === 'low' ? [0.2, 0.5, 0.8] : [0.4, 1.3, 2.3])
+            if (Math.abs(b.min.y) > TOLERANCE) problems.push(`floats at ${b.min.y.toFixed(2)}`)
+            if (t === null || Math.abs(t - top) > TOLERANCE) problems.push(`centre top ${t?.toFixed(2) ?? '—'} vs ${top}`)
+            if (b.max.y > top + 0.2) problems.push(`pokes up to ${b.max.y.toFixed(2)}`)
+            if (Math.max(-b.min.x, b.max.x) > spec.width / 2 + 0.1) problems.push(`${(b.max.x - b.min.x).toFixed(2)} m wide`)
+            if (Math.max(-b.min.z, b.max.z) > spec.depth / 2 + 0.12) problems.push(`${(b.max.z - b.min.z).toFixed(2)} m deep`)
+            if (c < 6) problems.push(`only ${c}/9 of the face is solid`)
+            detail = `top ${t?.toFixed(2)}, face ${c}/9, ${tris} tris`
+          } else if (kind === 'tunnel') {
+            const t = down(0, 0, top + 0.3)
+            const u = up(0, 0, spec.bottom - 0.3)
+            const c = cover([-3, 0, 3], [spec.bottom + 0.1, top - 0.12])
+            // Nothing may hang into the clearance anywhere over the road.
+            const pos = geometry.attributes.position
+            let lowest = Infinity
+            for (let v = 0; v < pos.count; v++) if (Math.abs(pos.getX(v)) < PILLAR_X - PILLAR_WIDTH / 2 - 0.02) lowest = Math.min(lowest, pos.getY(v))
+            if (u === null || Math.abs(u - spec.bottom) > TOLERANCE) problems.push(`underside ${u?.toFixed(2) ?? '—'}`)
+            if (t === null || Math.abs(t - top) > TOLERANCE) problems.push(`top ${t?.toFixed(2) ?? '—'}`)
+            if (lowest < spec.bottom - 0.02) problems.push(`hangs down to ${lowest.toFixed(2)} over the road`)
+            if (c < 6) problems.push(`only ${c}/6 of the beam is solid`)
+            detail = `clear under ${u?.toFixed(2)}, top ${t?.toFixed(2)}, ${tris} tris`
+          } else {
+            const near = down(0, 1.2, 3)
+            const far = down(0, -1.2, 3)
+            if (Math.abs(b.min.y) > TOLERANCE) problems.push(`floats at ${b.min.y.toFixed(2)}`)
+            if (b.max.y < top - TOLERANCE || b.max.y > top + 0.15) problems.push(`top edge ${b.max.y.toFixed(2)}`)
+            if (Math.max(-b.min.x, b.max.x) > spec.width / 2 + 0.06 || Math.max(-b.min.z, b.max.z) > spec.depth / 2 + 0.06) problems.push('outside its footprint')
+            if (near === null || far === null || !(near < 0.45 && far > 0.95)) problems.push(`does not rise along the run (${near?.toFixed(2)} → ${far?.toFixed(2)})`)
+            detail = `rises ${near?.toFixed(2)} → ${far?.toFixed(2)} along the run, ${tris} tris`
+          }
+          check(`${label} ${theme}.${kind}#${i}`, problems.length === 0, problems.length ? problems.join('; ') : detail)
+          ;(mesh.material as THREE.Material).dispose()
+        })
+      }
+    }
   }
 }
 

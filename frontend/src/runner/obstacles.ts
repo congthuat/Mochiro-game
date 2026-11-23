@@ -9,6 +9,8 @@ import { LANES, OBSTACLES, RUN, type ObstacleSpec, type QualityPreset } from './
 import { blobShadowTexture, glowTexture, hazardTexture, panelTexture } from './textures'
 import { CAR_LAMPS, loadCarModels, type CarModel } from './cars'
 import carsUrl from '../assets/models/kaykit-cars.glb?url'
+import propsUrl from '../assets/models/obstacle-props.glb?url'
+import { RAMPS, SKIN_KINDS, buildSkins, loadObstacleProps, rampSkin, skinMaterial, themeOf, type SkinBook, type SkinKind } from './obstacleSkins'
 import type { ObstacleKind } from './types'
 
 export type { ObstacleKind }
@@ -151,26 +153,13 @@ export function busGeometry(): THREE.BufferGeometry {
   return merge(parts)
 }
 
-/** Launch ramp: hazard-striped wedge that kicks the runner skyward. */
+/**
+ * Launch ramp (the city's steel one): rises along the run from a lip on the road to a
+ * 1.3 m top edge, arrows up the slope. The zone themes build their own from the same
+ * recipe in obstacleSkins.ts.
+ */
 export function rampGeometry(): THREE.BufferGeometry {
-  const shape = new THREE.Shape()
-  shape.moveTo(-1.05, 0)
-  shape.lineTo(1.05, 0)
-  shape.lineTo(1.05, 1.3)
-  shape.closePath()
-  const wedge = new THREE.ExtrudeGeometry(shape, { depth: 2.9, bevelEnabled: false })
-  wedge.translate(0, 0, -1.45)
-  const parts = [
-    paint(wedge, 0x3b4557),
-    paint(new THREE.BoxGeometry(2.1, 0.14, 0.5), 0xf7c33c, [0, 1.02, 0.9]),
-    paint(new THREE.BoxGeometry(2.1, 0.14, 0.5), 0x2b3242, [0, 0.62, 0.9]),
-    paint(new THREE.BoxGeometry(2.1, 0.14, 0.5), 0xf7c33c, [0, 0.24, 0.9]),
-    paint(new THREE.BoxGeometry(0.16, 1.32, 2.9), 0x2b3242, [-1.02, 0.66, 0]),
-    paint(new THREE.BoxGeometry(0.16, 1.32, 2.9), 0x2b3242, [1.02, 0.66, 0]),
-  ]
-  const merged = mergeGeometries(parts, false) as THREE.BufferGeometry
-  for (const part of parts) part.dispose()
-  return merged
+  return rampSkin(RAMPS.metal)
 }
 
 /**
@@ -340,6 +329,12 @@ export class ObstacleManager {
   private carMaterial: THREE.Material | null = null
   private lastCar = -1
   private disposed = false
+  /** Zone-themed looks for the jump / dodge / slide / ramp obstacles. */
+  private skins: SkinBook
+  private skinMaterial = skinMaterial()
+  private lastSkin = new Map<string, number>()
+  /** Which zone owns the road at a given obstacle z (set by the runner). */
+  private zoneAt: ((z: number) => string) | null = null
 
   constructor(preset: QualityPreset) {
     this.cap = preset.maxObstacles
@@ -352,6 +347,20 @@ export class ObstacleManager {
       })
       .catch(() => {
         // Offline or blocked: the stand-in cars keep the road playable.
+      })
+
+    this.skins = buildSkins(null, tunnelGeometry)
+    this.disposables.push(this.skinMaterial, ...this.skinGeometries())
+    // With the kit props in, the book is rebuilt with the modelled skins. The old one
+    // stays alive (it may still be on the road) until the manager is disposed.
+    loadObstacleProps(propsUrl)
+      .then((props) => {
+        if (this.disposed) return
+        this.skins = buildSkins(props, tunnelGeometry)
+        this.disposables.push(...this.skinGeometries())
+      })
+      .catch(() => {
+        // Offline or blocked: the procedural skins cover every zone on their own.
       })
 
     const hazard = hazardTexture()
@@ -428,7 +437,7 @@ export class ObstacleManager {
       tall: panelMat,
       car: this.trafficMaterials[0],
       bus: trafficMat(0xffffff),
-      ramp: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.2 }),
+      ramp: this.skinMaterial,
       tunnel: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.12 }),
       truck: this.truckMaterials[0],
       laserLow: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.5, emissive: 0x220a18, emissiveIntensity: 1 }),
@@ -439,7 +448,6 @@ export class ObstacleManager {
       ...this.trafficMaterials,
       ...this.truckMaterials,
       this.materials.bus,
-      this.materials.ramp,
       this.materials.tunnel,
       this.materials.laserLow,
       this.materials.laserHigh,
@@ -450,6 +458,34 @@ export class ObstacleManager {
     // Real shadow maps only run on high; the blob keeps every tier grounded and on
     // high it reads as the darker contact occlusion right under the body.
     this.shadowMaterial.opacity = preset.shadows ? 0.34 : 0.5
+  }
+
+  private skinGeometries(): THREE.BufferGeometry[] {
+    return Object.values(this.skins).flatMap((kinds) => SKIN_KINDS.flatMap((kind) => kinds[kind]))
+  }
+
+  /** Lets obstacles dress for the zone they are spawned in (`z` is the spawn z). */
+  setZoneSource(zoneAt: (z: number) => string): void {
+    this.zoneAt = zoneAt
+  }
+
+  /**
+   * Gives a jump / dodge / slide / ramp obstacle the look of the zone it stands in,
+   * never the same variant twice running. Collision is untouched: every skin is built
+   * inside the kind's box (scripts/obstacle-fit.ts checks them all).
+   */
+  private dressSkin(item: Obstacle, z: number): void {
+    const kind = item.kind as SkinKind
+    const theme = themeOf(this.zoneAt ? this.zoneAt(z) : 'city')
+    const variants = this.skins[theme][kind]
+    if (!variants.length) return
+    const key = `${theme}.${kind}`
+    let index = Math.floor(Math.random() * variants.length)
+    if (variants.length > 1 && index === this.lastSkin.get(key)) index = (index + 1) % variants.length
+    this.lastSkin.set(key, index)
+    item.mesh.geometry = variants[index]
+    item.mesh.material = this.skinMaterial
+    item.mesh.userData.skin = `${key}#${index}`
   }
 
   /** How many more obstacles can be put on the road right now. */
@@ -498,6 +534,7 @@ export class ObstacleManager {
     obstacle.car = null
     if (kind === 'car') this.dressCar(obstacle)
     if (kind === 'truck') obstacle.mesh.material = this.truckMaterials[Math.floor(Math.random() * this.truckMaterials.length)]
+    if ((SKIN_KINDS as readonly ObstacleKind[]).includes(kind)) this.dressSkin(obstacle, z)
     this.decorate(obstacle)
     if (kind === 'car') this.fitCarDecor(obstacle)
     obstacle.mesh.position.set(
