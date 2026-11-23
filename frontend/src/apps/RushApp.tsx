@@ -584,8 +584,11 @@ export default function RushApp() {
       pick: (cols?: number, rows?: number) => runnerRef.current?.debugPick(cols, rows),
       patterns: () => runnerRef.current?.debugPatterns() ?? [],
       forcePattern: (kind: string) => runnerRef.current?.debugForcePattern(kind),
+      patternOdds: (difficulty: number, zone: string, n?: number) => runnerRef.current?.debugPatternOdds(difficulty, zone, n) ?? {},
       obstacles: () => runnerRef.current?.debugObstacles() ?? [],
-      event: (kind: string) => runnerRef.current?.debugEvent(kind as 'goldRush' | 'rushHour'),
+      event: (kind: string) => runnerRef.current?.debugEvent(kind as 'goldRush' | 'rushHour' | 'rockslide'),
+      mover: (type: string, lanes: number[], z: number, opts?: { side?: 1 | -1; phase?: number; vz?: number }) =>
+        runnerRef.current?.debugPlaceMover(type as Parameters<Runner['debugPlaceMover']>[0], lanes, z, opts),
       noFx: (on: boolean) => runnerRef.current?.debugNoFx(on),
       hair: (on: boolean) => runnerRef.current?.debugHair(on),
       coin: (on: boolean) => runnerRef.current?.debugCoin(on),

@@ -1,7 +1,7 @@
 // Mochiro HUD: score, Arc coin counter, multiplier, speed meter, power-ups,
 // touch controls and transient overlays.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Pause, Gauge, Zap, Magnet, Shield, ShieldCheck, Coins, Ghost, Shuffle, CloudFog, Weight, Compass, TriangleAlert, Check, Siren } from 'lucide-react'
+import { Pause, Gauge, Zap, Magnet, Shield, ShieldCheck, Coins, Ghost, Shuffle, CloudFog, Weight, Compass, TriangleAlert, Check, Siren, Mountain } from 'lucide-react'
 import { formatNumber, useT } from '../../lib/i18n'
 import { POWER_BY_KIND, ZONE_ICONS } from '../../runner/config'
 import { markZoneVisited } from './zoneBook'
@@ -206,7 +206,7 @@ export function RushHud({
         {hud.event && (
           <div className={`ar-event ar-event-${hud.event.kind}${hud.event.phase === 'incoming' ? ' is-incoming' : ''}`}>
             <span className="ar-event-label">
-              {hud.event.kind === 'goldRush' ? <Coins size={14} /> : <Siren size={14} />}
+              {hud.event.kind === 'goldRush' ? <Coins size={14} /> : hud.event.kind === 'rockslide' ? <Mountain size={14} /> : <Siren size={14} />}
               {t(`event.${hud.event.kind}`)}
             </span>
             {hud.event.phase === 'incoming' ? (

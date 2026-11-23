@@ -12,6 +12,24 @@ import carsUrl from '../assets/models/kaykit-cars.glb?url'
 import propsUrl from '../assets/models/obstacle-props.glb?url'
 import { RAMPS, SKIN_KINDS, buildSkins, loadObstacleProps, rampSkin, skinMaterial, themeOf, type SkinBook, type SkinKind } from './obstacleSkins'
 import type { ObstacleKind } from './types'
+import {
+  MOVER_SPECS,
+  ROLLER,
+  buildMoverBook,
+  buildRig,
+  createMover,
+  dressRig,
+  lookFor,
+  moverMid,
+  poseRig,
+  stepMover,
+  warningRingGeometry,
+  type MoverBook,
+  type MoverLook,
+  type MoverRig,
+  type MoverState,
+  type MoverType,
+} from './movers'
 
 export type { ObstacleKind }
 
@@ -39,6 +57,17 @@ export interface Obstacle {
   decor: Partial<Record<ObstacleKind, THREE.Object3D>>
   /** The KayKit body this car is wearing (null for the stand-in or any other kind). */
   car: CarModel | null
+  /** A moving obstacle's live state (kind 'mover'); null for everything else. */
+  mover: MoverState | null
+  /** The animated part sets, one per mover type, built on first use. */
+  rigs: Partial<Record<MoverType, MoverRig>>
+}
+
+/** Something a mover did this frame that the runner turns into sound and dust. */
+export interface MoverEvent {
+  kind: 'land' | 'bell'
+  x: number
+  z: number
 }
 
 /** Kinds that are drawn as plain lane gates and pulse (the neon fences). */
@@ -335,6 +364,12 @@ export class ObstacleManager {
   private lastSkin = new Map<string, number>()
   /** Which zone owns the road at a given obstacle z (set by the runner). */
   private zoneAt: ((z: number) => string) | null = null
+  /** Moving obstacles: their looks, the pulsing warning ring, and this frame's events. */
+  private moverBook: MoverBook
+  private emptyGeometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([], 3))
+  private markGeometry = warningRingGeometry()
+  private markMaterial = new THREE.MeshBasicMaterial({ color: 0xff4a1a, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false })
+  private moverEvents: MoverEvent[] = []
 
   constructor(preset: QualityPreset) {
     this.cap = preset.maxObstacles
@@ -351,6 +386,8 @@ export class ObstacleManager {
 
     this.skins = buildSkins(null, tunnelGeometry)
     this.disposables.push(this.skinMaterial, ...this.skinGeometries())
+    this.moverBook = buildMoverBook(null)
+    this.disposables.push(...this.moverGeometries(), this.emptyGeometry, this.markGeometry, this.markMaterial)
     // With the kit props in, the book is rebuilt with the modelled skins. The old one
     // stays alive (it may still be on the road) until the manager is disposed.
     loadObstacleProps(propsUrl)
@@ -358,6 +395,8 @@ export class ObstacleManager {
         if (this.disposed) return
         this.skins = buildSkins(props, tunnelGeometry)
         this.disposables.push(...this.skinGeometries())
+        this.moverBook = buildMoverBook(props)
+        this.disposables.push(...this.moverGeometries())
       })
       .catch(() => {
         // Offline or blocked: the procedural skins cover every zone on their own.
@@ -393,6 +432,7 @@ export class ObstacleManager {
       truck: truckGeometry(),
       laserLow: laserGeometry('laserLow', 'frame'),
       laserHigh: laserGeometry('laserHigh', 'frame'),
+      mover: this.emptyGeometry,
     }
     this.beamGeometries = { laserLow: laserGeometry('laserLow', 'beams'), laserHigh: laserGeometry('laserHigh', 'beams') }
     const beamMat = (hex: number) =>
@@ -442,9 +482,10 @@ export class ObstacleManager {
       truck: this.truckMaterials[0],
       laserLow: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.5, emissive: 0x220a18, emissiveIntensity: 1 }),
       laserHigh: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.5, emissive: 0x08202a, emissiveIntensity: 1 }),
+      mover: this.skinMaterial,
     }
     this.disposables.push(
-      ...Object.values(this.geometries),
+      ...Object.values(this.geometries).filter((geometry) => geometry !== this.emptyGeometry),
       ...this.trafficMaterials,
       ...this.truckMaterials,
       this.materials.bus,
@@ -458,6 +499,10 @@ export class ObstacleManager {
     // Real shadow maps only run on high; the blob keeps every tier grounded and on
     // high it reads as the darker contact occlusion right under the body.
     this.shadowMaterial.opacity = preset.shadows ? 0.34 : 0.5
+  }
+
+  private moverGeometries(): THREE.BufferGeometry[] {
+    return Object.values(this.moverBook).flatMap((parts) => Object.values(parts))
   }
 
   private skinGeometries(): THREE.BufferGeometry[] {
@@ -532,6 +577,7 @@ export class ObstacleManager {
     obstacle.mesh.visible = true
     obstacle.mesh.rotation.set(0, 0, 0)
     obstacle.car = null
+    obstacle.mover = null
     if (kind === 'car') this.dressCar(obstacle)
     if (kind === 'truck') obstacle.mesh.material = this.truckMaterials[Math.floor(Math.random() * this.truckMaterials.length)]
     if ((SKIN_KINDS as readonly ObstacleKind[]).includes(kind)) this.dressSkin(obstacle, z)
@@ -546,11 +592,92 @@ export class ObstacleManager {
     if (kind === 'car' || kind === 'bus' || kind === 'ramp' || kind === 'truck') obstacle.mesh.position.y = 0
     if (kind === 'tunnel' || LASER_KINDS.includes(kind)) obstacle.mesh.position.y = 0
     const shadow = obstacle.shadow
-    shadow.visible = kind !== 'tunnel' && !LASER_KINDS.includes(kind)
+    shadow.visible = kind !== 'tunnel' && kind !== 'mover' && !LASER_KINDS.includes(kind)
     // A touch wider than the footprint so the soft edge spills out round the base.
     shadow.scale.set(obstacle.spec.width * 1.25, obstacle.spec.depth * 1.18 + 0.5, 1)
     shadow.position.set(obstacle.mesh.position.x, 0.025, z)
     return obstacle
+  }
+
+  /**
+   * Puts a moving obstacle on the road: `lanes` are the lanes it works over (one, or the
+   * two it swings / slides / bars across), `vz` its own speed towards the runner.
+   */
+  spawnMover(
+    type: MoverType,
+    lanes: number[],
+    z: number,
+    opts: { side?: 1 | -1; phase?: number; vz?: number; look?: MoverLook } = {}
+  ): Obstacle | null {
+    const item = this.spawn('mover', lanes[0], z)
+    if (!item) return null
+    const zone = this.zoneAt ? this.zoneAt(z) : 'city'
+    const look = opts.look ?? lookFor(type, themeOf(zone), zone)
+    item.spec = MOVER_SPECS[type]
+    item.mover = createMover(type, look, lanes, z, opts.side ?? 1, opts.phase ?? 0)
+    item.vz = opts.vz ?? 0
+    item.mesh.userData.skin = `mover.${type}.${look}`
+    let rig = item.rigs[type]
+    if (!rig) {
+      rig = buildRig(type, this.skinMaterial, { geometry: this.markGeometry, material: this.markMaterial })
+      item.rigs[type] = rig
+      item.mesh.add(rig.root)
+    }
+    dressRig(rig, this.moverBook, look, this.emptyGeometry)
+    rig.root.visible = true
+    rig.root.scale.set(1, 1, 1)
+    const m = item.mover
+    item.mesh.position.set(this.moverRootX(m), 0, z)
+    this.poseMover(item, 0, 0)
+    return item
+  }
+
+  /** Where a mover's rig is anchored across the road. */
+  private moverRootX(m: MoverState): number {
+    if (m.type === 'crossing') return 0
+    if (m.type === 'slider' || m.type === 'pendulum') return moverMid(m)
+    return LANES[m.lanes[0]]
+  }
+
+  /** Steps a mover's pose, puts its rig and shadow there and queues what it did. */
+  private poseMover(item: Obstacle, dt: number, speed: number): void {
+    const m = item.mover
+    const rig = m && item.rigs[m.type]
+    if (!m || !rig) return
+    stepMover(m, this.time, dt, item.z, speed)
+    poseRig(rig, m, item.mesh.position.x, this.time)
+    const shadow = item.shadow
+    shadow.visible = m.type !== 'crossing' && m.type !== 'sweeper'
+    shadow.position.x = m.x
+    switch (m.type) {
+      case 'roller':
+        shadow.scale.set((m.look === 'pumpkin' ? 1.05 : 1.45) * 1.15, ROLLER.radius * 2.6, 1)
+        break
+      case 'snowball':
+        shadow.scale.set(m.size * 2.3, m.size * 2.0, 1)
+        break
+      case 'rockfall': {
+        // The shadow gathers under the warning ring as the rock comes down.
+        const k = m.drop < 0 ? 0.45 : 0.45 + 0.75 * m.drop
+        shadow.scale.set(item.spec.width * 1.25 * k, item.spec.depth * 1.3 * k, 1)
+        break
+      }
+      case 'pendulum':
+        shadow.scale.set(1.3, 1.3, 1)
+        break
+      default:
+        shadow.scale.set(item.spec.width * 1.2, item.spec.depth * 1.15 + 0.5, 1)
+    }
+    if (m.landed) this.moverEvents.push({ kind: 'land', x: m.x, z: item.z })
+    if (m.warned && item.z > -Math.max(8, speed) * 2.6) this.moverEvents.push({ kind: 'bell', x: m.side * 4, z: item.z })
+  }
+
+  /** What the movers did since the last call (landings, bells), oldest first. */
+  drainMoverEvents(): MoverEvent[] {
+    if (!this.moverEvents.length) return []
+    const events = this.moverEvents
+    this.moverEvents = []
+    return events
   }
 
   /**
@@ -615,6 +742,7 @@ export class ObstacleManager {
       const node = item.decor[key]
       if (node) node.visible = false
     }
+    for (const rig of Object.values(item.rigs)) if (rig) rig.root.visible = false
     const kind = item.kind
     let node = item.decor[kind]
     if (!node) {
@@ -685,6 +813,7 @@ export class ObstacleManager {
     this.beamMaterials.laserLow.opacity = pulse
     this.beamMaterials.laserHigh.opacity = 0.72 + 0.28 * Math.sin(this.time * 14 + 1.7)
     const blinkOn = Math.floor(this.time * 5) % 2 === 0
+    this.markMaterial.opacity = 0.5 + 0.42 * Math.max(0, Math.sin(this.time * 11))
     for (const item of this.pool) {
       if (!item.active) continue
       item.prevZ = item.z
@@ -707,6 +836,7 @@ export class ObstacleManager {
       item.z += dz + item.vz * dt
       item.mesh.position.z = item.z
       item.shadow.position.z = item.z
+      if (item.mover) this.poseMover(item, dt, speed)
       if (item.shift) {
         const { fromX, toX, startZ, endZ } = item.shift
         const raw = (item.z - startZ) / (endZ - startZ)
@@ -794,6 +924,8 @@ export class ObstacleManager {
       honked: false,
       decor: {},
       car: null,
+      mover: null,
+      rigs: {},
     }
     this.pool.push(obstacle)
     return obstacle

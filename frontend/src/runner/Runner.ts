@@ -35,6 +35,8 @@ import {
   type PerkId,
 } from './config'
 import { ObstacleManager, type Obstacle, type ObstacleKind } from './obstacles'
+import { CROSSING_PERIOD, HAULER, MOVER_NEAR_MISS, PENDULUM, ROLLER, SLIDER, SNOWBALL, SWEEPER, moverBox, type HitBox, type MoverType } from './movers'
+import { themeOf } from './obstacleSkins'
 import { PickupManager, type Coin, type PowerUp } from './pickups'
 import { Scenery } from './scenery'
 import { Districts } from './districts'
@@ -215,6 +217,24 @@ type PatternKind =
   | 'skyway'
   | 'laserGrid'
   | 'goldRiver'
+  // Moving obstacles (runner/movers.ts): one per pattern, always a lane it never enters.
+  | 'roller'
+  | 'snowball'
+  | 'slider'
+  | 'crossing'
+  | 'pendulum'
+  | 'rockfall'
+  | 'sweeper'
+  | 'hauler'
+  /** Rockslide event only: two rocks a beat apart in two lanes. */
+  | 'rockfall2'
+
+/** Gold for a close call past a moving obstacle ("Suýt nữa!"). */
+const MOVER_CLOSE_GOLD = 3
+
+/** A zone's movers together weigh this many times one mover pattern's pool weight. */
+const MOVER_SHARE = 1.5
+const MOVER_PATTERNS = new Set<PatternKind>(['roller', 'snowball', 'slider', 'crossing', 'pendulum', 'rockfall', 'sweeper', 'hauler', 'rockfall2'])
 
 /**
  * Pattern pools by stage of the run. The early pool teaches one verb at a time; later
@@ -231,6 +251,7 @@ const PATTERN_POOLS: Array<{ until: number; weights: Array<[PatternKind, number]
     weights: [
       ['single', 6], ['jumpLine', 8], ['double', 14], ['gate', 6], ['slalom', 12], ['gauntlet', 10], ['traffic', 11], ['rampCar', 9],
       ['slideGate', 9], ['oncoming', 10], ['merge', 9], ['skyway', 9], ['laserGrid', 12],
+      ['roller', 7], ['snowball', 7], ['slider', 7], ['crossing', 7], ['pendulum', 7], ['rockfall', 7], ['sweeper', 7], ['hauler', 7],
     ],
   },
   {
@@ -238,6 +259,7 @@ const PATTERN_POOLS: Array<{ until: number; weights: Array<[PatternKind, number]
     weights: [
       ['single', 3], ['jumpLine', 4], ['double', 11], ['gate', 4], ['slalom', 12], ['gauntlet', 12], ['traffic', 11], ['rampCar', 8],
       ['slideGate', 7], ['tunnel', 11], ['rushTraffic', 10], ['oncoming', 11], ['merge', 9], ['skyway', 8], ['laserGrid', 13],
+      ['roller', 8], ['snowball', 8], ['slider', 8], ['crossing', 8], ['pendulum', 8], ['rockfall', 8], ['sweeper', 8], ['hauler', 8],
     ],
   },
 ]
@@ -283,7 +305,27 @@ const ZONE_FLAVOR: Record<string, Partial<Record<PatternKind, number>>> = {
   highway: { traffic: 1.5, rushTraffic: 1.6, merge: 1.4 },
   dawn: { single: 1.3, merge: 1.2, rampCar: 1.2 },
 }
-const ZONE_ONLY: Partial<Record<PatternKind, string>> = { laserGrid: 'neon' }
+/**
+ * Set pieces that belong to some zones only. Every zone has at least one moving
+ * obstacle of its own: harbour barrels, farm bales and tractors, the level crossing on
+ * the country roads, swinging logs in the woods and lanterns in the east, rockfalls in
+ * the canyons and the ice cave, snowballs on the snowfields, sliding barriers in town.
+ */
+const ZONE_ONLY: Partial<Record<PatternKind, string[]>> = {
+  laserGrid: ['neon'],
+  roller: ['beach', 'seabridge', 'port', 'windcoast', 'plains', 'farm', 'dawn', 'haunted'],
+  snowball: ['snow', 'icelake'],
+  slider: ['city', 'suburb', 'tunnel', 'future', 'highway'],
+  crossing: ['city', 'suburb', 'plains', 'farm', 'dawn'],
+  pendulum: ['forest', 'river', 'waterfall', 'jungle', 'blossom', 'temple', 'terraces', 'halong', 'floatmarket', 'haunted'],
+  rockfall: ['desert', 'redcanyon', 'oasis', 'savanna', 'volcano', 'icecave'],
+  sweeper: ['neon'],
+  hauler: ['plains', 'farm', 'dawn', 'floatmarket'],
+  rockfall2: [],
+}
+
+/** What the Rockslide event drops on the road. */
+const ROCKSLIDE_POOL: Array<[PatternKind, number]> = [['rockfall2', 10], ['rockfall', 6]]
 
 /** The traffic set Rush Hour draws from. */
 const RUSH_HOUR_POOL: Array<[PatternKind, number]> = [['oncoming', 10], ['rushTraffic', 10], ['merge', 8], ['traffic', 6]]
@@ -417,6 +459,7 @@ export class Runner {
   private lineTrackers = new Map<number, LineTracker>()
   /** Hazards that passed within a hair this run; paid as close calls once they clear. */
   private grazed = new Set<Obstacle>()
+  private moverHit: HitBox = { x: 0, width: 0, bottom: 0, top: 0, depth: 0, platform: 0 }
   private target = new THREE.Vector3()
 
   constructor(container: HTMLElement, settings: Settings, bestScore = 0) {
@@ -1623,6 +1666,7 @@ export class Runner {
     this.scenery?.update(dt, run.speed, this.clockTime, run.distance)
     this.obstacles.update(dt, run.speed)
     this.updateTraffic()
+    this.updateMoverFx()
     if (this.pickups) {
       this.pickups.magnetRadius = this.magnetReach
       this.pickups.passiveReach = this.passiveReach
@@ -1947,6 +1991,9 @@ export class Runner {
       const pool = RUSH_HOUR_POOL.filter(([kind]) => kind !== 'rushTraffic' || difficulty >= 0.3)
       pattern = this.drawPattern(pool)
       rhythm = 0.9
+    } else if (event === 'rockslide') {
+      pattern = this.drawPattern(ROCKSLIDE_POOL)
+      rhythm = 0.85
     } else {
       const beat = run.beat
       run.beat = (run.beat + 1) % PHRASE
@@ -1955,6 +2002,11 @@ export class Runner {
       run.breatherNext = false
       pattern = breather ? 'breather' : this.pickPattern(difficulty, zone)
       rhythm = breather ? BREATHER_GAP : beat === BURST_BEAT && difficulty >= 0.3 ? BURST_GAP : 1
+      // A moving obstacle is new to read: early on, give the next stretch to rest in.
+      if (MOVER_PATTERNS.has(pattern)) {
+        if (difficulty < 0.6) run.breatherNext = true
+        if (rhythm < 1) rhythm = 1
+      }
     }
     run.lastPattern = pattern
     if (import.meta.env.DEV) this.patternLog.push(`${Math.round(run.elapsed)}s:${pattern}${event ? '!' : ''}@${zone}`)
@@ -1997,9 +2049,16 @@ export class Runner {
   private pickPattern(difficulty: number, zone = 'city'): PatternKind {
     const pool = (PATTERN_POOLS.find((entry) => difficulty < entry.until) ?? PATTERN_POOLS[PATTERN_POOLS.length - 1]).weights
     const flavor = ZONE_FLAVOR[zone] ?? {}
-    const weighted = pool
-      .filter(([kind]) => !ZONE_ONLY[kind] || ZONE_ONLY[kind] === zone)
-      .map(([kind, weight]): [PatternKind, number] => [kind, weight * (flavor[kind] ?? 1)])
+    const allowed = pool.filter(([kind]) => !ZONE_ONLY[kind] || ZONE_ONLY[kind]?.includes(zone))
+    // Every zone meets movers about as often, however many kinds it has: the share is
+    // split between them rather than stacked (a farm would otherwise get three times
+    // the movers of a forest).
+    const movers = allowed.filter(([kind]) => MOVER_PATTERNS.has(kind)).length
+    const share = movers ? MOVER_SHARE / movers : 0
+    const weighted = allowed
+      // One moving obstacle at a time: never two mover set pieces back to back.
+      .filter(([kind]) => !(MOVER_PATTERNS.has(kind) && this.run.lastPattern && MOVER_PATTERNS.has(this.run.lastPattern)))
+      .map(([kind, weight]): [PatternKind, number] => [kind, weight * (flavor[kind] ?? 1) * (MOVER_PATTERNS.has(kind) ? share : 1)])
     return this.drawPattern(weighted)
   }
 
@@ -2043,7 +2102,121 @@ export class Runner {
       return vehicle
     }
 
+    // Movers. Ones that roll at the runner are timed to their slot like oncoming traffic;
+    // the hauler drives away, so the next pattern waits until it can never catch it up.
+    const pair = (): { lanes: number[]; open: number } => (this.rng() < 0.5 ? { lanes: [0, 1], open: 2 } : { lanes: [1, 2], open: 0 })
+    const phase = (period: number) => this.rng() * period
+    const rolling = (type: MoverType, lane: number, slot: number, v: number) => {
+      const s = Math.max(8, this.run.speed)
+      const reach = -slot
+      const speed = Math.min(v, s * (280 / reach) - s)
+      const at = slot * ((s + speed) / s)
+      const item = this.obstacles.spawnMover(type, [lane], at, { vz: speed })
+      if (!item) return null
+      const clear = reach - (RUN.spawnAhead * s) / (s + speed) + item.spec.depth + 4
+      this.run.reserve = Math.max(this.run.reserve, clear)
+      return item
+    }
+
     switch (kind) {
+      case 'roller': {
+        // Barrels off the quay, bales off a trailer, pumpkins hopping down the lane: jump
+        // it or step aside. Later a hurdle shares the slot in a second lane.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [lane, second, open] = order
+        rolling('roller', lane, z, ROLLER.speed)
+        line(lane, z + 2.2, 5, 'arc')
+        if (difficulty > 0.45) spawn('low', second, z)
+        line(open, z + 1.5, 4, 'flat')
+        return 8
+      }
+      case 'snowball': {
+        // Starts the size of a football and arrives taller than you can jump: read it
+        // early and change lane. The coins sit in the lane it is rolling down.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [lane, second, open] = order
+        rolling('snowball', lane, z, SNOWBALL.speed)
+        line(lane, z + 26, 5, 'flat')
+        if (difficulty > 0.5) spawn('low', second, z)
+        line(open, z + 1.5, 4, 'flat')
+        return 8
+      }
+      case 'slider': {
+        // A barrier gliding between two lanes on a fixed beat: hop it, time it, or take
+        // the lane it never reaches.
+        const { lanes: span, open } = pair()
+        this.obstacles.spawnMover('slider', span, z, { phase: phase(SLIDER.period) })
+        line(span[Math.floor(this.rng() * 2)], z + 2.2, 5, 'arc')
+        line(open, z + 1.5, 4, 'flat')
+        return 7
+      }
+      case 'crossing': {
+        // A level crossing over two lanes: bell and lamps, then the boom comes down.
+        // Run under while it is up, slide under while it is down, or take the far lane.
+        const side: 1 | -1 = this.rng() < 0.5 ? 1 : -1
+        const span = side > 0 ? [1, 2] : [0, 1]
+        const open = side > 0 ? 0 : 2
+        this.obstacles.spawnMover('crossing', span, z, { side, phase: phase(CROSSING_PERIOD) })
+        line(span[Math.floor(this.rng() * 2)], z + 2.4, 4, 'flat')
+        line(open, z - 3, 3, 'flat')
+        return 8
+      }
+      case 'pendulum': {
+        // A log (a lantern, a caged pumpkin) swinging across two lanes. Slide under it,
+        // or run through the lane it has just left.
+        const { lanes: span, open } = pair()
+        this.obstacles.spawnMover('pendulum', span, z, { phase: phase(PENDULUM.period) })
+        line(span[Math.floor(this.rng() * 2)], z + 2.2, 4, 'flat')
+        line(open, z - 3, 3, 'flat')
+        return 8
+      }
+      case 'rockfall': {
+        // A warning ring on the road; a second before you get there a rock lands on it.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [lane, second, open] = order
+        this.obstacles.spawnMover('rockfall', [lane], z)
+        if (difficulty > 0.5) spawn('low', second, z)
+        line(open, z + 2, 5, 'flat')
+        return 7
+      }
+      case 'rockfall2': {
+        // Rockslide: two rocks a beat apart in two lanes; the third is the way through.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [first, second, open] = order
+        const step = Math.max(12, this.run.speed * 0.7)
+        this.obstacles.spawnMover('rockfall', [first], z)
+        this.obstacles.spawnMover('rockfall', [second], z - step)
+        line(open, z + 2, 4 + Math.floor(step / 2.45), 'flat')
+        return step + 7
+      }
+      case 'sweeper': {
+        // A laser riding up and down its posts: jump it low, slide it mid, run it high.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [lane, second, open] = order
+        this.obstacles.spawnMover('sweeper', [lane], z, { phase: phase(SWEEPER.period) })
+        line(lane, z + 2.2, 3, 'flat')
+        spawn(difficulty > 0.5 ? 'tall' : 'laserLow', second, z)
+        line(open, z + 1.5, 4, 'flat')
+        return 7
+      }
+      case 'hauler': {
+        // A slow tractor (a market cart) driving away from you: overtake it, or jump on
+        // the load and ride the roof for the coins over it.
+        const order = [...lanes].sort(() => this.rng() - 0.5)
+        const [lane, , open] = order
+        const s = Math.max(8, this.run.speed)
+        const u = HAULER.speed
+        const D = HAULER.depth
+        if (!this.obstacles.spawnMover('hauler', [lane], z, { vz: -u })) return 6
+        // Coins where the runner will be while up on the roof (the hauler keeps moving).
+        const rear = (z + D / 2) * (s / (s - u))
+        const front = (z - D / 2) * (s / (s - u))
+        const count = Math.max(2, Math.floor((rear - front - 2.4) / 2.45) + 1)
+        line(lane, rear - 1.2, count, 'sky')
+        line(open, z + 1.5, 4, 'flat')
+        this.run.reserve = Math.max(this.run.reserve, D / 2 + 6 + (u * (RUN.spawnAhead + D / 2)) / (s - u))
+        return z - front + 4
+      }
       case 'single': {
         const lane = free()
         const type: ObstacleKind = this.rng() < 0.62 ? 'low' : 'tall'
@@ -2482,9 +2655,14 @@ export class Runner {
     const run = this.run
     const height = run.sliding ? BODY.slideHeight : BODY.standHeight
     const boosting = run.boostUntil > run.elapsed
+    const box = this.moverHit
     for (const obstacle of this.obstacles.pool) {
       if (!obstacle.active || obstacle.smashing) continue
       const spec = obstacle.spec
+      const mover = obstacle.mover
+      // Movers are tested against the box of the pose they are drawn in this frame.
+      const live = mover ? moverBox(mover, run.laneX, BODY.halfWidth, box) : false
+      const nearMiss = mover ? MOVER_NEAR_MISS : BODY.nearMiss
       // Two ways to be in contact: beside the runner right now, or swept past them
       // during this frame. The window used to be widened instead — `depth/2 + 0.55 +
       // min(2.4, dz/2)` — which at full speed reached 2.75 m up the road, so the
@@ -2506,15 +2684,19 @@ export class Runner {
         if (leaving && this.grazed.delete(obstacle)) this.awardNearMiss(obstacle)
         continue
       }
+      // A rock still up in the air (or a boom tilted clear of this lane): nothing to hit.
+      if (mover && !live) continue
       const y = swept ? run.previousY : run.y
+      const hitX = mover ? box.x : obstacle.mesh.position.x
+      const hitWidth = mover ? box.width : spec.width
       // Surface-to-surface air on the lateral axis. Negative means the two boxes
       // overlap; the forgiveness band is what stops a graze counting as a hit.
-      const lateralGap = Math.abs(obstacle.mesh.position.x - run.laneX) - (spec.width / 2 + BODY.halfWidth)
+      const lateralGap = Math.abs(hitX - run.laneX) - (hitWidth / 2 + BODY.halfWidth)
       if (lateralGap > -BODY.forgiveness) {
         // Out of reach — but a hazard that swept past with almost nothing between the
         // boxes is a close call, and it is worth points. A clean pass in the next lane
         // leaves about 0.9 m, so only a deliberate graze earns this.
-        if (lateralGap < BODY.nearMiss) this.graze(obstacle, swept)
+        if (lateralGap < nearMiss) this.graze(obstacle, swept)
         continue
       }
       // Ramps never hit: they kick the runner skyward instead.
@@ -2543,10 +2725,10 @@ export class Runner {
         }
         continue
       }
-      const bottom = spec.bottom
-      const top = spec.bottom + spec.height
+      const bottom = mover ? box.bottom : spec.bottom
+      const top = mover ? box.top : spec.bottom + spec.height
       if (y + height <= bottom + BODY.forgiveness) {
-        if (bottom - (y + height) < BODY.nearMiss) this.graze(obstacle, swept)
+        if (bottom - (y + height) < nearMiss) this.graze(obstacle, swept)
         continue
       }
       // Roofs (cars, the skyway trucks) are landings: feet within a hand of the top while
@@ -2566,7 +2748,7 @@ export class Runner {
       // let a runner pass through a low wall while barely off the ground.
       if (y >= top) {
         // A jump that barely clears: the satisfying one.
-        if (y - top < BODY.nearMiss) this.graze(obstacle, swept)
+        if (y - top < nearMiss) this.graze(obstacle, swept)
         continue
       }
       // Inside the hazard's box from here on: whatever happens, it was no close call.
@@ -2663,7 +2845,13 @@ export class Runner {
     const run = this.run
     run.nearMisses += 1
     run.score += RUN.nearMissBonus * this.closeCallScale * run.multiplier * this.diff.score
-    this.toast(translate(this.closeCallScale > 1 ? 'runner.toast.close2' : 'runner.toast.close'), 'good')
+    if (obstacle.mover) {
+      // Cutting it fine past something that moves pays Gold, not just points.
+      run.coins += MOVER_CLOSE_GOLD
+      this.toast(translate('runner.toast.closeMover', undefined, { n: MOVER_CLOSE_GOLD }), 'good')
+    } else {
+      this.toast(translate(this.closeCallScale > 1 ? 'runner.toast.close2' : 'runner.toast.close'), 'good')
+    }
     this.audio.play('coin')
     this.sparks.burst(obstacle.mesh.position.x, run.y + 0.9, obstacle.z, {
       count: 10,
@@ -2933,7 +3121,7 @@ export class Runner {
   private updateEvents(): void {
     const run = this.run
     if (!run.eventKind) {
-      if (run.elapsed >= run.nextEventAt) this.startEvent(run.eventIndex % 2 === 0 ? 'goldRush' : 'rushHour')
+      if (run.elapsed >= run.nextEventAt) this.startEvent(run.eventIndex % 2 === 0 ? 'goldRush' : this.hazardEvent())
       return
     }
     // Until the event reaches the runner, what happens on the road is not part of it.
@@ -2942,6 +3130,11 @@ export class Runner {
       run.eventCoins = run.pickedCoins
     }
     if (run.elapsed >= run.eventEndAt) this.endEvent()
+  }
+
+  /** The canyons get a Rockslide where everywhere else gets Rush Hour. */
+  private hazardEvent(): RunEventKind {
+    return themeOf(zoneAt(this.run.distance + RUN.spawnAhead)) === 'desert' ? 'rockslide' : 'rushHour'
   }
 
   private startEvent(kind: RunEventKind): void {
@@ -2974,11 +3167,11 @@ export class Runner {
       const points = Math.round(EVENT.rushPoints * this.diff.score)
       run.score += points
       run.coins += EVENT.rushGold
-      this.toast(translate('event.rushHour.clear', undefined, { points: formatScore(points), gold: EVENT.rushGold }), 'good')
+      this.toast(translate(`event.${kind === 'rockslide' ? 'rockslide' : 'rushHour'}.clear`, undefined, { points: formatScore(points), gold: EVENT.rushGold }), 'good')
       this.audio.play('power')
       this.rings?.burst(run.laneX, run.y + 1, 0, { color: new THREE.Color(PALETTE.coinGlow).getHex(), radius: 2.4, life: 0.5, spin: 2 })
     } else {
-      this.toast(translate('event.rushHour.over'), 'info')
+      this.toast(translate(`event.${kind === 'rockslide' ? 'rockslide' : 'rushHour'}.over`), 'info')
     }
   }
 
@@ -2995,11 +3188,36 @@ export class Runner {
     }
   }
 
+  /** Rocks landing kick up dust and shake the camera; level crossings ring their bell. */
+  private updateMoverFx(): void {
+    for (const event of this.obstacles.drainMoverEvents()) {
+      if (event.kind === 'bell') {
+        this.audio.play('bell')
+        continue
+      }
+      const near = clamp01(1 - -event.z / 60)
+      this.sparks.burst(event.x, 0.25, event.z, {
+        count: 16,
+        color: 0xc9a27a,
+        speed: 5,
+        life: 0.55,
+        gravity: 9,
+        rise: 1.6,
+        spread: 1.2,
+      })
+      this.rings?.burst(event.x, 0.2, event.z, { color: 0xe8c9a0, radius: 1.8, life: 0.4 })
+      if (near > 0) {
+        this.audio.play('rumble')
+        this.shake = Math.min(1, this.shake + 0.22 * near)
+      }
+    }
+  }
+
   /** Oncoming traffic sounds its horn once, about a second and a half out. */
   private updateTraffic(): void {
     const run = this.run
     for (const obstacle of this.obstacles.pool) {
-      if (!obstacle.active || obstacle.smashing || obstacle.vz <= 0 || obstacle.honked) continue
+      if (!obstacle.active || obstacle.smashing || obstacle.vz <= 0 || obstacle.honked || obstacle.mover) continue
       if (obstacle.z < -(run.speed + obstacle.vz) * 1.5) continue
       obstacle.honked = true
       // Only worth a horn if it is in, or next to, the runner's lane.
@@ -3165,11 +3383,46 @@ export class Runner {
     this.run.spawnCursor = 0
   }
 
+  /**
+   * Dev-only: rolls the normal pattern picker `n` times at a fixed difficulty and zone
+   * (breathers and the one-mover-at-a-time rule included) and counts the picks. The run
+   * state it touches is put back afterwards.
+   */
+  debugPatternOdds(difficulty: number, zone: string, n = 2000): Record<string, number> {
+    if (!import.meta.env.DEV) return {}
+    const run = this.run
+    const saved = { last: run.lastPattern, beat: run.beat, breather: run.breatherNext }
+    const counts: Record<string, number> = {}
+    let backToBack = 0
+    for (let i = 0; i < n; i++) {
+      const beat = run.beat
+      run.beat = (run.beat + 1) % PHRASE
+      const breather = run.breatherNext || (beat === PHRASE - 1 && difficulty >= 0.12)
+      run.breatherNext = false
+      const pattern = breather ? 'breather' : this.pickPattern(difficulty, zone)
+      if (MOVER_PATTERNS.has(pattern) && difficulty < 0.6) run.breatherNext = true
+      if (MOVER_PATTERNS.has(pattern) && run.lastPattern && MOVER_PATTERNS.has(run.lastPattern)) backToBack += 1
+      run.lastPattern = pattern
+      counts[pattern] = (counts[pattern] ?? 0) + 1
+    }
+    counts.__backToBack = backToBack
+    run.lastPattern = saved.last
+    run.beat = saved.beat
+    run.breatherNext = saved.breather
+    return counts
+  }
+
   /** Dev-only: start a road event now. */
   debugEvent(kind: RunEventKind): void {
     if (!import.meta.env.DEV) return
     if (this.run.eventKind) this.endEvent()
     this.startEvent(kind)
+  }
+
+  /** QA helper: put a moving obstacle on the road at an exact z. */
+  debugPlaceMover(type: MoverType, lanes: number[], z: number, opts: { side?: 1 | -1; phase?: number; vz?: number } = {}): void {
+    if (!import.meta.env.DEV) return
+    this.obstacles.spawnMover(type, lanes, z, opts)
   }
 
   /** QA helper: place an obstacle at an exact z (platform tests need control). */
@@ -3239,7 +3492,16 @@ export class Runner {
 
   /** QA helper: wipe the road clean (lets a check undo its own spawns). */
   /** QA helper: what is on the road right now. */
-  debugObstacles(): Array<{ kind: string; model?: string; depth: number; x: number; y: number; z: number; vz: number }> {
+  debugObstacles(): Array<{
+    kind: string
+    model?: string
+    depth: number
+    x: number
+    y: number
+    z: number
+    vz: number
+    mover?: { type: string; look: string; x: number; y: number; angle: number; size: number; drop: number; lamp: boolean; box: HitBox | null }
+  }> {
     if (!import.meta.env.DEV) return []
     return this.obstacles.pool
       .filter((o) => o.active)
@@ -3251,6 +3513,24 @@ export class Runner {
         y: +o.mesh.position.y.toFixed(2),
         z: +o.z.toFixed(1),
         vz: +o.vz.toFixed(1),
+        mover: o.mover
+          ? (() => {
+              const m = o.mover
+              const out: HitBox = { x: 0, width: 0, bottom: 0, top: 0, depth: 0, platform: 0 }
+              const live = moverBox(m, this.run.laneX, BODY.halfWidth, out)
+              return {
+                type: m.type,
+                look: m.look,
+                x: +m.x.toFixed(3),
+                y: +m.y.toFixed(3),
+                angle: +m.angle.toFixed(3),
+                size: +m.size.toFixed(3),
+                drop: +m.drop.toFixed(3),
+                lamp: m.lamp,
+                box: live ? out : null,
+              }
+            })()
+          : undefined,
       }))
   }
 

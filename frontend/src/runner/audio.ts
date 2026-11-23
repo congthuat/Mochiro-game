@@ -20,6 +20,8 @@ export type RushSfx =
   | 'horn'
   | 'alarm'
   | 'fanfare'
+  | 'bell'
+  | 'rumble'
 
 const midiToFreq = (midi: number): number => 440 * Math.pow(2, (midi - 69) / 12)
 
@@ -439,6 +441,20 @@ export class RushAudio {
         this.blip(392, t, 0.34, 'square', 0.1)
         this.blip(494, t, 0.34, 'square', 0.09)
         this.blip(396, t + 0.02, 0.3, 'sawtooth', 0.05)
+        break
+      case 'bell':
+        // Level-crossing bell: a quick ding-ding, bright partials over a soft fundamental.
+        for (const at of [0, 0.26]) {
+          this.blip(1320, t + at, 0.22, 'triangle', 0.075)
+          this.blip(2640, t + at, 0.1, 'sine', 0.035)
+          this.blip(660, t + at, 0.18, 'sine', 0.04)
+        }
+        break
+      case 'rumble':
+        // A rock coming down: a low thud with gravel behind it.
+        this.sweep(150, 46, t, 0.32, 'sine', 0.3)
+        this.noiseBurst(t, 0.26, 260, 0.22)
+        this.noiseBurst(t + 0.05, 0.18, 900, 0.08)
         break
       case 'alarm':
         // Rush Hour: a rising two-note siren, twice.

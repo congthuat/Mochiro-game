@@ -24,7 +24,10 @@ const TOLERANCE = 0.08
 const box = (kind: ObstacleKind) =>
   new THREE.BoxGeometry(OBSTACLES[kind].width, OBSTACLES[kind].height, OBSTACLES[kind].depth)
 
-const meshes: Record<ObstacleKind, () => THREE.BufferGeometry> = {
+/** Moving obstacles carry their own per-type boxes; scripts/mover-fit.ts checks those. */
+type StaticKind = Exclude<ObstacleKind, 'mover'>
+
+const meshes: Record<StaticKind, () => THREE.BufferGeometry> = {
   low: () => box('low'),
   tall: () => box('tall'),
   car: carGeometry,
@@ -47,7 +50,7 @@ const GATES: ObstacleKind[] = ['low', 'tall', 'tunnel', 'laserLow', 'laserHigh']
 const PLATFORMS: ObstacleKind[] = ['car', 'bus', 'ramp', 'truck']
 
 /** Where the visible surface sits, straight up and straight down from the road centre. */
-function probe(kind: ObstacleKind): { top: number | null; bottom: number | null; highest: number; lowest: number } {
+function probe(kind: StaticKind): { top: number | null; bottom: number | null; highest: number; lowest: number } {
   const spec = OBSTACLES[kind]
   const geometry = meshes[kind]()
   geometry.computeBoundingBox()
@@ -82,7 +85,7 @@ const apex = PHYSICS.jumpVelocity ** 2 / (2 * PHYSICS.gravity)
 
 console.log('Collision box vs visible mesh\n')
 
-for (const kind of Object.keys(meshes) as ObstacleKind[]) {
+for (const kind of Object.keys(meshes) as StaticKind[]) {
   const spec = OBSTACLES[kind]
   const specBottom = spec.bottom
   const specTop = spec.bottom + spec.height

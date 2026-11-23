@@ -109,6 +109,9 @@ export const OBSTACLES: Record<ObstacleKind, ObstacleSpec> = {
   // top sits above the best jump, like the gateway, so it can only be ducked).
   laserLow: { kind: 'laserLow', width: 2.0, height: 0.85, bottom: 0, depth: 0.5, points: 50 },
   laserHigh: { kind: 'laserHigh', width: 2.0, height: 1.95, bottom: 1.25, depth: 0.5, points: 70 },
+  // Moving obstacles (runner/movers.ts). Each type carries its own spec and pose-driven
+  // collision box; this is only the pool's placeholder.
+  mover: { kind: 'mover', width: 2.0, height: 1.0, bottom: 0, depth: 1.0, points: 60 },
 }
 
 /**

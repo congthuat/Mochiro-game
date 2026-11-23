@@ -27,10 +27,10 @@ export type PowerKind =
   | 'fog'
   | 'heavy'
 
-export type ObstacleKind = 'low' | 'tall' | 'car' | 'bus' | 'ramp' | 'tunnel' | 'truck' | 'laserLow' | 'laserHigh'
+export type ObstacleKind = 'low' | 'tall' | 'car' | 'bus' | 'ramp' | 'tunnel' | 'truck' | 'laserLow' | 'laserHigh' | 'mover'
 
 /** Timed set pieces that take over the road for a few seconds. */
-export type RunEventKind = 'goldRush' | 'rushHour'
+export type RunEventKind = 'goldRush' | 'rushHour' | 'rockslide'
 
 export interface RunEventHud {
   kind: RunEventKind

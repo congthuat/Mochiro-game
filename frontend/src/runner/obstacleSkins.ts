@@ -939,3 +939,7 @@ export function buildSkins(props: PropMap | null, cityGate?: () => Geo): SkinBoo
   if (cityGate) book.city.tunnel.push(adopt(cityGate()))
   return book
 }
+
+// The building blocks are shared with the moving obstacles (movers.ts).
+export { box, slab, rbox, cyl, turned, merge, prop, finish, log, pumpkin, crate, barrel }
+export type { Geo as SkinGeo, V3 as SkinV3 }
