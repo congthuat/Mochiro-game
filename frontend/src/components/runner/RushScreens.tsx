@@ -187,8 +187,7 @@ export function RushMenu({
       </button>
       {onRace && (
         <>
-          <RaceMenuButton onClick={onRace} />
-          {raceWins !== null && raceWins > 0 && <p className="ar-race-wins">{t('race.wins', { n: formatNumber(raceWins) })}</p>}
+          <RaceMenuButton onClick={onRace} wins={raceWins !== null && raceWins > 0 ? raceWins : null} />
         </>
       )}
     </>
@@ -220,7 +219,7 @@ export function RushMenu({
             </div>
           </div>
           <div className="ar-menu-tools">
-            <BankChip bank={economy?.bank ?? null} onClick={() => onOpen('shop')} />
+            <BankChip bank={economy?.bank ?? null} onClick={() => onOpen('shop')} labelled />
             <div className="ar-lang" role="group" aria-label={t('lang.label')}>
               <Globe size={14} className="ar-lang-icon" />
               {(['vi', 'en'] as Lang[]).map((id) => (
@@ -256,6 +255,26 @@ export function RushMenu({
                   <Loader2 size={16} className="ar-spin" /> {t('menu.chooseRunner')}
                 </div>
               )}
+              {/* Every hero is named under their feet, in the same equal columns as the cards
+                  below, so the line-up reads without looking down; the pick has the plate. */}
+              <div className="ar-stage-names" aria-hidden="true">
+                {CHARACTER_IDS.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    tabIndex={-1}
+                    className={character === id ? 'is-active' : ''}
+                    onClick={() => onCharacterChange(id)}
+                  >
+                    {CHARACTERS[id].name}
+                  </button>
+                ))}
+              </div>
+              {/* The pick's ability, written large: the cards below can only afford small type. */}
+              <div className="ar-stage-perk" key={`perk-${character}`} style={{ ['--ar-accent' as string]: heroColorCss(character) }}>
+                <PerkIcon id={CHARACTERS[character].perk.id} />
+                <span>{t(`perk.${CHARACTERS[character].perk.id}`)}</span>
+              </div>
               {/* The pick is named on the stage itself, right above their head (the stage
                   moves the plate there every frame), in that hero's colour. */}
               <div
@@ -282,21 +301,21 @@ export function RushMenu({
                   onClick={() => onCharacterChange(item.id)}
                 >
                   <span className="ar-char-tile-name">{item.name}</span>
-                  <span className="ar-char-tile-perk" title={t('char.ability')}>
+                  <span className="ar-char-tile-perk" title={t(`perk.${item.perk.id}`)}>
                     <PerkIcon id={item.perk.id} />
                     <span className="ar-char-tile-perk-text">{t(`perk.${item.perk.id}`)}</span>
                   </span>
                   {/* Every card ends in the same status line — in use, owned, or its price —
                       so all six are one shape and the ability panels line up. */}
                   {heroUnlocked(economy, item.id) ? (
-                    <span className={`ar-char-tile-foot${character === item.id ? ' is-using' : ''}`}>
-                      {character === item.id && <Check size={11} strokeWidth={3} />}
-                      {character === item.id
-                        ? t('char.inUse')
-                        : heroPrice(economy, item.id) === 0
-                          ? t('shop.free')
-                          : t('shop.owned')}
-                    </span>
+                    // A free hero says nothing: "Free" seven times over told the player
+                    // nothing, so only the hero in use and the heroes bought say a word.
+                    character === item.id || heroPrice(economy, item.id) > 0 ? (
+                      <span className={`ar-char-tile-foot${character === item.id ? ' is-using' : ''}`}>
+                        {character === item.id && <Check size={11} strokeWidth={3} />}
+                        {character === item.id ? t('char.inUse') : t('shop.owned')}
+                      </span>
+                    ) : null
                   ) : (
                     (economy?.bank ?? 0) >= heroPrice(economy, item.id) ? (
                       <span className="ar-char-tile-price is-buyable">
@@ -325,7 +344,7 @@ export function RushMenu({
                     onClick={() => onDifficultyChange(item.id)}
                   >
                     {t(`diff.${item.id}`)}
-                    <span className="ar-diff-mult">×{DIFFICULTIES.find((d) => d.id === item.id)?.score}</span>
+                    <span className="ar-diff-mult">{t('diff.mult', { score: item.score, gold: item.bank })}</span>
                   </button>
                 ))}
               </div>
@@ -428,7 +447,7 @@ export function RushMenu({
                 <b>{t('menu.nft')}</b>
                 <span>{t('nft.entry')}</span>
               </span>
-              <span className="ar-nft-entry-new">NEW</span>
+              <span className="ar-nft-entry-new">{t('nft.new')}</span>
             </button>
 
             <ZoneBookEntry onOpen={() => onOpen('book')} />

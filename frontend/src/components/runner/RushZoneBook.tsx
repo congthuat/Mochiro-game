@@ -13,7 +13,7 @@ export function ZoneBookEntry({ onOpen }: { onOpen: () => void }) {
   const total = BIOMES.length
   const found = BIOMES.filter((zone) => seen.has(zone.name)).length
   return (
-    <button type="button" className="ar-book-entry" onClick={onOpen}>
+    <button type="button" className={`ar-book-entry${found === total ? ' is-complete' : ''}`} onClick={onOpen}>
       <span className="ar-book-entry-icon">
         <BookOpen size={18} />
       </span>

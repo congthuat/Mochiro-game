@@ -754,7 +754,15 @@ export function AccountChip({
           <span className={account.method === 'google' ? '' : 'ar-mono'}>{via}</span>
         </span>
       </span>
-      <button className="ar-btn ar-btn-mini" onClick={onSignOut} title={t('auth.logout')} aria-label={t('auth.logout')}>
+      <button
+        className="ar-btn ar-btn-mini"
+        onClick={() => {
+          // Only an icon, right beside the player's name: ask before it ends the session.
+          if (window.confirm(t('auth.logoutConfirm'))) onSignOut()
+        }}
+        title={t('auth.logout')}
+        aria-label={t('auth.logout')}
+      >
         <LogOut size={13} />
       </button>
     </div>

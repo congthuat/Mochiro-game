@@ -484,7 +484,7 @@ export function RaceRecap({
 }
 
 /** The menu's entry point, under "Start sprint". */
-export function RaceMenuButton({ onClick }: { onClick: () => void }) {
+export function RaceMenuButton({ onClick, wins = null }: { onClick: () => void; wins?: number | null }) {
   const t = useT()
   return (
     <button className="ar-btn ar-race-menu-btn" onClick={onClick}>
@@ -493,6 +493,7 @@ export function RaceMenuButton({ onClick }: { onClick: () => void }) {
         <strong>{t('race.menu')}</strong>
         <small>{t('race.menuHint', { n: RACE_GOLD })}</small>
       </span>
+      {wins !== null && <em className="ar-race-menu-wins" title={t('race.wins', { n: formatNumber(wins) })}>{t('race.winsShort', { n: formatNumber(wins) })}</em>}
     </button>
   )
 }

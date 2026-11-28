@@ -5,6 +5,7 @@ import {
   Award,
   CalendarCheck,
   Check,
+  ChevronRight,
   Coins,
   Copy,
   Flame,
@@ -20,6 +21,7 @@ import {
   Sparkles,
   Star,
   Target,
+  Timer,
   Trophy,
   Plus,
   UserPlus,
@@ -86,11 +88,12 @@ export function inviteDue(economy: EconomyState | null): number {
   return mine && mine.ready && !mine.paid ? 1 : 0
 }
 
-export function BankChip({ bank, onClick }: { bank: number | null; onClick?: () => void }) {
+export function BankChip({ bank, onClick, labelled = false }: { bank: number | null; onClick?: () => void; labelled?: boolean }) {
   const t = useT()
   return (
     <button type="button" className="ar-bank" onClick={onClick} title={t('eco.bank')}>
       <Coins size={15} />
+      {labelled && <span className="ar-bank-title">{t('eco.balance')}</span>}
       <span className="ar-bank-value">{bank === null ? '—' : formatNumber(bank)}</span>
       <span className="ar-bank-label">{t('eco.coins')}</span>
     </button>
@@ -337,6 +340,24 @@ function questLabel(t: ReturnType<typeof useT>, id: string, target: number): str
   return t(`quest.${id}`, { n })
 }
 
+/** Each kind of quest has its own icon, so the three rows are told apart at a glance. */
+const QUEST_ICONS: Record<string, LucideIcon> = {
+  runs: Footprints,
+  distance: Route,
+  coins: Coins,
+  score: Star,
+  combo: Flame,
+  time: Timer,
+}
+
+/** How far along a quest is, as "now / target" in the quest's own unit. */
+function questProgress(quest: { id: string; progress: number; target: number }): string {
+  const minutes = quest.id === 'time'
+  const now = minutes ? Math.floor(quest.progress / 60) : Math.floor(quest.progress)
+  const target = minutes ? Math.round(quest.target / 60) : quest.target
+  return `${formatNumber(Math.min(now, target))}/${formatNumber(target)}`
+}
+
 /**
  * "Today" on the menu: the daily gift and each of today's quests on one line apiece.
  * Anything ready to collect glows and says how much; the rest shows how close it is.
@@ -360,6 +381,9 @@ export function RushToday({
       <div className="ar-today-head">
         <span className="ar-side-label">{t('today.title')}</span>
         <span className="ar-today-reset">{t('quest.resets', { time: formatLeft(economy.resetsAt, now) })}</span>
+        <button type="button" className="ar-today-all" onClick={() => onOpen('quests')}>
+          {t('today.all')} <ChevronRight size={12} />
+        </button>
       </div>
       <button
         type="button"
@@ -390,10 +414,13 @@ export function RushToday({
           <button
             key={quest.id}
             type="button"
-            className={`ar-today-row${ready ? ' is-ready' : quest.claimed ? ' is-done' : ''}`}
+            className={`ar-today-row${ready ? ' is-ready' : quest.claimed ? ' is-done' : ' has-bar'}`}
             onClick={() => onOpen('quests')}
           >
-            <Target size={15} className="ar-today-icon" />
+            {(() => {
+              const Icon = QUEST_ICONS[quest.id] ?? Target
+              return <Icon size={15} className="ar-today-icon" />
+            })()}
             <span className="ar-today-label">{questLabel(t, quest.id, quest.target)}</span>
             {ready ? (
               <span className="ar-today-pill">{t('today.collect', { n: formatNumber(quest.reward) })}</span>
@@ -401,6 +428,7 @@ export function RushToday({
               <Check size={15} className="ar-today-check" />
             ) : (
               <>
+                <span className="ar-today-progress">{questProgress(quest)}</span>
                 <span className="ar-today-bar" aria-hidden="true">
                   <span style={{ width: `${Math.round(pct * 100)}%` }} />
                 </span>

@@ -25,6 +25,16 @@ export interface StageOptions {
 
 /** Height on the body that is lined up over the card's centre (about the chest). */
 const ALIGN_HEIGHT = 0.9
+/** How far in from the cards' centres the heroes stand (see alignToCards). The name labels use the same inset. */
+const ALIGN_INSET = 0.86
+/**
+ * How much closer the camera stands when the heroes are pinned over their cards. The line-up is
+ * staggered (see STAGGER), so neighbours no longer share a row and can be bigger than the card
+ * pitch without standing in each other's way.
+ */
+const ALIGNED_ZOOM = 0.7
+/** Every other hero stands this far back, so the line-up zig-zags and each one can be larger. */
+const STAGGER = 0.95
 /** Gap in px between the top of the chosen hero's head and the name plate. */
 const LABEL_GAP = 6
 
@@ -42,7 +52,7 @@ const ARC_DEPTH = 0.5
  * shape the panel gives them, instead of standing at a fixed distance and leaving a
  * wide strip of empty background above and below.
  */
-export const LINEUP_HALF_WIDTH = ((CHARACTER_IDS.length - 1) / 2) * SPACING + 0.4
+export const LINEUP_HALF_WIDTH = ((CHARACTER_IDS.length - 1) / 2) * SPACING + 0.95
 export const LINEUP_HALF_HEIGHT = 1.05
 
 /** The hero's height, for the fit check. */
@@ -194,6 +204,8 @@ export class CharacterStage {
   private label?: () => HTMLElement | null
   private time = 0
   private scratch = new THREE.Vector3()
+  /** True while the heroes stand over a single row of cards (the camera is closer then). */
+  private aligned = false
 
   constructor(options: StageOptions, selected: CharacterId) {
     this.canvas = options.canvas
@@ -258,7 +270,7 @@ export class CharacterStage {
       const spec = CHARACTERS[id]
       const root = new THREE.Group()
       const offset = i - (count - 1) / 2
-      const home = new THREE.Vector3(offset * SPACING, 0, -Math.abs(offset) * ARC_DEPTH)
+      const home = new THREE.Vector3(offset * SPACING, 0, -Math.abs(offset) * ARC_DEPTH * 0.3 - (i % 2) * STAGGER)
       root.position.copy(home)
       // The outer heroes turn slightly inwards, like a squad posing for a poster.
       root.rotation.y = -offset * 0.16
@@ -421,7 +433,12 @@ export class CharacterStage {
     const aspect = width / height
     this.camera.aspect = aspect
     this.camera.fov = stageFov(aspect)
-    this.camera.position.z = stageCameraZ(this.camera.fov, aspect)
+    this.applyFit()
+  }
+
+  /** Puts the camera at the distance the current shape and layout call for. */
+  private applyFit(): void {
+    this.camera.position.z = stageCameraZ(this.camera.fov, this.camera.aspect) * (this.aligned ? ALIGNED_ZOOM : 1)
     this.camera.updateProjectionMatrix()
     this.camera.updateMatrixWorld()
   }
@@ -443,6 +460,13 @@ export class CharacterStage {
       canvasRect.width > 0 &&
       rects.every((rect) => Math.abs(rect.top - rects[0].top) < 4) &&
       rects.every((rect) => rect.left + rect.width / 2 > canvasRect.left && rect.right - rect.width / 2 < canvasRect.right)
+    if (oneRow !== this.aligned) {
+      this.aligned = oneRow
+      this.applyFit()
+    }
+    // The name labels sit just under the front row's feet, wherever that lands on screen.
+    const feet = this.scratch.set(0, 0, 0).project(this.camera)
+    this.canvas.parentElement?.style.setProperty('--ar-stage-feet', `${((1 - feet.y) / 2) * canvasRect.height}px`)
     const tan = Math.tan((this.camera.fov * Math.PI) / 360)
     for (const slot of this.slots) {
       const index = tiles.findIndex((tile) => tile.dataset.hero === slot.id)
@@ -451,7 +475,10 @@ export class CharacterStage {
         continue
       }
       const rect = rects[index]
-      const ndcX = ((rect.left + rect.width / 2 - canvasRect.left) / canvasRect.width) * 2 - 1
+      // Pulled in a little from the card's own centre: the outermost heroes stand over the
+      // first and last card, and a hero is wider than a point, so at the card's centre half of
+      // them is cut off by the stage's edge.
+      const ndcX = (((rect.left + rect.width / 2 - canvasRect.left) / canvasRect.width) * 2 - 1) * ALIGN_INSET
       // The camera only tilts down, so view-space x is world x and only the depth is
       // needed: how far in front of the camera the hero's chest is.
       const depth = -this.scratch.set(0, ALIGN_HEIGHT, slot.root.position.z).applyMatrix4(this.camera.matrixWorldInverse).z

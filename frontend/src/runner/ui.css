@@ -4550,3 +4550,203 @@ button.ar-price-foot:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   .ar-race-countdown { animation: none; }
 }
+
+/* ===================== Menu review, round 4 ===================== */
+
+/* Hero cards. The name may take two lines ("Jeremy Allaire") instead of ending in "…", and
+   the ability is written out in full — it is the reason to pick one hero over another — in
+   type big enough to read. A free hero no longer carries a "Free" chip (all of them are). */
+.ar-menu .ar-char-tile-name {
+  display: flex;
+  align-items: center;
+  min-height: 2.3em;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+  line-height: 1.15;
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+/* Narrower cards give the ability text a few more pixels. */
+.ar-menu .ar-char-row .ar-char-tile { padding-left: 6px; padding-right: 6px; }
+.ar-menu .ar-char-row .ar-char-tile-perk { padding: 6px 5px 7px; }
+.ar-menu .ar-char-tile-perk-text {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  font-size: 12px;
+  line-height: 1.32;
+}
+/* One accent at a time: the hero in use keeps its own colour; the rest share one calm tone
+   instead of eight pastel boxes competing with the start button. */
+.ar-menu .ar-char-tile:not(.is-active) .ar-char-tile-perk { background: #eef2f8; }
+.ar-menu .ar-char-tile:not(.is-active) .ar-char-tile-perk-icon { color: #4a5b78; }
+
+/* Every hero is named under their feet on the stage, in the same equal columns as the cards
+   (inset like the heroes themselves, see ALIGN_INSET in stage.ts). */
+.ar-stage-names {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--ar-stage-feet, 58%) + 4px);
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 7%;
+  pointer-events: none;
+}
+.ar-stage-names button {
+  justify-self: center;
+  max-width: 100%;
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #243553;
+  font: 700 11.5px/1.3 var(--ar-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.ar-stage-names button.is-active { visibility: hidden; }
+@media (max-width: 880px) {
+  .ar-stage-names { display: none; }
+}
+
+/* The small type of the menu, one step up and darker: the labels were 10–11 px in pale grey. */
+.ar-menu .ar-side-label { font-size: 11.5px; color: #26374f; }
+.ar-menu .ar-stat-label { font-size: 12px; letter-spacing: 0.04em; color: #33455f; }
+.ar-menu .ar-today-reset { font-size: 12px; color: #33455f; }
+.ar-menu .ar-race-menu-btn small { font-size: 12px; color: #33455f; }
+.ar-menu .ar-diff-mult { font-size: 11.5px; letter-spacing: 0; opacity: 1; color: #33455f; }
+.ar-menu .ar-diff-desc { font-size: 13.5px; line-height: 1.45; color: #26374f; }
+
+/* The Gold in the header is the balance, written lower-case like every other Gold. */
+.ar-menu .ar-bank-label { text-transform: none; font-size: 12px; letter-spacing: 0; opacity: 0.95; }
+.ar-bank-title { font-size: 11.5px; font-weight: 700; color: #7a4b00; }
+.ar-bank-title::after { content: ':'; }
+
+/* Race wins sit on the race button, not as a stray line under it. */
+.ar-race-menu-btn { position: relative; }
+.ar-race-menu-wins {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #fff3d6;
+  color: #8a5300;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Today: where the quests stand in numbers, and a way to the full list. */
+.ar-today-head { flex-wrap: wrap; row-gap: 2px; }
+.ar-today-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #1f5fc9;
+  font: 800 12px var(--ar-body);
+  cursor: pointer;
+}
+.ar-today-progress {
+  flex: none;
+  min-width: 46px;
+  color: #33455f;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+.ar-menu .ar-today-bar { height: 6px; }
+
+/* The NFT line may take a second row instead of ending in "…". */
+.ar-nft-entry-text span { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.3; }
+
+/* A finished Zone Book is a thin line, not a full-height card: nothing is left to do in it. */
+.ar-book-entry.is-complete { padding-top: 6px; padding-bottom: 6px; box-shadow: none; }
+.ar-book-entry.is-complete .ar-book-entry-icon { width: 26px; height: 26px; }
+.ar-book-entry.is-complete .ar-book-entry-bar { display: none; }
+
+/* On a touch screen every button is at least a finger wide. */
+@media (pointer: coarse) {
+  .ar-menu .ar-btn,
+  .ar-menu .ar-lang-btn,
+  .ar-menu .ar-diff { min-height: 44px; }
+}
+
+/* Today's quests: the sentence and the reward on the first line, the bar and "0/1.500" on
+   the second, so no sentence has to wrap to make room for the numbers. */
+.ar-menu .ar-today-row.has-bar {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto auto;
+  grid-template-areas: 'icon label progress reward' '. bar bar bar';
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
+  padding-top: 4px;
+  padding-bottom: 5px;
+}
+.ar-menu .ar-today-row.has-bar .ar-today-icon { grid-area: icon; }
+.ar-menu .ar-today-row.has-bar .ar-today-label { grid-area: label; }
+.ar-menu .ar-today-row.has-bar .ar-today-reward { grid-area: reward; }
+.ar-menu .ar-today-row.has-bar .ar-today-bar { grid-area: bar; width: 100%; }
+.ar-menu .ar-today-row.has-bar .ar-today-progress { grid-area: progress; min-width: 0; }
+.ar-menu .ar-today-row.has-bar .ar-today-bar { height: 5px; }
+
+/* Menu buttons: a long label wraps and stays centred instead of running over the edges. */
+.ar-menu .ar-menu-row.ar-menu-row-4 > .ar-btn,
+.ar-menu .ar-menu-row.ar-eco-row > .ar-btn {
+  min-height: 58px;
+  font-size: 11.5px;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  white-space: normal;
+  text-align: center;
+}
+
+/* The stage's empty lower half now carries the pick's ability, in type that can be read. */
+.ar-stage-perk {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 28px);
+  padding: 9px 16px;
+  border: 1px solid color-mix(in srgb, var(--ar-accent, #2b6fd8) 45%, #fff);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(30, 60, 120, 0.14);
+  color: #16233d;
+  font: 700 14px/1.3 var(--ar-body);
+  transform: translateX(-50%);
+}
+.ar-stage-perk svg { flex: none; width: 18px; height: 18px; color: var(--ar-accent, #2b6fd8); }
+.ar-stage-names button { max-width: none; overflow: visible; text-overflow: clip; }
+.ar-menu .ar-diff { min-height: 62px; justify-content: center; text-transform: uppercase; }
+.ar-menu .ar-diff-mult { text-transform: none; }
+
+/* Tighter right column: the menu has to fit a laptop screen without scrolling, now that the
+   labels are bigger and the quests show their numbers. */
+.ar-menu .ar-menu-side { gap: 10px; }
+.ar-menu .ar-menu-heroes { gap: 10px; }
+.ar-menu .ar-stats-grid { margin-top: 0; gap: 6px; }
+.ar-menu .ar-stat { padding-top: 7px; padding-bottom: 7px; }
+.ar-menu .ar-nft-entry { padding-top: 7px; padding-bottom: 7px; }
+.ar-menu .ar-book-entry { margin-top: 0; }
+.ar-menu .ar-today-row.has-bar { padding-top: 3px; padding-bottom: 4px; row-gap: 2px; }
+
+/* Only the hero you picked wears their own colour; the other cards share one calm tone. */
+.ar-menu .ar-char-tile:not(.is-active)::before { background: #cbd5e6; }
